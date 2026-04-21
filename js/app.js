@@ -15,7 +15,7 @@ const fbApp = initializeApp(FIREBASE_CONFIG);
 const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
 
-setPersistence(auth, browserLocalPersistence);
+setPersistence(auth, browserLocalPersistence).catch(() => {});
 enableIndexedDbPersistence(db).catch(() => {});
 
 let orders = [];
@@ -198,6 +198,20 @@ function renderPedidos() {
     camino: all.filter(o => o.status === 'camino').length,
     entregado: entregados.length,
   };
+  // FLEX siempre primero (más urgentes)
+  filtered.sort((a, b) => {
+    if (a.tipoEnvio !== b.tipoEnvio) return a.tipoEnvio === 'FLEX' ? -1 : 1;
+    return 0;
+  });
+
+  const pendienteFlex = all.filter(o => o.status === 'pendiente' && o.tipoEnvio === 'FLEX').length;
+  const pendientePE   = all.filter(o => o.status === 'pendiente' && o.tipoEnvio === 'PE').length;
+  const dispatchStrip = (pendienteFlex > 0 || pendientePE > 0) ? `
+    <div class="dispatch-strip">
+      ${pendienteFlex > 0 ? `<button class="dispatch-btn flex-btn" onclick="despacharTodos('FLEX')">🚚 Despachar todos FLEX (${pendienteFlex})</button>` : ''}
+      ${pendientePE   > 0 ? `<button class="dispatch-btn pe-btn"   onclick="despacharTodos('PE')">🚚 Despachar todos PE (${pendientePE})</button>` : ''}
+    </div>` : '';
+
   view.innerHTML = `
     <div class="filter-pills">
       ${['todos','preparar','pendiente','camino','entregado'].map(f => `
@@ -206,6 +220,7 @@ function renderPedidos() {
           ${f!=='todos'&&counts[f]?`<span style="opacity:.7"> ${counts[f]}</span>`:''}
         </button>`).join('')}
     </div>
+    ${dispatchStrip}
     ${filtered.length === 0
       ? `<div class="empty-state"><span>📦</span><p>No hay pedidos</p></div>`
       : filtered.map(o => renderOrderCard(o)).join('')}
@@ -242,6 +257,11 @@ function renderOrderCard(o) {
       countdownHtml = `<span class="countdown" data-countdown="${o.tipoEnvio}">${o.tipoEnvio === 'FLEX' ? '13:00hs' : '14:00hs'}</span>`;
   }
 
+  const fechaHtml = (o.status !== 'entregado' && o.fechaEstimada) ? `
+    <div class="order-fecha">📅 Llega ${o.fechaEstimada}
+      <button class="btn-edit-fecha" onclick="openDeliveryDate('${o.id}')">✏️</button>
+    </div>` : '';
+
   let statusActions = '';
   if (o.status === 'preparar') {
     statusActions = `
@@ -254,9 +274,7 @@ function renderOrderCard(o) {
       <button class="btn btn-danger btn-sm" onclick="deleteOrder('${o.id}')">Eliminar</button>`;
   } else if (o.status === 'camino') {
     statusActions = `
-      ${o.fechaEstimada ? `<div class="order-meta">Entrega est: ${o.fechaEstimada}</div>` : ''}
-      <button class="btn btn-green" onclick="marcarEntregado('${o.id}')">✓ Entregado</button>
-      <button class="btn btn-ghost btn-sm" onclick="openDeliveryDate('${o.id}')">📅 Fecha</button>`;
+      <button class="btn btn-green" onclick="marcarEntregado('${o.id}')">✓ Entregado</button>`;
   } else if (o.status === 'entregado') {
     statusActions = `<div class="order-meta" style="color:var(--green)">✓ Entregado${o.fechaEntrega ? ' — ' + o.fechaEntrega : ''}</div>`;
   }
@@ -266,7 +284,7 @@ function renderOrderCard(o) {
       <div class="order-header">${cuentaBadge}${envBadge}${sinCorte}${countdownHtml}</div>
       <div class="order-name">${o.nombreComprador}</div>
       <div class="order-items">${formatItemsShort(o.items)}</div>
-      ${iibbHtml}${montoHtml}
+      ${fechaHtml}${iibbHtml}${montoHtml}
       <div class="order-actions">${statusActions}</div>
     </div>`;
 }
@@ -303,6 +321,15 @@ window.marcarPreparado = async (id) => {
 
 window.marcarDespachado = async (id) => {
   await updateDoc(doc(db, 'orders', id), { status: 'camino', despachadoAt: serverTimestamp() });
+};
+
+window.despacharTodos = async (tipoEnvio) => {
+  const pendientes = orders.filter(o => o.status === 'pendiente' && o.tipoEnvio === tipoEnvio);
+  if (!pendientes.length) return;
+  if (!confirm(`¿Despachar ${pendientes.length} pedido${pendientes.length>1?'s':''} ${tipoEnvio}?`)) return;
+  for (const o of pendientes)
+    await updateDoc(doc(db, 'orders', o.id), { status: 'camino', despachadoAt: serverTimestamp() });
+  showToast(`${pendientes.length} pedidos ${tipoEnvio} despachados`);
 };
 
 window.marcarEntregado = async (id) => {
@@ -581,6 +608,13 @@ document.getElementById('btn-guardar-venta').addEventListener('click', async () 
     const monto = parseNum(document.getElementById('f-importe-pe').value);
     if (!monto) { alert('Ingresá el importe acreditado.'); return; }
     base.importeAcreditado = monto;
+  }
+
+  if (!editingOrderId) {
+    const hoy = new Date();
+    const manana = new Date(hoy); manana.setDate(hoy.getDate() + 1);
+    const fmtFecha = d => d.toLocaleDateString('es-AR');
+    base.fechaEstimada = currentTipoEnvio === 'FLEX' ? fmtFecha(hoy) : fmtFecha(manana);
   }
 
   if (editingOrderId) {

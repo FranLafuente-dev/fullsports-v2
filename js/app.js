@@ -259,8 +259,22 @@ function updateCountdowns() {
 }
 
 // ── PEDIDOS VIEW ──────────────────────────────────────────────────────────────
-let pedidosFilter = 'todos';
+let pedidosFilter = 'principal';
 const STATUS_PRI  = { preparar: 0, pendiente: 1, camino: 2, entregado: 3 };
+
+function parseFechaEstimada(fechaEstimada) {
+  if (!fechaEstimada) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(fechaEstimada)) {
+    const [y, m, d] = fechaEstimada.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(fechaEstimada)) {
+    const [d, m, y] = fechaEstimada.split('/').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  const parsed = new Date(fechaEstimada);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 
 function renderPedidos() {
   const view = views.pedidos;
@@ -269,25 +283,45 @@ function renderPedidos() {
     if (o.status !== 'entregado') return false;
     return Date.now() - (o.deliveredAt?.toMillis?.() || 0) < 48 * 3600 * 1000;
   });
-  const all = [...activeOrders, ...entregados];
-  const filtered = pedidosFilter === 'todos' ? all
-    : all.filter(o => o.status === pedidosFilter);
+  const principal = activeOrders.filter(o =>
+    o.status === 'preparar' || (o.status === 'pendiente' && o.tipoEnvio === 'FLEX')
+  );
+
+  const byFilter = {
+    principal,
+    pendiente: activeOrders.filter(o => o.status === 'pendiente'),
+    camino: activeOrders.filter(o => o.status === 'camino'),
+    entregado: entregados,
+  };
+
+  const filtered = [...(byFilter[pedidosFilter] || principal)];
   const counts = {
-    preparar:  all.filter(o => o.status === 'preparar').length,
-    pendiente: all.filter(o => o.status === 'pendiente').length,
-    camino:    all.filter(o => o.status === 'camino').length,
+    principal: principal.length,
+    pendiente: activeOrders.filter(o => o.status === 'pendiente').length,
+    camino:    activeOrders.filter(o => o.status === 'camino').length,
     entregado: entregados.length,
   };
 
-  // FLEX siempre arriba (0-3), PE abajo (10-13)
-  filtered.sort((a, b) => {
-    const aS = (a.tipoEnvio === 'FLEX' ? 0 : 10) + (STATUS_PRI[a.status] ?? 9);
-    const bS = (b.tipoEnvio === 'FLEX' ? 0 : 10) + (STATUS_PRI[b.status] ?? 9);
-    return aS - bS;
-  });
+  if (pedidosFilter === 'camino') {
+    filtered.sort((a, b) => {
+      const aDate = parseFechaEstimada(a.fechaEstimada);
+      const bDate = parseFechaEstimada(b.fechaEstimada);
+      if (aDate && bDate) return aDate - bDate;
+      if (aDate) return -1;
+      if (bDate) return 1;
+      return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+    });
+  } else {
+    // FLEX siempre arriba (0-3), PE abajo (10-13)
+    filtered.sort((a, b) => {
+      const aS = (a.tipoEnvio === 'FLEX' ? 0 : 10) + (STATUS_PRI[a.status] ?? 9);
+      const bS = (b.tipoEnvio === 'FLEX' ? 0 : 10) + (STATUS_PRI[b.status] ?? 9);
+      return aS - bS;
+    });
+  }
 
-  const pendienteFlex = all.filter(o => o.status === 'pendiente' && o.tipoEnvio === 'FLEX').length;
-  const pendientePE   = all.filter(o => o.status === 'pendiente' && o.tipoEnvio === 'PE').length;
+  const pendienteFlex = activeOrders.filter(o => o.status === 'pendiente' && o.tipoEnvio === 'FLEX').length;
+  const pendientePE   = activeOrders.filter(o => o.status === 'pendiente' && o.tipoEnvio === 'PE').length;
   const dispatchStrip = (pendienteFlex > 0 || pendientePE > 0) ? `
     <div class="dispatch-strip">
       ${pendienteFlex > 0 ? `<button class="dispatch-btn flex-btn" onclick="despacharTodos('FLEX')">🚚 Despachar todos FLEX (${pendienteFlex})</button>` : ''}
@@ -296,10 +330,10 @@ function renderPedidos() {
 
   view.innerHTML = `
     <div class="filter-pills">
-      ${['todos','preparar','pendiente','camino','entregado'].map(f => `
+      ${['principal','pendiente','camino','entregado'].map(f => `
         <button class="pill${pedidosFilter===f?' active':''}" onclick="setFilter('${f}')">
-          ${{todos:'Todos',preparar:'Por preparar',pendiente:'Pendiente',camino:'En camino',entregado:'Entregados'}[f]}
-          ${f!=='todos'&&counts[f]?`<span style="opacity:.7"> ${counts[f]}</span>`:''}
+          ${{principal:'Principal',pendiente:'Pend. despacho',camino:'En camino',entregado:'Entregados'}[f]}
+          ${counts[f]?`<span style="opacity:.7"> ${counts[f]}</span>`:''}
         </button>`).join('')}
     </div>
     ${dispatchStrip}

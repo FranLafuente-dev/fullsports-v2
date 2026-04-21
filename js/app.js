@@ -463,23 +463,28 @@ function updateFlexNeto() {
   }
 }
 
-// ── ITEM SELECTOR (filtrado por stock, auto-add)
+// ── ITEM SELECTOR: modelo → talle → auto-agrega (1 unidad)
 let formProducto = null;
 let formTalle = null;
-let formCantidad = null;
 let stockOverride = false;
+
+// estado para venta múltiple
+let multiProducto = null;
+let multiTalle = null;
+let multiCant = null;
 
 function initItemSelector() {
   stockOverride = false;
   formProducto = null;
   formTalle = null;
-  formCantidad = null;
+  multiProducto = null; multiTalle = null; multiCant = null;
   const overrideBtn = document.getElementById('btn-stock-override');
   if (overrideBtn) overrideBtn.textContent = '✏️ Manual';
   renderProductoButtons();
   document.getElementById('talle-wrap').style.display = 'none';
-  document.getElementById('cantidad-wrap').style.display = 'none';
   document.getElementById('btn-add-otro').style.display = 'none';
+  document.getElementById('btn-multi').style.display = 'none';
+  document.getElementById('multi-wrap').style.display = 'none';
 }
 
 function renderProductoButtons() {
@@ -490,66 +495,105 @@ function renderProductoButtons() {
   if (!container) return;
   container.innerHTML = productosDisp.length
     ? productosDisp.map(p => `<button class="producto-btn" onclick="selectProducto('${p}')">${p}</button>`).join('')
-    : `<div style="color:var(--text-tertiary);font-size:14px;padding:4px 0">Sin stock — activá ✏️ Manual.</div>`;
+    : `<div style="color:var(--text-3);font-size:14px;padding:4px 0">Sin stock — activá ✏️ Manual.</div>`;
 }
 
 window.selectProducto = (p) => {
   formProducto = p;
   formTalle = null;
-  formCantidad = null;
   document.querySelectorAll('#producto-btns .producto-btn').forEach(b =>
     b.classList.toggle('active', b.textContent.trim() === p));
   const tallesDisp = TALLES.filter(t => stockOverride || (stock[`${p}_${t}`] ?? 0) > 0);
   document.getElementById('talle-btns').innerHTML = tallesDisp.map(t =>
     `<button class="talle-btn" onclick="selectTalle(${t})">${t}</button>`).join('');
   document.getElementById('talle-wrap').style.display = 'flex';
-  document.getElementById('cantidad-wrap').style.display = 'none';
 };
 
 window.selectTalle = (t) => {
-  formTalle = t;
-  formCantidad = null;
-  document.querySelectorAll('#talle-btns .talle-btn').forEach(b =>
-    b.classList.toggle('active', parseInt(b.textContent) === t));
-  document.getElementById('cantidad-wrap').style.display = 'flex';
-  document.querySelectorAll('#cantidad-btns .cantidad-btn').forEach(b => b.classList.remove('active'));
-};
-
-window.selectCantidad = (c) => {
-  formCantidad = c;
-  document.querySelectorAll('#cantidad-btns .cantidad-btn').forEach(b =>
-    b.classList.toggle('active', parseInt(b.dataset.cant) === c));
-  autoAddItem();
-};
-
-function autoAddItem() {
-  if (!formProducto || !formTalle || !formCantidad) return;
-  for (let i = 0; i < formCantidad; i++)
-    formItems.push({ producto: formProducto, talle: formTalle });
+  // auto-agrega inmediatamente (1 unidad)
+  formItems.push({ producto: formProducto, talle: t });
   renderFormItems();
-  document.getElementById('btn-add-otro').style.display = 'flex';
-  formProducto = null; formTalle = null; formCantidad = null;
+  // reset selector
+  formProducto = null; formTalle = null;
   document.getElementById('talle-wrap').style.display = 'none';
-  document.getElementById('cantidad-wrap').style.display = 'none';
   document.querySelectorAll('#producto-btns .producto-btn').forEach(b => b.classList.remove('active'));
-}
+  document.getElementById('btn-add-otro').style.display = 'flex';
+  document.getElementById('btn-multi').style.display = 'flex';
+};
 
 document.getElementById('btn-add-otro').addEventListener('click', () => {
   renderProductoButtons();
   document.getElementById('talle-wrap').style.display = 'none';
-  document.getElementById('cantidad-wrap').style.display = 'none';
   document.getElementById('btn-add-otro').style.display = 'none';
   document.getElementById('item-selector-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+document.getElementById('btn-multi').addEventListener('click', () => {
+  document.getElementById('btn-multi').style.display = 'none';
+  document.getElementById('btn-add-otro').style.display = 'none';
+  multiProducto = null; multiTalle = null; multiCant = null;
+  renderMultiProductoButtons();
+  document.getElementById('multi-talle-wrap').style.display = 'none';
+  document.getElementById('multi-cant-wrap').style.display = 'none';
+  document.getElementById('multi-wrap').style.display = 'block';
+  document.getElementById('multi-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
 document.getElementById('btn-stock-override').addEventListener('click', () => {
   stockOverride = !stockOverride;
   document.getElementById('btn-stock-override').textContent = stockOverride ? '✏️ Mostrando todo' : '✏️ Manual';
-  formProducto = null; formTalle = null; formCantidad = null;
+  formProducto = null; formTalle = null;
   renderProductoButtons();
   document.getElementById('talle-wrap').style.display = 'none';
-  document.getElementById('cantidad-wrap').style.display = 'none';
 });
+
+// ── VENTA MÚLTIPLE
+function renderMultiProductoButtons() {
+  const productosDisp = PRODUCTOS.filter(p =>
+    stockOverride || TALLES.some(t => (stock[`${p}_${t}`] ?? 0) > 0)
+  );
+  document.getElementById('multi-producto-btns').innerHTML = productosDisp.map(p =>
+    `<button class="producto-btn" onclick="multiSelectProducto('${p}')">${p}</button>`
+  ).join('');
+}
+
+window.multiSelectProducto = (p) => {
+  multiProducto = p; multiTalle = null; multiCant = null;
+  document.querySelectorAll('#multi-producto-btns .producto-btn').forEach(b =>
+    b.classList.toggle('active', b.textContent.trim() === p));
+  const tallesDisp = TALLES.filter(t => stockOverride || (stock[`${p}_${t}`] ?? 0) > 0);
+  document.getElementById('multi-talle-btns').innerHTML = tallesDisp.map(t =>
+    `<button class="talle-btn" onclick="multiSelectTalle(${t})">${t}</button>`).join('');
+  document.getElementById('multi-talle-wrap').style.display = 'flex';
+  document.getElementById('multi-cant-wrap').style.display = 'none';
+  document.querySelectorAll('#multi-cant-wrap .cantidad-btn').forEach(b => b.classList.remove('active'));
+};
+
+window.multiSelectTalle = (t) => {
+  multiTalle = t;
+  document.querySelectorAll('#multi-talle-btns .talle-btn').forEach(b =>
+    b.classList.toggle('active', parseInt(b.textContent) === t));
+  document.getElementById('multi-cant-wrap').style.display = 'flex';
+  multiCant = null;
+  document.querySelectorAll('#multi-cant-wrap .cantidad-btn').forEach(b => b.classList.remove('active'));
+};
+
+window.multiSetCant = (c) => {
+  multiCant = c;
+  document.querySelectorAll('#multi-cant-wrap .cantidad-btn').forEach(b =>
+    b.classList.toggle('active', b.textContent.trim() === String(c)));
+  if (multiProducto && multiTalle && multiCant) {
+    for (let i = 0; i < multiCant; i++)
+      formItems.push({ producto: multiProducto, talle: multiTalle });
+    renderFormItems();
+    // reset multi para seguir agregando
+    multiTalle = null; multiCant = null;
+    document.getElementById('multi-talle-wrap').style.display = 'none';
+    document.getElementById('multi-cant-wrap').style.display = 'none';
+    document.querySelectorAll('#multi-producto-btns .producto-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('btn-add-otro').style.display = 'flex';
+  }
+};
 
 function renderFormItems() {
   const list = document.getElementById('items-list');

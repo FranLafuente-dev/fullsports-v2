@@ -167,7 +167,7 @@
       </div>
     </div>
 
-    <!-- Item selector filtrado por stock -->
+    <!-- Item selector: modelo → talle → auto-agrega -->
     <div class="form-group" id="item-selector-wrap">
       <div class="form-label-row">
         <span class="form-label">Producto</span>
@@ -177,21 +177,40 @@
     </div>
 
     <div class="form-group" id="talle-wrap" style="display:none">
-      <div class="form-label">Talle</div>
+      <div class="form-label">Talle — tocá para agregar</div>
       <div id="talle-btns" class="talle-grid"></div>
     </div>
 
-    <div class="form-group" id="cantidad-wrap" style="display:none">
-      <div class="form-label">Cantidad</div>
-      <div class="cantidad-grid" id="cantidad-btns">
-        <button class="cantidad-btn" data-cant="1" onclick="selectCantidad(1)">1</button>
-        <button class="cantidad-btn" data-cant="2" onclick="selectCantidad(2)">2</button>
-        <button class="cantidad-btn" data-cant="3" onclick="selectCantidad(3)">3</button>
+    <!-- Ítems ya cargados -->
+    <div id="items-list"></div>
+
+    <!-- Venta múltiple (recuadro extra) -->
+    <div id="multi-wrap" style="display:none">
+      <div class="multi-card">
+        <div class="multi-title">Agregar ítem</div>
+        <div class="form-group">
+          <div class="form-label">Modelo</div>
+          <div id="multi-producto-btns" class="producto-grid"></div>
+        </div>
+        <div class="form-group" id="multi-talle-wrap" style="display:none">
+          <div class="form-label">Talle</div>
+          <div id="multi-talle-btns" class="talle-grid"></div>
+        </div>
+        <div class="form-group" id="multi-cant-wrap" style="display:none">
+          <div class="form-label">Cantidad</div>
+          <div class="cantidad-grid">
+            <button class="cantidad-btn" onclick="multiSetCant(1)">1</button>
+            <button class="cantidad-btn" onclick="multiSetCant(2)">2</button>
+            <button class="cantidad-btn" onclick="multiSetCant(3)">3</button>
+            <button class="cantidad-btn" onclick="multiSetCant(4)">4</button>
+            <button class="cantidad-btn" onclick="multiSetCant(5)">5</button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div id="items-list"></div>
-    <button class="btn btn-ghost" id="btn-add-otro" style="display:none">+ Agregar otro ítem</button>
+    <button class="btn btn-ghost" id="btn-add-otro" style="display:none">+ Otro ítem</button>
+    <button class="btn btn-ghost" id="btn-multi" style="display:none">📦 Venta múltiple</button>
 
     <button class="btn btn-primary" id="btn-guardar-venta">Guardar venta</button>
     <button class="btn btn-ghost" data-close-sheet>Cancelar</button>

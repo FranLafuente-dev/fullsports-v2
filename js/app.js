@@ -271,12 +271,20 @@ function renderOrderCard(o) {
     </div>`;
 }
 
+function sortItems(items) {
+  if (!items) return [];
+  return [...items].sort((a, b) =>
+    a.producto !== b.producto ? a.producto.localeCompare(b.producto) : a.talle - b.talle
+  );
+}
+
 function formatItemsShort(items) {
   if (!items || items.length === 0) return '';
-  if (items.length === 1) return `${items[0].producto} T${items[0].talle}`;
+  const sorted = sortItems(items);
+  if (sorted.length === 1) return `${sorted[0].producto} T${sorted[0].talle}`;
   const groups = {};
-  items.forEach(i => { const k = `${i.producto} T${i.talle}`; groups[k] = (groups[k] || 0) + 1; });
-  return `${items.length} pares (${Object.entries(groups).map(([k,q]) => q>1?`${k} x${q}`:k).join(' - ')})`;
+  sorted.forEach(i => { const k = `${i.producto} T${i.talle}`; groups[k] = (groups[k] || 0) + 1; });
+  return `${sorted.length} pares — ${Object.entries(groups).map(([k,q]) => q>1?`${k} ×${q}`:k).join(' · ')}`;
 }
 
 // ── ORDER ACTIONS
@@ -718,10 +726,11 @@ function generarTextoCostos(pendientes, cuenta) {
 
 function formatItemsCorte(items) {
   if (!items || !items.length) return '';
-  if (items.length === 1) return `${items[0].producto.toLowerCase()} ${items[0].talle}`;
+  const sorted = sortItems(items);
+  if (sorted.length === 1) return `${sorted[0].producto.toLowerCase()} ${sorted[0].talle}`;
   const groups = {};
-  items.forEach(i => { const k = `${i.producto} ${i.talle}`; groups[k] = (groups[k]||0)+1; });
-  return `${items.length} pares (${Object.entries(groups).map(([k,q]) => q>1?`${k} x${q}`:k).join(' - ')})`;
+  sorted.forEach(i => { const k = `${i.producto} ${i.talle}`; groups[k] = (groups[k]||0)+1; });
+  return `${sorted.length} pares (${Object.entries(groups).map(([k,q]) => q>1?`${k} x${q}`:k).join(' - ')})`;
 }
 
 function renderWAText(text) {

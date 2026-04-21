@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#F2F2F7">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="FullSports">
+  <title>FullSports Panel</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="logo-wrap">
+    <div class="logo-icon">👟</div>
+    <div class="logo-title">FullSports</div>
+    <div class="logo-sub">Panel de ventas</div>
+  </div>
+  <button class="btn-google" id="btn-google">
+    <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+    Continuar con Google
+  </button>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" style="display:none">
+
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <h1 id="topbar-title">FullSports</h1>
+    <div class="topbar-right">
+      <span class="offline-pill" id="offline-pill">Sin conexión</span>
+      <div class="avatar" id="user-avatar">?</div>
+    </div>
+  </div>
+
+  <!-- ALERT BANNER -->
+  <div class="alert-banner" id="alert-banner"></div>
+
+  <!-- MAIN CONTENT -->
+  <div id="main-content">
+
+    <!-- VIEW: PEDIDOS -->
+    <div class="view" id="view-pedidos"></div>
+
+    <!-- VIEW: CORTE -->
+    <div class="view" id="view-corte"></div>
+
+    <!-- VIEW: STOCK -->
+    <div class="view" id="view-stock"></div>
+
+    <!-- VIEW: CONFIG -->
+    <div class="view" id="view-config"></div>
+
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <nav id="bottom-nav">
+    <button class="nav-btn" data-nav="pedidos">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+      </svg>
+      <span>Pedidos</span>
+    </button>
+    <button class="nav-btn" data-nav="corte">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z"/>
+      </svg>
+      <span>Corte</span>
+    </button>
+    <button class="nav-btn nueva-btn" data-nav="nueva">
+      <div class="nav-nueva-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+      </div>
+    </button>
+    <button class="nav-btn" data-nav="stock">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+      </svg>
+      <span>Stock</span>
+    </button>
+    <button class="nav-btn" data-nav="config">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+      </svg>
+      <span>Config</span>
+    </button>
+  </nav>
+
+</div>
+
+<!-- SHEET OVERLAY -->
+<div class="sheet-overlay" id="sheet-overlay"></div>
+
+<!-- SHEET: NUEVA VENTA -->
+<div class="sheet" id="sheet-nueva">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Nueva venta</div>
+  <div class="sheet-body">
+
+    <!-- Cuenta -->
+    <div class="form-group">
+      <div class="form-label">Cuenta</div>
+      <div class="toggle-group">
+        <button class="toggle-btn active" data-cuenta="capi">CAPI</button>
+        <button class="toggle-btn" data-cuenta="enano">ENANO</button>
+      </div>
+    </div>
+
+    <!-- Nombre -->
+    <div class="form-group">
+      <div class="form-label">Nombre comprador</div>
+      <input class="form-input" id="f-nombre" type="text" placeholder="Ej: María González" autocomplete="off">
+    </div>
+
+    <!-- ENANO fields -->
+    <div id="enano-fields" style="display:none;flex-direction:column;gap:16px">
+      <div class="form-group">
+        <div class="form-label">Provincia</div>
+        <input class="form-input" id="f-provincia" type="text" placeholder="Ej: Buenos Aires">
+      </div>
+      <div class="form-group">
+        <div class="form-label">Monto IIBB</div>
+        <input class="form-input" id="f-iibb" type="text" placeholder="Ej: 1674,42" inputmode="decimal">
+      </div>
+    </div>
+
+    <!-- Tipo envío -->
+    <div class="form-group">
+      <div class="form-label">Tipo de despacho</div>
+      <div class="toggle-group">
+        <button class="toggle-btn active" data-envio="FLEX">FLEX (13:00hs)</button>
+        <button class="toggle-btn" data-envio="PE">Punto de Envío (14:00hs)</button>
+      </div>
+    </div>
+
+    <!-- FLEX fields -->
+    <div id="flex-fields" style="display:flex;flex-direction:column;gap:12px">
+      <div class="form-group">
+        <div class="form-label">Localidad</div>
+        <div class="search-wrap">
+          <input class="form-input" id="f-localidad" type="text" placeholder="Buscar localidad..." autocomplete="off">
+          <div class="search-results" id="localidad-results"></div>
+        </div>
+        <div class="flex-selected" id="flex-selected"></div>
+      </div>
+      <div class="form-group">
+        <div class="form-label">Importe venta (bruto MELI)</div>
+        <input class="form-input" id="f-importe-flex" type="text" placeholder="Ej: 46616" inputmode="numeric">
+        <div class="flex-neto" id="flex-neto"></div>
+      </div>
+    </div>
+
+    <!-- PE fields -->
+    <div id="pe-fields" style="display:none;flex-direction:column;gap:12px">
+      <div class="form-group">
+        <div class="form-label">Importe acreditado</div>
+        <input class="form-input" id="f-importe-pe" type="text" placeholder="Ej: 38047" inputmode="numeric">
+      </div>
+    </div>
+
+    <!-- Items -->
+    <div class="form-group">
+      <div class="form-label">Producto</div>
+      <div class="producto-grid">
+        <button class="producto-btn" data-producto="Mostaza">Mostaza</button>
+        <button class="producto-btn" data-producto="Total Black">Total Black</button>
+        <button class="producto-btn" data-producto="Media caña">Media caña</button>
+        <button class="producto-btn" data-producto="Borcegos">Borcegos</button>
+        <button class="producto-btn" data-producto="Caramelo">Caramelo</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <div class="form-label">Talle</div>
+      <div class="talle-grid">
+        <button class="talle-btn" data-talle="38">38</button>
+        <button class="talle-btn" data-talle="39">39</button>
+        <button class="talle-btn" data-talle="40">40</button>
+        <button class="talle-btn" data-talle="41">41</button>
+        <button class="talle-btn" data-talle="42">42</button>
+        <button class="talle-btn" data-talle="43">43</button>
+        <button class="talle-btn" data-talle="44">44</button>
+        <button class="talle-btn" data-talle="45">45</button>
+      </div>
+    </div>
+
+    <button class="btn btn-ghost" id="btn-add-item">+ Agregar ítem al pedido</button>
+
+    <div class="form-group">
+      <div class="form-label">Ítems cargados</div>
+      <div id="items-list"></div>
+    </div>
+
+    <!-- N° pedido -->
+    <div class="form-group">
+      <div class="form-label">N° pedido MELI (opcional)</div>
+      <input class="form-input" id="f-nro" type="text" placeholder="Ej: 123456789" inputmode="numeric">
+    </div>
+
+    <button class="btn btn-primary" id="btn-guardar-venta">Guardar venta</button>
+    <button class="btn btn-ghost" data-close-sheet>Cancelar</button>
+    <div style="height:8px"></div>
+  </div>
+</div>
+
+<!-- SHEET: FECHA ENTREGA -->
+<div class="sheet delivery-sheet" id="sheet-delivery">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Fecha estimada de entrega</div>
+  <div class="sheet-body">
+    <div class="form-group">
+      <div class="form-label">Fecha</div>
+      <input class="form-input date-picker" id="delivery-date-input" type="date">
+    </div>
+    <button class="btn btn-primary" id="btn-save-delivery">Guardar</button>
+    <button class="btn btn-ghost" data-close-sheet>Cancelar</button>
+  </div>
+</div>
+
+<!-- SHEET: EDIT ZONA -->
+<div class="sheet" id="sheet-edit-zone">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Editar zona FLEX</div>
+  <div class="sheet-body">
+    <div class="form-group">
+      <div class="form-label">Localidad</div>
+      <input class="form-input" id="ez-localidad" type="text">
+    </div>
+    <div class="form-group">
+      <div class="form-label">Zona</div>
+      <input class="form-input" id="ez-zona" type="text">
+    </div>
+    <div class="form-group">
+      <div class="form-label">Importe FLEX</div>
+      <input class="form-input" id="ez-importe" type="number" inputmode="numeric">
+    </div>
+    <button class="btn btn-primary" id="btn-save-zone">Guardar</button>
+    <button class="btn btn-ghost" data-close-sheet>Cancelar</button>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast" style="
+  position:fixed; bottom:100px; left:50%; transform:translateX(-50%) translateY(20px);
+  background:#1C1C1E; color:#fff; padding:10px 20px; border-radius:20px;
+  font-size:14px; font-weight:600; opacity:0; transition:all 0.3s; pointer-events:none; z-index:200;
+  white-space:nowrap;
+"></div>
+
+<style>
+#toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+
+<script type="module" src="js/app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+</script>
+
+</body>
+</html>

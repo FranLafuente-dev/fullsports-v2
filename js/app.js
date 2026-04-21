@@ -47,7 +47,14 @@ const sheetNueva = document.getElementById('sheet-nueva');
 const sheetDelivery = document.getElementById('sheet-delivery');
 const sheetEditZone = document.getElementById('sheet-edit-zone');
 
-// ── AUTH
+// ── AUTH — persiste entre sesiones, nunca pide login si ya se logueó
+const LS_AUTH = 'fs_auth_ok';
+let appInited = false;
+
+// Ambas pantallas ocultas hasta saber si hay usuario
+loginScreen.style.display = 'none';
+appEl.style.display = 'none';
+
 document.getElementById('btn-google').addEventListener('click', async () => {
   try { await signInWithPopup(auth, new GoogleAuthProvider()); }
   catch (e) { alert('Error al iniciar sesión: ' + e.message); }
@@ -55,19 +62,26 @@ document.getElementById('btn-google').addEventListener('click', async () => {
 
 onAuthStateChanged(auth, user => {
   if (user && user.email === AUTHORIZED_EMAIL) {
+    localStorage.setItem(LS_AUTH, '1');
     currentUser = user;
     loginScreen.style.display = 'none';
     appEl.style.display = 'flex';
     const av = document.getElementById('user-avatar');
     av.textContent = user.displayName?.[0] || '?';
     if (user.photoURL) av.innerHTML = `<img src="${user.photoURL}">`;
-    initApp();
+    if (!appInited) { appInited = true; initApp(); }
   } else if (user) {
     auth.signOut();
-    alert('Acceso no autorizado.');
+    localStorage.removeItem(LS_AUTH);
   } else {
-    loginScreen.style.display = 'flex';
-    appEl.style.display = 'none';
+    // Si nunca se logueó → mostrar login
+    // Si se logueó antes → Firebase aún está restaurando la sesión, esperar
+    if (!localStorage.getItem(LS_AUTH)) {
+      loginScreen.style.display = 'flex';
+      appEl.style.display = 'none';
+    }
+    // Si había sesión previa, Firebase la va a restaurar sola en milisegundos
+    // No mostramos login para evitar parpadeo
   }
 });
 
@@ -76,6 +90,7 @@ function initApp() {
   listenStock();
   loadFlexZones();
   setupNav();
+  setupSwipe();
   setupDispatchAlerts();
   setupOfflineDetection();
   requestNotificationPermission();
@@ -122,7 +137,11 @@ function setupNav() {
   });
 }
 
+const TAB_ORDER = ['pedidos', 'corte', 'stock', 'config'];
+let currentView = 'pedidos';
+
 function navigateTo(name) {
+  currentView = name;
   Object.values(views).forEach(v => v.classList.remove('active'));
   document.querySelectorAll('[data-nav]').forEach(b => b.classList.remove('active'));
   if (views[name]) views[name].classList.add('active');
@@ -130,6 +149,23 @@ function navigateTo(name) {
   if (btn) btn.classList.add('active');
   document.getElementById('topbar-title').textContent =
     { pedidos: 'FullSports', corte: 'Corte', stock: 'Stock', config: 'Configuración' }[name] || 'FullSports';
+}
+
+function setupSwipe() {
+  let startX = 0, startY = 0;
+  const mc = document.getElementById('main-content');
+  mc.addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+  mc.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    if (Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx) * 0.8) return;
+    const idx = TAB_ORDER.indexOf(currentView);
+    if (dx < 0 && idx < TAB_ORDER.length - 1) navigateTo(TAB_ORDER[idx + 1]);
+    if (dx > 0 && idx > 0) navigateTo(TAB_ORDER[idx - 1]);
+  }, { passive: true });
 }
 
 async function requestNotificationPermission() {
@@ -862,8 +898,9 @@ window.adjustStock = (key, delta) => {
 };
 
 window.saveStock = async () => {
+  if (!Object.keys(stock).length) { showToast('Stock no cargado aún'); return; }
   await updateDoc(doc(db, 'meta', 'stock'), { ...stock });
-  showToast('Stock guardado');
+  showToast('Stock guardado ✓');
 };
 
 // ── CONFIG VIEW

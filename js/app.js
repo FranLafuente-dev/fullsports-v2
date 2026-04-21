@@ -1,7 +1,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
   getAuth, GoogleAuthProvider, signInWithPopup,
-  onAuthStateChanged, setPersistence, browserLocalPersistence
+onAuthStateChanged, setPersistence, browserLocalPersistence, signInAnonymously
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
   getFirestore, enableIndexedDbPersistence,
@@ -51,26 +51,29 @@ const sheetDelivery = document.getElementById('sheet-delivery');
 const sheetEditZone = document.getElementById('sheet-edit-zone');
 
 // ── AUTH ─────────────────────────────────────────────────────────────────────
+// ── AUTH ─────────────────────────────────────────────────────────────────────
 let appInited = false;
 
-loginScreen.style.display = 'none';
-appEl.style.display = 'flex';
+if (loginScreen) loginScreen.style.display = 'none';
+if (appEl) appEl.style.display = 'flex';
 if (!appInited) { appInited = true; initApp(); }
 
-document.getElementById('btn-google')?.addEventListener('click', async () => {
-  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
-  catch (e) { alert('Error al iniciar sesión: ' + e.message); }
+// Login manual deshabilitado: la app autentica en segundo plano sin pedir cuenta.
+document.getElementById('btn-google')?.addEventListener('click', () => {
+  showToast('✅ Esta app entra directo, sin login manual');
 });
 
 onAuthStateChanged(auth, user => {
   if (!user) return;
   currentUser = user;
   const av = document.getElementById('user-avatar');
-  av.textContent = user.displayName?.[0] || '?';
+  if (!av) return;
+  av.textContent = user.displayName?.[0] || '✓';
   if (user.photoURL) av.innerHTML = `<img src="${user.photoURL}">`;
 });
 
-function initApp() {
+async function initApp() {
+  await ensureBackgroundAuth();
   listenOrders();
   listenStock();
   loadFlexZones();
@@ -84,11 +87,12 @@ function initApp() {
   navigateTo('pedidos');
 }
 
-function setupOfflineDetection() {
-  const update = () => offlinePill.classList.toggle('show', !navigator.onLine);
-  window.addEventListener('online',  update);
-  window.addEventListener('offline', update);
-  update();
+async function ensureBackgroundAuth() {
+  try {
+    if (!auth.currentUser) await signInAnonymously(auth);
+  } catch (e) {
+    console.warn('No se pudo autenticar en segundo plano', e?.message || e);
+  }
 }
 
 // ── FIRESTORE LISTENERS ───────────────────────────────────────────────────────

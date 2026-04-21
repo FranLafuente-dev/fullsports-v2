@@ -4,7 +4,7 @@ import {
   onAuthStateChanged, setPersistence, browserLocalPersistence
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
-  getFirestore, enableIndexedDbPersistence,
+  getFirestore,
   collection, doc, addDoc, updateDoc, deleteDoc,
   onSnapshot, serverTimestamp, query, orderBy
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
@@ -16,7 +16,6 @@ const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
 
 setPersistence(auth, browserLocalPersistence).catch(() => {});
-enableIndexedDbPersistence(db).catch(() => {});
 
 let orders = [];
 let stock = {};
@@ -51,9 +50,14 @@ const sheetEditZone = document.getElementById('sheet-edit-zone');
 const LS_AUTH = 'fs_auth_ok';
 let appInited = false;
 
-// Ambas pantallas ocultas hasta saber si hay usuario
 loginScreen.style.display = 'none';
 appEl.style.display = 'none';
+
+// Si ya se logueó antes → mostrar app de inmediato (evita pantalla en blanco en Android)
+if (localStorage.getItem(LS_AUTH)) {
+  appEl.style.display = 'flex';
+  if (!appInited) { appInited = true; initApp(); }
+}
 
 document.getElementById('btn-google').addEventListener('click', async () => {
   try { await signInWithPopup(auth, new GoogleAuthProvider()); }
@@ -73,15 +77,15 @@ onAuthStateChanged(auth, user => {
   } else if (user) {
     auth.signOut();
     localStorage.removeItem(LS_AUTH);
+    loginScreen.style.display = 'flex';
+    appEl.style.display = 'none';
   } else {
-    // Si nunca se logueó → mostrar login
-    // Si se logueó antes → Firebase aún está restaurando la sesión, esperar
+    // user = null
     if (!localStorage.getItem(LS_AUTH)) {
       loginScreen.style.display = 'flex';
       appEl.style.display = 'none';
     }
-    // Si había sesión previa, Firebase la va a restaurar sola en milisegundos
-    // No mostramos login para evitar parpadeo
+    // Si LS_AUTH existe: el token puede estar refrescándose — Firebase volverá a llamar con el usuario
   }
 });
 
@@ -475,7 +479,7 @@ function showSelectedZone(z) {
   el.innerHTML = `
     <div>
       <div class="flex-selected-name">${z.localidad}</div>
-      <div style="font-size:12px;color:var(--text-secondary)">${z.zona}</div>
+      <div style="font-size:12px;color:var(--text-2)">${z.zona}</div>
     </div>
     <div>
       <div class="flex-selected-importe">−$${fmt(z.importe)}</div>
@@ -761,8 +765,8 @@ function renderCorteContent() {
     ${pendientes.map(o => `
       <div class="card" style="padding:12px 14px">
         <div style="font-weight:600">${o.nombreComprador}</div>
-        <div style="font-size:14px;color:var(--text-secondary)">${formatItemsShort(o.items)}</div>
-        <div style="font-size:13px;color:var(--text-tertiary)">$${fmt(o.importeAcreditado)}</div>
+        <div style="font-size:14px;color:var(--text-2)">${formatItemsShort(o.items)}</div>
+        <div style="font-size:13px;color:var(--text-3)">$${fmt(o.importeAcreditado)}</div>
       </div>`).join('')}`;
 }
 
@@ -791,8 +795,8 @@ function renderDeposito() {
     ${aPrepararOrders.map(o => `
       <div class="card" style="padding:12px 14px">
         <div style="font-weight:600">${o.nombreComprador}</div>
-        <div style="font-size:14px;color:var(--text-secondary)">${formatItemsShort(o.items)}</div>
-        <div style="font-size:12px;color:var(--text-tertiary)">${o.cuenta.toUpperCase()} — ${o.tipoEnvio}</div>
+        <div style="font-size:14px;color:var(--text-2)">${formatItemsShort(o.items)}</div>
+        <div style="font-size:12px;color:var(--text-3)">${o.cuenta.toUpperCase()} — ${o.tipoEnvio}</div>
       </div>`).join('')}`;
 }
 

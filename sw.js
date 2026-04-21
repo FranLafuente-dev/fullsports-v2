@@ -1,6 +1,6 @@
 // SW mínimo — limpia caches viejos, no cachea nada nuevo
 // Esto evita que Android sirva contenido desactualizado
-const CACHE_V = 'fs-v5';
+const CACHE_V = 'fs-v6';
 
 self.addEventListener('install', () => self.skipWaiting());
 

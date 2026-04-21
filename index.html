@@ -167,44 +167,31 @@
       </div>
     </div>
 
-    <!-- Items -->
-    <div class="form-group">
-      <div class="form-label">Producto</div>
-      <div class="producto-grid">
-        <button class="producto-btn" data-producto="Mostaza">Mostaza</button>
-        <button class="producto-btn" data-producto="Total Black">Total Black</button>
-        <button class="producto-btn" data-producto="Media caña">Media caña</button>
-        <button class="producto-btn" data-producto="Borcegos">Borcegos</button>
-        <button class="producto-btn" data-producto="Caramelo">Caramelo</button>
+    <!-- Item selector filtrado por stock -->
+    <div class="form-group" id="item-selector-wrap">
+      <div class="form-label-row">
+        <span class="form-label">Producto</span>
+        <button id="btn-stock-override" class="btn-pencil">✏️ Manual</button>
       </div>
+      <div id="producto-btns" class="producto-grid"></div>
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="talle-wrap" style="display:none">
       <div class="form-label">Talle</div>
-      <div class="talle-grid">
-        <button class="talle-btn" data-talle="38">38</button>
-        <button class="talle-btn" data-talle="39">39</button>
-        <button class="talle-btn" data-talle="40">40</button>
-        <button class="talle-btn" data-talle="41">41</button>
-        <button class="talle-btn" data-talle="42">42</button>
-        <button class="talle-btn" data-talle="43">43</button>
-        <button class="talle-btn" data-talle="44">44</button>
-        <button class="talle-btn" data-talle="45">45</button>
+      <div id="talle-btns" class="talle-grid"></div>
+    </div>
+
+    <div class="form-group" id="cantidad-wrap" style="display:none">
+      <div class="form-label">Cantidad</div>
+      <div class="cantidad-grid" id="cantidad-btns">
+        <button class="cantidad-btn" data-cant="1" onclick="selectCantidad(1)">1</button>
+        <button class="cantidad-btn" data-cant="2" onclick="selectCantidad(2)">2</button>
+        <button class="cantidad-btn" data-cant="3" onclick="selectCantidad(3)">3</button>
       </div>
     </div>
 
-    <button class="btn btn-ghost" id="btn-add-item">+ Agregar ítem al pedido</button>
-
-    <div class="form-group">
-      <div class="form-label">Ítems cargados</div>
-      <div id="items-list"></div>
-    </div>
-
-    <!-- N° pedido -->
-    <div class="form-group">
-      <div class="form-label">N° pedido MELI (opcional)</div>
-      <input class="form-input" id="f-nro" type="text" placeholder="Ej: 123456789" inputmode="numeric">
-    </div>
+    <div id="items-list"></div>
+    <button class="btn btn-ghost" id="btn-add-otro" style="display:none">+ Agregar otro ítem</button>
 
     <button class="btn btn-primary" id="btn-guardar-venta">Guardar venta</button>
     <button class="btn btn-ghost" data-close-sheet>Cancelar</button>

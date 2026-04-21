@@ -401,3 +401,41 @@ body {
 /* scrollbar */
 .view::-webkit-scrollbar { display: none; }
 .sheet-body::-webkit-scrollbar { display: none; }
+
+/* Form label row con botón pencil */
+.form-label-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+.btn-pencil { background: none; border: none; cursor: pointer; font-size: 12px; color: var(--blue); font-weight: 600; padding: 2px 6px; }
+
+/* Cantidad selector */
+.cantidad-grid { display: flex; gap: 8px; }
+.cantidad-btn {
+  width: 52px; height: 44px; border-radius: 10px; border: 1.5px solid var(--border-subtle);
+  font-size: 18px; font-weight: 700; cursor: pointer;
+  background: var(--surface); color: var(--text-secondary);
+  transition: all 0.2s;
+}
+.cantidad-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+/* Stock lista por producto */
+.stock-product-card { padding: 14px 16px; display: flex; flex-direction: column; gap: 0; }
+.stock-product-name { font-size: 15px; font-weight: 700; padding-bottom: 10px; border-bottom: 1px solid var(--border-subtle); margin-bottom: 4px; }
+.stock-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border-subtle); }
+.stock-row:last-child { border-bottom: none; }
+.stock-talle { font-size: 14px; font-weight: 600; min-width: 44px; }
+.stock-row.cero .stock-talle { color: var(--red); }
+.stock-row.bajo .stock-talle { color: var(--orange); }
+.stock-stepper { display: flex; align-items: center; gap: 14px; }
+.stepper-btn {
+  width: 34px; height: 34px; border-radius: 50%; border: none;
+  background: var(--gray-light); color: var(--text);
+  font-size: 22px; font-weight: 400; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s; line-height: 1;
+}
+.stepper-btn:active { background: var(--blue-light); }
+.stepper-val { min-width: 28px; text-align: center; font-size: 18px; font-weight: 700; }
+.stock-row.cero .stepper-val { color: var(--red); }
+.stock-row.bajo .stepper-val { color: var(--orange); }
+
+/* Campo completo = borde verde */
+.form-input:not(:placeholder-shown):not(:focus) { border-color: var(--green); }

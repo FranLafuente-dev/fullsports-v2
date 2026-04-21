@@ -11,7 +11,6 @@ import {
 import { FIREBASE_CONFIG, AUTHORIZED_EMAIL } from './config.js';
 import { FLEX_ZONES } from './flex-zones.js';
 
-// ── FIREBASE INIT ──────────────────────────────────────────────────────────
 const fbApp = initializeApp(FIREBASE_CONFIG);
 const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
@@ -19,12 +18,11 @@ const db = getFirestore(fbApp);
 setPersistence(auth, browserLocalPersistence);
 enableIndexedDbPersistence(db).catch(() => {});
 
-// ── STATE ──────────────────────────────────────────────────────────────────
 let orders = [];
 let stock = {};
-let flexZones = [...FLEX_ZONES]; // local copy (puede ser editada)
+let flexZones = [...FLEX_ZONES];
 let formItems = [];
-let formEnvio = null; // { localidad, zona, importe }
+let formEnvio = null;
 let currentUser = null;
 let alertTimers = [];
 
@@ -34,12 +32,10 @@ const COSTO_COMUN = 21900;
 const COSTO_ESPECIAL = 22400;
 const TALLES_ESPECIALES = [43, 44, 45];
 
-// ── DOM REFS ───────────────────────────────────────────────────────────────
 const loginScreen = document.getElementById('login-screen');
 const appEl = document.getElementById('app');
 const offlinePill = document.getElementById('offline-pill');
 const alertBanner = document.getElementById('alert-banner');
-const bottomNav = document.getElementById('bottom-nav');
 const views = {
   pedidos: document.getElementById('view-pedidos'),
   corte: document.getElementById('view-corte'),
@@ -51,14 +47,10 @@ const sheetNueva = document.getElementById('sheet-nueva');
 const sheetDelivery = document.getElementById('sheet-delivery');
 const sheetEditZone = document.getElementById('sheet-edit-zone');
 
-// ── AUTH ───────────────────────────────────────────────────────────────────
+// ── AUTH
 document.getElementById('btn-google').addEventListener('click', async () => {
-  const provider = new GoogleAuthProvider();
-  try {
-    await signInWithPopup(auth, provider);
-  } catch (e) {
-    alert('Error al iniciar sesión: ' + e.message);
-  }
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+  catch (e) { alert('Error al iniciar sesión: ' + e.message); }
 });
 
 onAuthStateChanged(auth, user => {
@@ -66,10 +58,9 @@ onAuthStateChanged(auth, user => {
     currentUser = user;
     loginScreen.style.display = 'none';
     appEl.style.display = 'flex';
-    document.getElementById('user-avatar').textContent = user.displayName?.[0] || '?';
-    if (user.photoURL) {
-      document.getElementById('user-avatar').innerHTML = `<img src="${user.photoURL}">`;
-    }
+    const av = document.getElementById('user-avatar');
+    av.textContent = user.displayName?.[0] || '?';
+    if (user.photoURL) av.innerHTML = `<img src="${user.photoURL}">`;
     initApp();
   } else if (user) {
     auth.signOut();
@@ -80,7 +71,6 @@ onAuthStateChanged(auth, user => {
   }
 });
 
-// ── INIT ───────────────────────────────────────────────────────────────────
 function initApp() {
   listenOrders();
   listenStock();
@@ -92,7 +82,6 @@ function initApp() {
   navigateTo('pedidos');
 }
 
-// ── OFFLINE ────────────────────────────────────────────────────────────────
 function setupOfflineDetection() {
   const update = () => offlinePill.classList.toggle('show', !navigator.onLine);
   window.addEventListener('online', update);
@@ -100,7 +89,6 @@ function setupOfflineDetection() {
   update();
 }
 
-// ── FIRESTORE LISTENERS ────────────────────────────────────────────────────
 function listenOrders() {
   const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
   onSnapshot(q, snap => {
@@ -124,7 +112,6 @@ function loadFlexZones() {
   });
 }
 
-// ── NAVIGATION ─────────────────────────────────────────────────────────────
 function setupNav() {
   document.querySelectorAll('[data-nav]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -141,38 +128,30 @@ function navigateTo(name) {
   if (views[name]) views[name].classList.add('active');
   const btn = document.querySelector(`[data-nav="${name}"]`);
   if (btn) btn.classList.add('active');
-  document.getElementById('topbar-title').textContent = {
-    pedidos: 'FullSports', corte: 'Corte', stock: 'Stock', config: 'Configuración'
-  }[name] || 'FullSports';
+  document.getElementById('topbar-title').textContent =
+    { pedidos: 'FullSports', corte: 'Corte', stock: 'Stock', config: 'Configuración' }[name] || 'FullSports';
 }
 
-// ── DISPATCH ALERTS ────────────────────────────────────────────────────────
 async function requestNotificationPermission() {
-  if ('Notification' in window && Notification.permission === 'default') {
+  if ('Notification' in window && Notification.permission === 'default')
     await Notification.requestPermission();
-  }
 }
 
 function setupDispatchAlerts() {
   alertTimers.forEach(t => clearTimeout(t));
   alertTimers = [];
   const now = new Date();
-  const schedule = [
+  [
     { h: 12, m: 30, type: 'warning', msg: '⏰ 30 min para despachar FLEX (tope 13:00hs)' },
     { h: 12, m: 50, type: 'urgent',  msg: '🚨 10 min para despachar FLEX' },
     { h: 13, m: 30, type: 'warning', msg: '⏰ 30 min para despachar Punto de Envío (tope 14:00hs)' },
     { h: 13, m: 50, type: 'urgent',  msg: '🚨 10 min para despachar Punto de Envío' },
-  ];
-  schedule.forEach(({ h, m, type, msg }) => {
+  ].forEach(({ h, m, type, msg }) => {
     const target = new Date(now);
     target.setHours(h, m, 0, 0);
     const diff = target - now;
-    if (diff > 0) {
-      alertTimers.push(setTimeout(() => showAlert(type, msg), diff));
-    }
+    if (diff > 0) alertTimers.push(setTimeout(() => showAlert(type, msg), diff));
   });
-
-  // Countdown refresh each minute
   setInterval(updateCountdowns, 30000);
 }
 
@@ -180,9 +159,8 @@ function showAlert(type, msg) {
   alertBanner.className = `alert-banner show ${type}`;
   alertBanner.textContent = msg;
   setTimeout(() => alertBanner.classList.remove('show'), 8000);
-  if (Notification.permission === 'granted') {
+  if (Notification.permission === 'granted')
     new Notification('FullSports', { body: msg, icon: '/icons/icon-192.png' });
-  }
 }
 
 function updateCountdowns() {
@@ -193,14 +171,15 @@ function updateCountdowns() {
     if (tipo === 'FLEX') tope.setHours(13, 0, 0, 0);
     else tope.setHours(14, 0, 0, 0);
     const diff = tope - now;
-    if (diff <= 0) { el.textContent = 'VENCIDO'; el.className = 'countdown urgent'; return; }
+    if (diff <= 0) { el.style.display = 'none'; return; }
+    el.style.display = '';
     const min = Math.floor(diff / 60000);
     el.textContent = `${min} min`;
     el.className = 'countdown' + (min <= 15 ? ' urgent' : '');
   });
 }
 
-// ── PEDIDOS VIEW ───────────────────────────────────────────────────────────
+// ── PEDIDOS VIEW
 let pedidosFilter = 'todos';
 
 function renderPedidos() {
@@ -208,39 +187,28 @@ function renderPedidos() {
   const activeOrders = orders.filter(o => o.status !== 'entregado');
   const entregados = orders.filter(o => {
     if (o.status !== 'entregado') return false;
-    const diff = Date.now() - (o.deliveredAt?.toMillis?.() || 0);
-    return diff < 48 * 3600 * 1000;
+    return Date.now() - (o.deliveredAt?.toMillis?.() || 0) < 48 * 3600 * 1000;
   });
   const all = [...activeOrders, ...entregados];
-
   const filtered = pedidosFilter === 'todos' ? all
-    : pedidosFilter === 'preparar' ? all.filter(o => o.status === 'preparar')
-    : pedidosFilter === 'pendiente' ? all.filter(o => o.status === 'pendiente')
-    : pedidosFilter === 'camino' ? all.filter(o => o.status === 'camino')
-    : all.filter(o => o.status === 'entregado');
-
+    : all.filter(o => o.status === pedidosFilter);
   const counts = {
     preparar: all.filter(o => o.status === 'preparar').length,
     pendiente: all.filter(o => o.status === 'pendiente').length,
     camino: all.filter(o => o.status === 'camino').length,
     entregado: entregados.length,
   };
-
   view.innerHTML = `
     <div class="filter-pills">
       ${['todos','preparar','pendiente','camino','entregado'].map(f => `
         <button class="pill${pedidosFilter===f?' active':''}" onclick="setFilter('${f}')">
           ${{todos:'Todos',preparar:'Por preparar',pendiente:'Pendiente',camino:'En camino',entregado:'Entregados'}[f]}
-          ${f!=='todos' && counts[f] ? `<span style="opacity:.7"> ${counts[f]}</span>` : ''}
-        </button>
-      `).join('')}
+          ${f!=='todos'&&counts[f]?`<span style="opacity:.7"> ${counts[f]}</span>`:''}
+        </button>`).join('')}
     </div>
-    ${filtered.length === 0 ? `
-      <div class="empty-state">
-        <span>📦</span>
-        <p>No hay pedidos</p>
-      </div>
-    ` : filtered.map(o => renderOrderCard(o)).join('')}
+    ${filtered.length === 0
+      ? `<div class="empty-state"><span>📦</span><p>No hay pedidos</p></div>`
+      : filtered.map(o => renderOrderCard(o)).join('')}
   `;
   updateCountdowns();
 }
@@ -248,7 +216,6 @@ function renderPedidos() {
 window.setFilter = (f) => { pedidosFilter = f; renderPedidos(); };
 
 function renderOrderCard(o) {
-  const itemsText = formatItemsShort(o.items);
   const sinCorte = !o.corteDone ? '<span class="badge badge-sin-corte">Sin corte</span>' : '';
   const cuentaBadge = `<span class="badge badge-${o.cuenta}">${o.cuenta.toUpperCase()}</span>`;
   const envBadge = o.tipoEnvio === 'FLEX'
@@ -257,21 +224,22 @@ function renderOrderCard(o) {
 
   let montoHtml = '';
   if (o.tipoEnvio === 'FLEX' && o.importeVenta) {
-    montoHtml = `
-      <div class="order-monto flex-detail">Venta $${fmt(o.importeVenta)} − FLEX $${fmt(o.flexImporte)} = <b>$${fmt(o.importeNeto)}</b></div>`;
+    montoHtml = `<div class="order-monto flex-detail">Venta $${fmt(o.importeVenta)} − FLEX $${fmt(o.flexImporte)} = <b>$${fmt(o.importeNeto)}</b></div>`;
   } else {
     montoHtml = `<div class="order-monto">Se acreditó $${fmt(o.importeAcreditado)}</div>`;
   }
 
   let iibbHtml = '';
-  if (o.cuenta === 'enano' && o.provincia) {
+  if (o.cuenta === 'enano' && o.provincia)
     iibbHtml = `<div class="order-iibb">${o.provincia} — IIBB $${fmtDec(o.iibb)}</div>`;
-  }
 
   let countdownHtml = '';
   if (o.status === 'preparar') {
-    const tipo = o.tipoEnvio;
-    countdownHtml = `<span class="countdown" data-countdown="${tipo}">${tipo === 'FLEX' ? '13:00hs' : '14:00hs'}</span>`;
+    const tope = new Date();
+    if (o.tipoEnvio === 'FLEX') tope.setHours(13, 0, 0, 0);
+    else tope.setHours(14, 0, 0, 0);
+    if (tope - new Date() > 0)
+      countdownHtml = `<span class="countdown" data-countdown="${o.tipoEnvio}">${o.tipoEnvio === 'FLEX' ? '13:00hs' : '14:00hs'}</span>`;
   }
 
   let statusActions = '';
@@ -279,58 +247,42 @@ function renderOrderCard(o) {
     statusActions = `
       <button class="btn btn-green" onclick="marcarPreparado('${o.id}')">✓ Preparado</button>
       <button class="btn btn-ghost btn-sm" onclick="editOrder('${o.id}')">Editar</button>
-      <button class="btn btn-danger btn-sm" onclick="deleteOrder('${o.id}')">Eliminar</button>
-    `;
+      <button class="btn btn-danger btn-sm" onclick="deleteOrder('${o.id}')">Eliminar</button>`;
   } else if (o.status === 'pendiente') {
     statusActions = `
       <button class="btn btn-primary" onclick="marcarDespachado('${o.id}')">🚚 Despachado</button>
-      <button class="btn btn-danger btn-sm" onclick="deleteOrder('${o.id}')">Eliminar</button>
-    `;
+      <button class="btn btn-danger btn-sm" onclick="deleteOrder('${o.id}')">Eliminar</button>`;
   } else if (o.status === 'camino') {
-    const fecha = o.fechaEstimada ? `<div class="order-meta">Entrega est: ${o.fechaEstimada}</div>` : '';
     statusActions = `
-      ${fecha}
+      ${o.fechaEstimada ? `<div class="order-meta">Entrega est: ${o.fechaEstimada}</div>` : ''}
       <button class="btn btn-green" onclick="marcarEntregado('${o.id}')">✓ Entregado</button>
-      <button class="btn btn-ghost btn-sm" onclick="openDeliveryDate('${o.id}')">📅 Fecha</button>
-    `;
+      <button class="btn btn-ghost btn-sm" onclick="openDeliveryDate('${o.id}')">📅 Fecha</button>`;
   } else if (o.status === 'entregado') {
     statusActions = `<div class="order-meta" style="color:var(--green)">✓ Entregado${o.fechaEntrega ? ' — ' + o.fechaEntrega : ''}</div>`;
   }
 
-  const nroPedido = o.nroPedido ? `<div class="order-meta">Pedido #${o.nroPedido}</div>` : '';
-
   return `
     <div class="order-card">
-      <div class="order-header">
-        ${cuentaBadge}${envBadge}${sinCorte}${countdownHtml}
-      </div>
+      <div class="order-header">${cuentaBadge}${envBadge}${sinCorte}${countdownHtml}</div>
       <div class="order-name">${o.nombreComprador}</div>
-      <div class="order-items">${itemsText}</div>
-      ${iibbHtml}
-      ${montoHtml}
-      ${nroPedido}
+      <div class="order-items">${formatItemsShort(o.items)}</div>
+      ${iibbHtml}${montoHtml}
       <div class="order-actions">${statusActions}</div>
-    </div>
-  `;
+    </div>`;
 }
 
 function formatItemsShort(items) {
   if (!items || items.length === 0) return '';
   if (items.length === 1) return `${items[0].producto} T${items[0].talle}`;
   const groups = {};
-  items.forEach(i => {
-    const k = `${i.producto} ${i.talle}`;
-    groups[k] = (groups[k] || 0) + 1;
-  });
-  const parts = Object.entries(groups).map(([k, q]) => q > 1 ? `${k} x${q}` : k);
-  return `${items.length} pares (${parts.join(' - ')})`;
+  items.forEach(i => { const k = `${i.producto} T${i.talle}`; groups[k] = (groups[k] || 0) + 1; });
+  return `${items.length} pares (${Object.entries(groups).map(([k,q]) => q>1?`${k} x${q}`:k).join(' - ')})`;
 }
 
-// ── ORDER ACTIONS ──────────────────────────────────────────────────────────
+// ── ORDER ACTIONS
 window.marcarPreparado = async (id) => {
   const order = orders.find(o => o.id === id);
   await updateDoc(doc(db, 'orders', id), { status: 'pendiente' });
-  // Descontar del stock
   if (order?.items) {
     const newStock = { ...stock };
     order.items.forEach(item => {
@@ -346,8 +298,10 @@ window.marcarDespachado = async (id) => {
 };
 
 window.marcarEntregado = async (id) => {
-  const today = new Date().toLocaleDateString('es-AR');
-  await updateDoc(doc(db, 'orders', id), { status: 'entregado', deliveredAt: serverTimestamp(), fechaEntrega: today });
+  await updateDoc(doc(db, 'orders', id), {
+    status: 'entregado', deliveredAt: serverTimestamp(),
+    fechaEntrega: new Date().toLocaleDateString('es-AR')
+  });
 };
 
 window.deleteOrder = async (id) => {
@@ -355,7 +309,6 @@ window.deleteOrder = async (id) => {
   await deleteDoc(doc(db, 'orders', id));
 };
 
-// Delivery date sheet
 let deliveryOrderId = null;
 window.openDeliveryDate = (id) => {
   deliveryOrderId = id;
@@ -370,7 +323,7 @@ document.getElementById('btn-save-delivery').addEventListener('click', async () 
   closeSheet(sheetDelivery);
 });
 
-// ── NUEVA VENTA FORM ───────────────────────────────────────────────────────
+// ── NUEVA VENTA FORM
 let editingOrderId = null;
 
 function openNuevaSheet(orderData = null) {
@@ -378,16 +331,12 @@ function openNuevaSheet(orderData = null) {
   formItems = orderData?.items ? [...orderData.items] : [];
   formEnvio = null;
 
-  const s = sheetNueva;
-  s.querySelector('.sheet-title').textContent = editingOrderId ? 'Editar pedido' : 'Nueva venta';
-
-  // Reset form
+  sheetNueva.querySelector('.sheet-title').textContent = editingOrderId ? 'Editar pedido' : 'Nueva venta';
   setCuenta(orderData?.cuenta || 'capi');
   setTipoEnvio(orderData?.tipoEnvio || 'FLEX');
   document.getElementById('f-nombre').value = orderData?.nombreComprador || '';
-  document.getElementById('f-nro').value = orderData?.nroPedido || '';
   document.getElementById('f-provincia').value = orderData?.provincia || '';
-  document.getElementById('f-iibb').value = orderData?.iibb || '';
+  document.getElementById('f-iibb').value = orderData?.iibb ? fmtDec(orderData.iibb) : '';
   document.getElementById('f-importe-pe').value = orderData?.importeAcreditado || '';
   document.getElementById('f-importe-flex').value = orderData?.importeVenta || '';
 
@@ -398,8 +347,10 @@ function openNuevaSheet(orderData = null) {
     clearZoneSelection();
   }
 
+  initItemSelector();
   renderFormItems();
-  openSheet(s);
+  openSheet(sheetNueva);
+  setTimeout(() => { sheetNueva.querySelector('.sheet-body').scrollTop = 0; }, 50);
 }
 
 window.editOrder = (id) => {
@@ -407,7 +358,6 @@ window.editOrder = (id) => {
   if (o) openNuevaSheet(o);
 };
 
-// Cuenta toggle
 let currentCuenta = 'capi';
 function setCuenta(c) {
   currentCuenta = c;
@@ -416,7 +366,6 @@ function setCuenta(c) {
 }
 document.querySelectorAll('[data-cuenta]').forEach(b => b.addEventListener('click', () => setCuenta(b.dataset.cuenta)));
 
-// Tipo envío toggle
 let currentTipoEnvio = 'FLEX';
 function setTipoEnvio(t) {
   currentTipoEnvio = t;
@@ -426,31 +375,23 @@ function setTipoEnvio(t) {
 }
 document.querySelectorAll('[data-envio]').forEach(b => b.addEventListener('click', () => setTipoEnvio(b.dataset.envio)));
 
-// Localidad search
 const localidadInput = document.getElementById('f-localidad');
 const searchResults = document.getElementById('localidad-results');
-
 localidadInput.addEventListener('input', () => {
   const q = localidadInput.value.toLowerCase().trim();
   if (!q) { searchResults.classList.remove('show'); return; }
   const matches = flexZones.filter(z => z.localidad.toLowerCase().includes(q)).slice(0, 8);
-  if (matches.length === 0) { searchResults.classList.remove('show'); return; }
+  if (!matches.length) { searchResults.classList.remove('show'); return; }
   searchResults.innerHTML = matches.map(z => `
     <div class="search-result-item" onclick="selectZone('${z.localidad}','${z.zona}',${z.importe})">
-      <div>
-        <div>${z.localidad}</div>
-        <div class="search-result-zona">${z.zona}</div>
-      </div>
+      <div><div>${z.localidad}</div><div class="search-result-zona">${z.zona}</div></div>
       <div style="font-weight:700">$${fmt(z.importe)}</div>
-    </div>
-  `).join('');
+    </div>`).join('');
   searchResults.classList.add('show');
 });
-
 document.addEventListener('click', e => {
   if (!e.target.closest('.search-wrap')) searchResults.classList.remove('show');
 });
-
 window.selectZone = (localidad, zona, importe) => {
   formEnvio = { localidad, zona, importe };
   searchResults.classList.remove('show');
@@ -458,7 +399,6 @@ window.selectZone = (localidad, zona, importe) => {
   showSelectedZone(formEnvio);
   updateFlexNeto();
 };
-
 function showSelectedZone(z) {
   const el = document.getElementById('flex-selected');
   el.innerHTML = `
@@ -469,82 +409,145 @@ function showSelectedZone(z) {
     <div>
       <div class="flex-selected-importe">−$${fmt(z.importe)}</div>
       <button onclick="clearZoneSelection()" style="background:none;border:none;color:var(--red);font-size:12px;cursor:pointer">Cambiar</button>
-    </div>
-  `;
+    </div>`;
   el.classList.add('show');
   updateFlexNeto();
 }
-
 window.clearZoneSelection = () => {
   formEnvio = null;
   document.getElementById('flex-selected').classList.remove('show');
   document.getElementById('flex-neto').textContent = '';
 };
-
 document.getElementById('f-importe-flex').addEventListener('input', updateFlexNeto);
 function updateFlexNeto() {
   const venta = parseNum(document.getElementById('f-importe-flex').value);
   if (formEnvio && venta > 0) {
-    const neto = venta - formEnvio.importe;
-    document.getElementById('flex-neto').textContent = `Total sin envío: $${fmt(neto)}`;
+    document.getElementById('flex-neto').textContent = `Total sin envío: $${fmt(venta - formEnvio.importe)}`;
   } else {
     document.getElementById('flex-neto').textContent = '';
   }
 }
 
-// Items
+// ── ITEM SELECTOR (filtrado por stock, auto-add)
 let formProducto = null;
 let formTalle = null;
+let formCantidad = null;
+let stockOverride = false;
 
-document.querySelectorAll('[data-producto]').forEach(b => {
-  b.addEventListener('click', () => {
-    formProducto = b.dataset.producto;
-    document.querySelectorAll('[data-producto]').forEach(x => x.classList.toggle('active', x.dataset.producto === formProducto));
-  });
-});
+function initItemSelector() {
+  stockOverride = false;
+  formProducto = null;
+  formTalle = null;
+  formCantidad = null;
+  const overrideBtn = document.getElementById('btn-stock-override');
+  if (overrideBtn) overrideBtn.textContent = '✏️ Manual';
+  renderProductoButtons();
+  document.getElementById('talle-wrap').style.display = 'none';
+  document.getElementById('cantidad-wrap').style.display = 'none';
+  document.getElementById('btn-add-otro').style.display = 'none';
+}
 
-document.querySelectorAll('[data-talle]').forEach(b => {
-  b.addEventListener('click', () => {
-    formTalle = parseInt(b.dataset.talle);
-    document.querySelectorAll('[data-talle]').forEach(x => x.classList.toggle('active', x.dataset.talle === b.dataset.talle));
-  });
-});
+function renderProductoButtons() {
+  const productosDisp = PRODUCTOS.filter(p =>
+    stockOverride || TALLES.some(t => (stock[`${p}_${t}`] ?? 0) > 0)
+  );
+  const container = document.getElementById('producto-btns');
+  if (!container) return;
+  container.innerHTML = productosDisp.length
+    ? productosDisp.map(p => `<button class="producto-btn" onclick="selectProducto('${p}')">${p}</button>`).join('')
+    : `<div style="color:var(--text-tertiary);font-size:14px;padding:4px 0">Sin stock — activá ✏️ Manual.</div>`;
+}
 
-document.getElementById('btn-add-item').addEventListener('click', () => {
-  if (!formProducto || !formTalle) { alert('Seleccioná producto y talle.'); return; }
-  formItems.push({ producto: formProducto, talle: formTalle });
-  formProducto = null; formTalle = null;
-  document.querySelectorAll('[data-producto]').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll('[data-talle]').forEach(x => x.classList.remove('active'));
+window.selectProducto = (p) => {
+  formProducto = p;
+  formTalle = null;
+  formCantidad = null;
+  document.querySelectorAll('#producto-btns .producto-btn').forEach(b =>
+    b.classList.toggle('active', b.textContent.trim() === p));
+  const tallesDisp = TALLES.filter(t => stockOverride || (stock[`${p}_${t}`] ?? 0) > 0);
+  document.getElementById('talle-btns').innerHTML = tallesDisp.map(t =>
+    `<button class="talle-btn" onclick="selectTalle(${t})">${t}</button>`).join('');
+  document.getElementById('talle-wrap').style.display = 'flex';
+  document.getElementById('cantidad-wrap').style.display = 'none';
+};
+
+window.selectTalle = (t) => {
+  formTalle = t;
+  formCantidad = null;
+  document.querySelectorAll('#talle-btns .talle-btn').forEach(b =>
+    b.classList.toggle('active', parseInt(b.textContent) === t));
+  document.getElementById('cantidad-wrap').style.display = 'flex';
+  document.querySelectorAll('#cantidad-btns .cantidad-btn').forEach(b => b.classList.remove('active'));
+};
+
+window.selectCantidad = (c) => {
+  formCantidad = c;
+  document.querySelectorAll('#cantidad-btns .cantidad-btn').forEach(b =>
+    b.classList.toggle('active', parseInt(b.dataset.cant) === c));
+  autoAddItem();
+};
+
+function autoAddItem() {
+  if (!formProducto || !formTalle || !formCantidad) return;
+  for (let i = 0; i < formCantidad; i++)
+    formItems.push({ producto: formProducto, talle: formTalle });
   renderFormItems();
+  document.getElementById('btn-add-otro').style.display = 'flex';
+  formProducto = null; formTalle = null; formCantidad = null;
+  document.getElementById('talle-wrap').style.display = 'none';
+  document.getElementById('cantidad-wrap').style.display = 'none';
+  document.querySelectorAll('#producto-btns .producto-btn').forEach(b => b.classList.remove('active'));
+}
+
+document.getElementById('btn-add-otro').addEventListener('click', () => {
+  renderProductoButtons();
+  document.getElementById('talle-wrap').style.display = 'none';
+  document.getElementById('cantidad-wrap').style.display = 'none';
+  document.getElementById('btn-add-otro').style.display = 'none';
+  document.getElementById('item-selector-wrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+document.getElementById('btn-stock-override').addEventListener('click', () => {
+  stockOverride = !stockOverride;
+  document.getElementById('btn-stock-override').textContent = stockOverride ? '✏️ Mostrando todo' : '✏️ Manual';
+  formProducto = null; formTalle = null; formCantidad = null;
+  renderProductoButtons();
+  document.getElementById('talle-wrap').style.display = 'none';
+  document.getElementById('cantidad-wrap').style.display = 'none';
 });
 
 function renderFormItems() {
   const list = document.getElementById('items-list');
-  if (formItems.length === 0) {
-    list.innerHTML = '<div style="color:var(--text-tertiary);font-size:14px;padding:8px 0">Sin ítems. Seleccioná producto y talle.</div>';
-    return;
-  }
+  if (!formItems.length) { list.innerHTML = ''; return; }
   list.innerHTML = formItems.map((item, i) => `
     <div class="item-row">
       <span class="item-row-text">${item.producto} T${item.talle}</span>
       <button class="item-remove" onclick="removeItem(${i})">×</button>
-    </div>
-  `).join('');
+    </div>`).join('');
 }
 
 window.removeItem = (i) => { formItems.splice(i, 1); renderFormItems(); };
 
-// Submit
+// ── SUBMIT
 document.getElementById('btn-guardar-venta').addEventListener('click', async () => {
   const nombre = document.getElementById('f-nombre').value.trim();
   if (!nombre) { alert('Ingresá el nombre del comprador.'); return; }
-  if (formItems.length === 0) { alert('Agregá al menos un ítem.'); return; }
+  if (!formItems.length) { alert('Agregá al menos un ítem.'); return; }
+
+  if (!editingOrderId) {
+    const dups = orders.filter(o =>
+      o.nombreComprador.toLowerCase().trim() === nombre.toLowerCase() && o.status !== 'entregado'
+    );
+    if (dups.length > 0) {
+      const det = dups.map(o => `• ${o.nombreComprador} — ${formatItemsShort(o.items)} (${o.status})`).join('\n');
+      const ok = confirm(`Ya existe un pedido activo a nombre de "${nombre}":\n\n${det}\n\n¿Cargar de todas formas?`);
+      if (!ok) return;
+    }
+  }
 
   const base = {
     cuenta: currentCuenta,
     nombreComprador: nombre,
-    nroPedido: document.getElementById('f-nro').value.trim(),
     tipoEnvio: currentTipoEnvio,
     items: formItems,
     status: editingOrderId ? (orders.find(o => o.id === editingOrderId)?.status || 'preparar') : 'preparar',
@@ -553,8 +556,7 @@ document.getElementById('btn-guardar-venta').addEventListener('click', async () 
 
   if (currentCuenta === 'enano') {
     base.provincia = document.getElementById('f-provincia').value.trim();
-    const iibbRaw = document.getElementById('f-iibb').value.replace(/[.,]/g, '');
-    base.iibb = parseFloat(iibbRaw) || 0;
+    base.iibb = parseNum(document.getElementById('f-iibb').value) || 0;
   }
 
   if (currentTipoEnvio === 'FLEX') {
@@ -579,18 +581,17 @@ document.getElementById('btn-guardar-venta').addEventListener('click', async () 
     base.createdAt = serverTimestamp();
     await addDoc(collection(db, 'orders'), base);
   }
-
   closeSheet(sheetNueva);
 });
 
-// ── CORTE VIEW ─────────────────────────────────────────────────────────────
+// ── CORTE VIEW
 let corteCuenta = 'capi';
 
 function renderCorte() {
   const view = views.corte;
   const sinCorteCapi = orders.filter(o => !o.corteDone && o.cuenta === 'capi').length;
   const sinCorteEnano = orders.filter(o => !o.corteDone && o.cuenta === 'enano').length;
-
+  const aPrepCount = orders.filter(o => o.status === 'preparar').length;
   view.innerHTML = `
     <div class="corte-tabs">
       <button class="corte-tab${corteCuenta==='capi'?' active':''}" onclick="setCorte('capi')">
@@ -599,44 +600,39 @@ function renderCorte() {
       <button class="corte-tab${corteCuenta==='enano'?' active':''}" onclick="setCorte('enano')">
         ENANO <span class="corte-count">${sinCorteEnano}</span>
       </button>
-      <button class="corte-tab${corteCuenta==='costos'?' active':''}" onclick="setCorte('costos')">
-        Costos
+      <button class="corte-tab${corteCuenta==='deposito'?' active':''}" onclick="setCorte('deposito')">
+        Depósito${aPrepCount ? ` <span class="corte-count">${aPrepCount}</span>` : ''}
       </button>
     </div>
-    ${renderCorteContent()}
-  `;
+    ${renderCorteContent()}`;
 }
 
 window.setCorte = (c) => { corteCuenta = c; renderCorte(); };
 
 function renderCorteContent() {
+  if (corteCuenta === 'deposito') return renderDeposito();
+
   const pendientes = orders.filter(o => !o.corteDone && o.cuenta === corteCuenta);
+  if (!pendientes.length)
+    return `<div class="empty-state"><span>✂️</span><p>No hay ventas pendientes para ${corteCuenta.toUpperCase()}</p></div>`;
 
-  if (corteCuenta === 'costos') {
-    const allPending = orders.filter(o => !o.corteDone);
-    const texto = generarTextoCostos(allPending);
-    return `
-      <div class="card" style="padding:16px">
-        <div class="section-title" style="margin-bottom:10px">Texto para WhatsApp</div>
-        <div class="text-output">${renderWhatsAppText(texto)}</div>
-        <div style="display:flex;gap:8px;margin-top:12px">
-          <button class="btn btn-primary" onclick="copyText(${JSON.stringify(texto).replace(/"/g,'&quot;')})">📋 Copiar</button>
-        </div>
-      </div>
-    `;
-  }
+  const textoVentas = corteCuenta === 'capi' ? generarTextoCapi(pendientes) : generarTextoEnano(pendientes);
+  const textoCostos = generarTextoCostos(pendientes, corteCuenta);
 
-  if (pendientes.length === 0) {
-    return `<div class="empty-state"><span>✂️</span><p>No hay ventas pendientes de corte para ${corteCuenta.toUpperCase()}</p></div>`;
-  }
-
-  const texto = corteCuenta === 'capi' ? generarTextoCapi(pendientes) : generarTextoEnano(pendientes);
   return `
     <div class="card" style="padding:16px">
-      <div class="section-title" style="margin-bottom:10px">Texto para WhatsApp</div>
-      <div class="text-output">${renderWhatsAppText(texto)}</div>
+      <div class="section-title" style="margin-bottom:10px">Ventas ${corteCuenta.toUpperCase()}</div>
+      <div class="text-output">${renderWAText(textoVentas)}</div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="copyText(${JSON.stringify(textoVentas).replace(/"/g,'&quot;')})">📋 Copiar ventas</button>
+        <button class="btn btn-primary btn-sm" onclick="marcarCortado('${corteCuenta}')">✓ Marcar cortado</button>
+      </div>
+    </div>
+    <div class="card" style="padding:16px">
+      <div class="section-title" style="margin-bottom:10px">Costos ${corteCuenta.toUpperCase()}</div>
+      <div class="text-output">${renderWAText(textoCostos)}</div>
       <div style="display:flex;gap:8px;margin-top:12px">
-        <button class="btn btn-primary" onclick="copyAndMark('${corteCuenta}')">📋 Copiar y marcar cortado</button>
+        <button class="btn btn-ghost btn-sm" onclick="copyText(${JSON.stringify(textoCostos).replace(/"/g,'&quot;')})">📋 Copiar costos</button>
       </div>
     </div>
     <div class="section-title">Pedidos incluidos (${pendientes.length})</div>
@@ -645,139 +641,145 @@ function renderCorteContent() {
         <div style="font-weight:600">${o.nombreComprador}</div>
         <div style="font-size:14px;color:var(--text-secondary)">${formatItemsShort(o.items)}</div>
         <div style="font-size:13px;color:var(--text-tertiary)">$${fmt(o.importeAcreditado)}</div>
-      </div>
-    `).join('')}
-  `;
+      </div>`).join('')}`;
+}
+
+function renderDeposito() {
+  const aPrepararOrders = orders.filter(o => o.status === 'preparar');
+  if (!aPrepararOrders.length)
+    return `<div class="empty-state"><span>🏪</span><p>No hay pedidos para preparar</p></div>`;
+
+  const grupos = {};
+  aPrepararOrders.forEach(o => {
+    (o.items || []).forEach(item => {
+      const k = `${item.producto} T${item.talle}`;
+      grupos[k] = (grupos[k] || 0) + 1;
+    });
+  });
+  const lineas = Object.entries(grupos).sort(([a],[b]) => a.localeCompare(b)).map(([k,q]) => `${k} x${q}`);
+  const texto = `A buscar en depósito:\n${lineas.join('\n')}\n\nTotal: ${aPrepararOrders.length} pedidos`;
+
+  return `
+    <div class="card" style="padding:16px">
+      <div class="section-title" style="margin-bottom:10px">A buscar en depósito</div>
+      <div class="text-output">${renderWAText(texto)}</div>
+      <button class="btn btn-primary" style="margin-top:12px" onclick="copyText(${JSON.stringify(texto).replace(/"/g,'&quot;')})">📋 Copiar lista</button>
+    </div>
+    <div class="section-title">Pedidos (${aPrepararOrders.length})</div>
+    ${aPrepararOrders.map(o => `
+      <div class="card" style="padding:12px 14px">
+        <div style="font-weight:600">${o.nombreComprador}</div>
+        <div style="font-size:14px;color:var(--text-secondary)">${formatItemsShort(o.items)}</div>
+        <div style="font-size:12px;color:var(--text-tertiary)">${o.cuenta.toUpperCase()} — ${o.tipoEnvio}</div>
+      </div>`).join('')}`;
 }
 
 function generarTextoCapi(pendientes) {
-  let lines = ['Ventas Meli capi'];
   let total = 0;
+  const lines = ['Ventas Meli capi'];
   pendientes.forEach((o, i) => {
-    const items = formatItemsCorte(o.items);
-    lines.push(`${i+1}. ${o.nombreComprador} - ${items} - se acredito $${fmt(o.importeAcreditado)}`);
+    lines.push(`${i+1}. ${o.nombreComprador} - ${formatItemsCorte(o.items)} - se acredito $${fmt(o.importeAcreditado)}`);
     total += o.importeAcreditado || 0;
   });
-  lines.push('');
-  lines.push(`Total acreditado a mp capi $${fmt(total)}`);
+  const totalRedondeado = Math.round(total / 100) * 100;
+  lines.push('', `Total acreditado a mp capi $${fmt(totalRedondeado)}`);
   return lines.join('\n');
 }
 
 function generarTextoEnano(pendientes) {
-  let lines = ['Ventas meli enano'];
   let total = 0;
+  const lines = ['Ventas meli enano'];
   pendientes.forEach((o, i) => {
-    const items = formatItemsCorte(o.items);
     const iibb = o.provincia && o.iibb ? ` (${o.provincia} IIBB ya descontado $${fmtDec(o.iibb)})` : '';
-    let montoLine;
-    if (o.tipoEnvio === 'FLEX' && o.importeVenta) {
-      montoLine = `importe venta $${fmt(o.importeVenta)} menos *ENVIO FLEX $${fmt(o.flexImporte)}* total sin envío $${fmt(o.importeNeto)}`;
-    } else {
-      montoLine = `se acredito $${fmt(o.importeAcreditado)}`;
-    }
-    lines.push(`${i+1}. ${o.nombreComprador}${iibb} - ${items} - ${montoLine}`);
+    const monto = o.tipoEnvio === 'FLEX' && o.importeVenta
+      ? `importe venta $${fmt(o.importeVenta)} menos *ENVIO FLEX $${fmt(o.flexImporte)}* total sin envío $${fmt(o.importeNeto)}`
+      : `se acredito $${fmt(o.importeAcreditado)}`;
+    lines.push(`${i+1}. ${o.nombreComprador}${iibb} - ${formatItemsCorte(o.items)} - ${monto}`);
     total += o.importeAcreditado || 0;
   });
-  lines.push('');
-  lines.push(`*Total acreditado a mp enano $${fmt(total)}*`);
+  lines.push('', `*Total acreditado a mp enano $${fmt(total)}*`);
   return lines.join('\n');
 }
 
-function generarTextoCostos(pendientes) {
+function generarTextoCostos(pendientes, cuenta) {
   let especiales = 0, comunes = 0;
   pendientes.forEach(o => {
     (o.items || []).forEach(item => {
-      if (TALLES_ESPECIALES.includes(item.talle)) especiales++;
-      else comunes++;
+      if (TALLES_ESPECIALES.includes(item.talle)) especiales++; else comunes++;
     });
   });
   const total = especiales * COSTO_ESPECIAL + comunes * COSTO_COMUN;
-  const lines = ['Costo'];
+  const lines = [`Costo ${cuenta.toUpperCase()}`];
   if (especiales > 0) lines.push(`${especiales} cat especiales $${fmt(COSTO_ESPECIAL)}`);
   if (comunes > 0) lines.push(`${comunes} cat comunes $${fmt(COSTO_COMUN)}`);
-  lines.push('');
-  lines.push(`Total costos $${fmt(total)}`);
+  lines.push('', `Total costos $${fmt(total)}`);
   return lines.join('\n');
 }
 
 function formatItemsCorte(items) {
-  if (!items || items.length === 0) return '';
+  if (!items || !items.length) return '';
   if (items.length === 1) return `${items[0].producto.toLowerCase()} ${items[0].talle}`;
   const groups = {};
-  items.forEach(i => {
-    const k = `${i.producto} ${i.talle}`;
-    groups[k] = (groups[k] || 0) + 1;
-  });
-  const parts = Object.entries(groups).map(([k, q]) => q > 1 ? `${k} x${q}` : k);
-  return `${items.length} pares (${parts.join(' - ')})`;
+  items.forEach(i => { const k = `${i.producto} ${i.talle}`; groups[k] = (groups[k]||0)+1; });
+  return `${items.length} pares (${Object.entries(groups).map(([k,q]) => q>1?`${k} x${q}`:k).join(' - ')})`;
 }
 
-function renderWhatsAppText(text) {
-  return text
-    .replace(/\*(.*?)\*/g, '<b>$1</b>')
-    .replace(/\n/g, '<br>');
+function renderWAText(text) {
+  return text.replace(/\*(.*?)\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
 }
 
 window.copyText = (text) => {
   navigator.clipboard.writeText(text).then(() => showToast('¡Copiado!'));
 };
 
-window.copyAndMark = async (cuenta) => {
+window.marcarCortado = async (cuenta) => {
   const pendientes = orders.filter(o => !o.corteDone && o.cuenta === cuenta);
-  const texto = cuenta === 'capi' ? generarTextoCapi(pendientes) : generarTextoEnano(pendientes);
-  await navigator.clipboard.writeText(texto);
-  for (const o of pendientes) {
+  for (const o of pendientes)
     await updateDoc(doc(db, 'orders', o.id), { corteDone: true });
-  }
-  showToast('¡Copiado y marcado como cortado!');
+  showToast('¡Marcado como cortado!');
 };
 
-// ── STOCK VIEW ─────────────────────────────────────────────────────────────
+// ── STOCK VIEW (lista por producto)
 function renderStock() {
   const view = views.stock;
   view.innerHTML = `
-    <div class="card" style="padding:0;overflow:hidden">
-      <table class="stock-table">
-        <thead>
-          <tr>
-            <th>Producto</th>
-            ${TALLES.map(t => `<th>${t}</th>`).join('')}
-          </tr>
-        </thead>
-        <tbody>
-          ${PRODUCTOS.map(p => `
-            <tr>
-              <td>${p}</td>
-              ${TALLES.map(t => {
-                const key = `${p}_${t}`;
-                const val = stock[key] ?? 0;
-                const cls = val === 0 ? 'cero' : val <= 2 ? 'bajo' : '';
-                return `<td><input class="stock-input ${cls}" type="number" min="0" value="${val}"
-                  data-key="${key}" onchange="updateStock('${key}', this.value)"></td>`;
-              }).join('')}
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-    <button class="btn btn-primary" onclick="saveStock()">Guardar stock</button>
-  `;
+    ${PRODUCTOS.map(p => `
+      <div class="card stock-product-card">
+        <div class="stock-product-name">${p}</div>
+        ${TALLES.map(t => {
+          const key = `${p}_${t}`;
+          const val = stock[key] ?? 0;
+          const cls = val === 0 ? 'cero' : val <= 2 ? 'bajo' : 'ok';
+          return `
+            <div class="stock-row ${cls}">
+              <span class="stock-talle">T${t}</span>
+              <div class="stock-stepper">
+                <button class="stepper-btn" data-key="${key}" onclick="adjustStock(this.dataset.key,-1)">−</button>
+                <span class="stepper-val" data-key="${key}">${val}</span>
+                <button class="stepper-btn" data-key="${key}" onclick="adjustStock(this.dataset.key,1)">+</button>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>`).join('')}
+    <button class="btn btn-primary" onclick="saveStock()">Guardar stock</button>`;
 }
 
-window.updateStock = (key, val) => {
-  stock[key] = parseInt(val) || 0;
+window.adjustStock = (key, delta) => {
+  stock[key] = Math.max(0, (stock[key] ?? 0) + delta);
+  const el = document.querySelector(`.stepper-val[data-key="${key}"]`);
+  if (el) {
+    el.textContent = stock[key];
+    const row = el.closest('.stock-row');
+    if (row) row.className = `stock-row ${stock[key] === 0 ? 'cero' : stock[key] <= 2 ? 'bajo' : 'ok'}`;
+  }
 };
 
 window.saveStock = async () => {
-  const data = {};
-  document.querySelectorAll('[data-key]').forEach(input => {
-    data[input.dataset.key] = parseInt(input.value) || 0;
-  });
-  await updateDoc(doc(db, 'meta', 'stock'), data);
+  await updateDoc(doc(db, 'meta', 'stock'), { ...stock });
   showToast('Stock guardado');
 };
 
-// ── CONFIG VIEW ────────────────────────────────────────────────────────────
+// ── CONFIG VIEW
 let configSearch = '';
 
 function renderConfig() {
@@ -785,13 +787,12 @@ function renderConfig() {
   const filtered = configSearch
     ? flexZones.filter(z => z.localidad.toLowerCase().includes(configSearch.toLowerCase()))
     : flexZones;
-
   view.innerHTML = `
     <div class="section-title">Tabla de zonas FLEX</div>
     <input class="form-input config-search" placeholder="Buscar localidad..."
       value="${configSearch}" oninput="filterConfig(this.value)">
     <div class="card" style="padding:0;overflow:hidden">
-      ${filtered.map((z, i) => `
+      ${filtered.map(z => `
         <div class="config-row">
           <div class="config-localidad">
             <div>${z.localidad}</div>
@@ -799,11 +800,9 @@ function renderConfig() {
           </div>
           <div class="config-importe">$${fmt(z.importe)}</div>
           <button class="config-edit" onclick="openEditZone(${flexZones.indexOf(z)})">✏️</button>
-        </div>
-      `).join('')}
+        </div>`).join('')}
     </div>
-    <div style="height:16px"></div>
-  `;
+    <div style="height:16px"></div>`;
 }
 
 window.filterConfig = (v) => { configSearch = v; renderConfig(); };
@@ -817,7 +816,6 @@ window.openEditZone = (idx) => {
   document.getElementById('ez-zona').value = z.zona;
   openSheet(sheetEditZone);
 };
-
 document.getElementById('btn-save-zone').addEventListener('click', async () => {
   if (editingZoneIdx === null) return;
   flexZones[editingZoneIdx] = {
@@ -830,29 +828,19 @@ document.getElementById('btn-save-zone').addEventListener('click', async () => {
   renderConfig();
 });
 
-// ── SHEET UTILS ────────────────────────────────────────────────────────────
-function openSheet(sheet) {
-  sheetOverlay.classList.add('open');
-  sheet.classList.add('open');
-}
-function closeSheet(sheet) {
-  sheet.classList.remove('open');
-  sheetOverlay.classList.remove('open');
-}
+// ── SHEETS
+function openSheet(sheet) { sheetOverlay.classList.add('open'); sheet.classList.add('open'); }
+function closeSheet(sheet) { sheet.classList.remove('open'); sheetOverlay.classList.remove('open'); }
 
 sheetOverlay.addEventListener('click', () => {
   [sheetNueva, sheetDelivery, sheetEditZone].forEach(s => s.classList.remove('open'));
   sheetOverlay.classList.remove('open');
 });
-
 document.querySelectorAll('[data-close-sheet]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const sheet = btn.closest('.sheet');
-    if (sheet) closeSheet(sheet);
-  });
+  btn.addEventListener('click', () => { const s = btn.closest('.sheet'); if (s) closeSheet(s); });
 });
 
-// ── TOAST ──────────────────────────────────────────────────────────────────
+// ── TOAST
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -860,13 +848,7 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2500);
 }
 
-// ── HELPERS ────────────────────────────────────────────────────────────────
-function fmt(n) {
-  return Math.round(n || 0).toLocaleString('es-AR');
-}
-function fmtDec(n) {
-  return (n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-function parseNum(str) {
-  return parseFloat(String(str).replace(/\./g, '').replace(',', '.')) || 0;
-}
+// ── HELPERS
+function fmt(n) { return Math.round(n || 0).toLocaleString('es-AR'); }
+function fmtDec(n) { return (n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function parseNum(str) { return parseFloat(String(str).replace(/\./g, '').replace(',', '.')) || 0; }

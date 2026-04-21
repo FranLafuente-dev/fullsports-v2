@@ -4,56 +4,58 @@ import {
   onAuthStateChanged, setPersistence, browserLocalPersistence
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
-  getFirestore,
-  collection, doc, addDoc, updateDoc, deleteDoc,
+  getFirestore, enableIndexedDbPersistence,
+  collection, doc, setDoc, addDoc, updateDoc, deleteDoc,
   onSnapshot, serverTimestamp, query, orderBy
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { FIREBASE_CONFIG, AUTHORIZED_EMAIL } from './config.js';
 import { FLEX_ZONES } from './flex-zones.js';
 
 const fbApp = initializeApp(FIREBASE_CONFIG);
-const auth = getAuth(fbApp);
-const db = getFirestore(fbApp);
+const auth  = getAuth(fbApp);
+const db    = getFirestore(fbApp);
 
 setPersistence(auth, browserLocalPersistence).catch(() => {});
+enableIndexedDbPersistence(db).catch(() => {});
 
-let orders = [];
-let stock = {};
-let flexZones = [...FLEX_ZONES];
-let formItems = [];
-let formEnvio = null;
+let orders      = [];
+let stock       = {};
+let flexZones   = [...FLEX_ZONES];
+let formItems   = [];
+let formEnvio   = null;
 let currentUser = null;
 let alertTimers = [];
 
-const PRODUCTOS = ['Mostaza', 'Total Black', 'Media caña', 'Borcegos', 'Caramelo'];
-const TALLES = [38, 39, 40, 41, 42, 43, 44, 45];
-const COSTO_COMUN = 21900;
-const COSTO_ESPECIAL = 22400;
+const PRODUCTOS        = ['Mostaza', 'Total Black', 'Media caña', 'Borcegos', 'Caramelo'];
+const TALLES           = [38, 39, 40, 41, 42, 43, 44, 45];
+const COSTO_COMUN      = 21900;
+const COSTO_ESPECIAL   = 22400;
 const TALLES_ESPECIALES = [43, 44, 45];
+const LS_AUTH  = 'fs_auth_ok';
+const LS_STOCK = 'fs_stock_v2';
 
-const loginScreen = document.getElementById('login-screen');
-const appEl = document.getElementById('app');
-const offlinePill = document.getElementById('offline-pill');
-const alertBanner = document.getElementById('alert-banner');
+const loginScreen  = document.getElementById('login-screen');
+const appEl        = document.getElementById('app');
+const offlinePill  = document.getElementById('offline-pill');
+const alertBanner  = document.getElementById('alert-banner');
 const views = {
   pedidos: document.getElementById('view-pedidos'),
-  corte: document.getElementById('view-corte'),
-  stock: document.getElementById('view-stock'),
-  config: document.getElementById('view-config'),
+  corte:   document.getElementById('view-corte'),
+  stock:   document.getElementById('view-stock'),
+  config:  document.getElementById('view-config'),
 };
-const sheetOverlay = document.getElementById('sheet-overlay');
-const sheetNueva = document.getElementById('sheet-nueva');
+const sheetOverlay  = document.getElementById('sheet-overlay');
+const sheetNueva    = document.getElementById('sheet-nueva');
 const sheetDelivery = document.getElementById('sheet-delivery');
 const sheetEditZone = document.getElementById('sheet-edit-zone');
 
-// ── AUTH — persiste entre sesiones, nunca pide login si ya se logueó
-const LS_AUTH = 'fs_auth_ok';
+// ── AUTH ─────────────────────────────────────────────────────────────────────
 let appInited = false;
 
 loginScreen.style.display = 'none';
 appEl.style.display = 'none';
 
-// Si ya se logueó antes → mostrar app de inmediato (evita pantalla en blanco en Android)
+// Si ya se logueó antes → mostrar app de inmediato sin parpadeo
 if (localStorage.getItem(LS_AUTH)) {
   appEl.style.display = 'flex';
   if (!appInited) { appInited = true; initApp(); }
@@ -80,12 +82,10 @@ onAuthStateChanged(auth, user => {
     loginScreen.style.display = 'flex';
     appEl.style.display = 'none';
   } else {
-    // user = null
     if (!localStorage.getItem(LS_AUTH)) {
       loginScreen.style.display = 'flex';
       appEl.style.display = 'none';
     }
-    // Si LS_AUTH existe: el token puede estar refrescándose — Firebase volverá a llamar con el usuario
   }
 });
 
@@ -95,6 +95,7 @@ function initApp() {
   loadFlexZones();
   setupNav();
   setupSwipe();
+  setupHistory();
   setupDispatchAlerts();
   setupOfflineDetection();
   requestNotificationPermission();
@@ -103,11 +104,12 @@ function initApp() {
 
 function setupOfflineDetection() {
   const update = () => offlinePill.classList.toggle('show', !navigator.onLine);
-  window.addEventListener('online', update);
+  window.addEventListener('online',  update);
   window.addEventListener('offline', update);
   update();
 }
 
+// ── FIRESTORE LISTENERS ───────────────────────────────────────────────────────
 function listenOrders() {
   const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
   onSnapshot(q, snap => {
@@ -118,8 +120,18 @@ function listenOrders() {
 }
 
 function listenStock() {
+  // Carga desde localStorage de inmediato para evitar stock en blanco
+  const cached = localStorage.getItem(LS_STOCK);
+  if (cached) {
+    try { stock = JSON.parse(cached); renderStock(); } catch(e) {}
+  }
   onSnapshot(doc(db, 'meta', 'stock'), snap => {
-    if (snap.exists()) stock = snap.data();
+    if (snap.exists()) {
+      stock = snap.data();
+      localStorage.setItem(LS_STOCK, JSON.stringify(stock));
+    } else if (!cached) {
+      stock = {};
+    }
     renderStock();
   });
 }
@@ -131,6 +143,7 @@ function loadFlexZones() {
   });
 }
 
+// ── NAVIGATION ────────────────────────────────────────────────────────────────
 function setupNav() {
   document.querySelectorAll('[data-nav]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -144,7 +157,7 @@ function setupNav() {
 const TAB_ORDER = ['pedidos', 'corte', 'stock', 'config'];
 let currentView = 'pedidos';
 
-function navigateTo(name) {
+function navigateInternal(name) {
   currentView = name;
   Object.values(views).forEach(v => v.classList.remove('active'));
   document.querySelectorAll('[data-nav]').forEach(b => b.classList.remove('active'));
@@ -153,6 +166,21 @@ function navigateTo(name) {
   if (btn) btn.classList.add('active');
   document.getElementById('topbar-title').textContent =
     { pedidos: 'FullSports', corte: 'Corte', stock: 'Stock', config: 'Configuración' }[name] || 'FullSports';
+}
+
+function navigateTo(name) {
+  navigateInternal(name);
+  history.pushState({ view: name }, '');
+}
+
+function setupHistory() {
+  history.replaceState({ view: 'pedidos' }, '');
+  window.addEventListener('popstate', () => {
+    const idx = TAB_ORDER.indexOf(currentView);
+    const prev = idx > 0 ? TAB_ORDER[idx - 1] : 'pedidos';
+    navigateInternal(prev);
+    history.pushState({ view: prev }, '');
+  });
 }
 
 function setupSwipe() {
@@ -175,6 +203,22 @@ function setupSwipe() {
 async function requestNotificationPermission() {
   if ('Notification' in window && Notification.permission === 'default')
     await Notification.requestPermission();
+}
+
+// ── DISPATCH TIME HELPERS ─────────────────────────────────────────────────────
+function getDispatchTarget(tipoEnvio) {
+  const now    = new Date();
+  const target = new Date();
+  target.setHours(tipoEnvio === 'FLEX' ? 13 : 14, 0, 0, 0);
+  if (target <= now) target.setDate(target.getDate() + 1);
+  return target;
+}
+
+function formatDiff(diffMs) {
+  const totalMin = Math.floor(diffMs / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
 }
 
 function setupDispatchAlerts() {
@@ -205,22 +249,18 @@ function showAlert(type, msg) {
 
 function updateCountdowns() {
   document.querySelectorAll('[data-countdown]').forEach(el => {
-    const tipo = el.dataset.countdown;
-    const now = new Date();
-    const tope = new Date();
-    if (tipo === 'FLEX') tope.setHours(13, 0, 0, 0);
-    else tope.setHours(14, 0, 0, 0);
-    const diff = tope - now;
-    if (diff <= 0) { el.style.display = 'none'; return; }
-    el.style.display = '';
-    const min = Math.floor(diff / 60000);
-    el.textContent = `${min} min`;
-    el.className = 'countdown' + (min <= 15 ? ' urgent' : '');
+    const tipo   = el.dataset.countdown;
+    const target = getDispatchTarget(tipo);
+    const diff   = target - new Date();
+    const min    = Math.floor(diff / 60000);
+    el.textContent = formatDiff(diff);
+    el.className = 'countdown' + (min <= 15 ? ' urgent' : min <= 60 ? ' warn' : '');
   });
 }
 
-// ── PEDIDOS VIEW
+// ── PEDIDOS VIEW ──────────────────────────────────────────────────────────────
 let pedidosFilter = 'todos';
+const STATUS_PRI  = { preparar: 0, pendiente: 1, camino: 2, entregado: 3 };
 
 function renderPedidos() {
   const view = views.pedidos;
@@ -233,15 +273,17 @@ function renderPedidos() {
   const filtered = pedidosFilter === 'todos' ? all
     : all.filter(o => o.status === pedidosFilter);
   const counts = {
-    preparar: all.filter(o => o.status === 'preparar').length,
+    preparar:  all.filter(o => o.status === 'preparar').length,
     pendiente: all.filter(o => o.status === 'pendiente').length,
-    camino: all.filter(o => o.status === 'camino').length,
+    camino:    all.filter(o => o.status === 'camino').length,
     entregado: entregados.length,
   };
-  // FLEX siempre primero (más urgentes)
+
+  // FLEX siempre arriba (0-3), PE abajo (10-13)
   filtered.sort((a, b) => {
-    if (a.tipoEnvio !== b.tipoEnvio) return a.tipoEnvio === 'FLEX' ? -1 : 1;
-    return 0;
+    const aS = (a.tipoEnvio === 'FLEX' ? 0 : 10) + (STATUS_PRI[a.status] ?? 9);
+    const bS = (b.tipoEnvio === 'FLEX' ? 0 : 10) + (STATUS_PRI[b.status] ?? 9);
+    return aS - bS;
   });
 
   const pendienteFlex = all.filter(o => o.status === 'pendiente' && o.tipoEnvio === 'FLEX').length;
@@ -249,7 +291,7 @@ function renderPedidos() {
   const dispatchStrip = (pendienteFlex > 0 || pendientePE > 0) ? `
     <div class="dispatch-strip">
       ${pendienteFlex > 0 ? `<button class="dispatch-btn flex-btn" onclick="despacharTodos('FLEX')">🚚 Despachar todos FLEX (${pendienteFlex})</button>` : ''}
-      ${pendientePE   > 0 ? `<button class="dispatch-btn pe-btn"   onclick="despacharTodos('PE')">🚚 Despachar todos PE (${pendientePE})</button>` : ''}
+      ${pendientePE   > 0 ? `<button class="dispatch-btn pe-btn"   onclick="despacharTodos('PE')">🚚 Despachar todos PE (${pendientePE})</button>`   : ''}
     </div>` : '';
 
   view.innerHTML = `
@@ -271,11 +313,13 @@ function renderPedidos() {
 window.setFilter = (f) => { pedidosFilter = f; renderPedidos(); };
 
 function renderOrderCard(o) {
-  const sinCorte = !o.corteDone ? '<span class="badge badge-sin-corte">Sin corte</span>' : '';
+  const sinCorte   = !o.corteDone ? '<span class="badge badge-sin-corte">Sin corte</span>' : '';
   const cuentaBadge = `<span class="badge badge-${o.cuenta}">${o.cuenta.toUpperCase()}</span>`;
-  const envBadge = o.tipoEnvio === 'FLEX'
+  const envBadge   = o.tipoEnvio === 'FLEX'
     ? `<span class="badge badge-flex">FLEX</span>`
-    : `<span class="badge badge-pe">PE</span>`;
+    : `<span class="badge badge-pe">Punto de Envío</span>`;
+
+  const isFlexActive = o.tipoEnvio === 'FLEX' && ['preparar', 'pendiente'].includes(o.status);
 
   let montoHtml = '';
   if (o.tipoEnvio === 'FLEX' && o.importeVenta) {
@@ -289,12 +333,12 @@ function renderOrderCard(o) {
     iibbHtml = `<div class="order-iibb">${o.provincia} — IIBB $${fmtDec(o.iibb)}</div>`;
 
   let countdownHtml = '';
-  if (o.status === 'preparar') {
-    const tope = new Date();
-    if (o.tipoEnvio === 'FLEX') tope.setHours(13, 0, 0, 0);
-    else tope.setHours(14, 0, 0, 0);
-    if (tope - new Date() > 0)
-      countdownHtml = `<span class="countdown" data-countdown="${o.tipoEnvio}">${o.tipoEnvio === 'FLEX' ? '13:00hs' : '14:00hs'}</span>`;
+  if (['preparar', 'pendiente'].includes(o.status)) {
+    const target   = getDispatchTarget(o.tipoEnvio);
+    const diff     = target - new Date();
+    const totalMin = Math.floor(diff / 60000);
+    const cls      = totalMin <= 15 ? ' urgent' : totalMin <= 60 ? ' warn' : '';
+    countdownHtml  = `<span class="countdown${cls}" data-countdown="${o.tipoEnvio}">${formatDiff(diff)}</span>`;
   }
 
   const fechaHtml = (o.status !== 'entregado' && o.fechaEstimada) ? `
@@ -313,14 +357,13 @@ function renderOrderCard(o) {
       <button class="btn btn-primary" onclick="marcarDespachado('${o.id}')">🚚 Despachado</button>
       <button class="btn btn-danger btn-sm" onclick="deleteOrder('${o.id}')">Eliminar</button>`;
   } else if (o.status === 'camino') {
-    statusActions = `
-      <button class="btn btn-green" onclick="marcarEntregado('${o.id}')">✓ Entregado</button>`;
+    statusActions = `<button class="btn btn-green" onclick="marcarEntregado('${o.id}')">✓ Entregado</button>`;
   } else if (o.status === 'entregado') {
-    statusActions = `<div class="order-meta" style="color:var(--green)">✓ Entregado${o.fechaEntrega ? ' — ' + o.fechaEntrega : ''}</div>`;
+    statusActions = `<div style="color:var(--green);font-size:14px;font-weight:600">✓ Entregado${o.fechaEntrega ? ' — ' + o.fechaEntrega : ''}</div>`;
   }
 
   return `
-    <div class="order-card">
+    <div class="order-card${isFlexActive ? ' flex-active' : ''}">
       <div class="order-header">${cuentaBadge}${envBadge}${sinCorte}${countdownHtml}</div>
       <div class="order-name">${o.nombreComprador}</div>
       <div class="order-items">${formatItemsShort(o.items)}</div>
@@ -345,7 +388,7 @@ function formatItemsShort(items) {
   return `${sorted.length} pares — ${Object.entries(groups).map(([k,q]) => q>1?`${k} ×${q}`:k).join(' · ')}`;
 }
 
-// ── ORDER ACTIONS
+// ── ORDER ACTIONS ─────────────────────────────────────────────────────────────
 window.marcarPreparado = async (id) => {
   const order = orders.find(o => o.id === id);
   await updateDoc(doc(db, 'orders', id), { status: 'pendiente' });
@@ -355,7 +398,9 @@ window.marcarPreparado = async (id) => {
       const key = `${item.producto}_${item.talle}`;
       newStock[key] = Math.max(0, (newStock[key] || 0) - 1);
     });
-    await updateDoc(doc(db, 'meta', 'stock'), newStock);
+    stock = newStock;
+    localStorage.setItem(LS_STOCK, JSON.stringify(stock));
+    try { await setDoc(doc(db, 'meta', 'stock'), newStock); } catch(e) {}
   }
 };
 
@@ -398,21 +443,21 @@ document.getElementById('btn-save-delivery').addEventListener('click', async () 
   closeSheet(sheetDelivery);
 });
 
-// ── NUEVA VENTA FORM
+// ── NUEVA VENTA FORM ──────────────────────────────────────────────────────────
 let editingOrderId = null;
 
 function openNuevaSheet(orderData = null) {
   editingOrderId = orderData?.id || null;
-  formItems = orderData?.items ? [...orderData.items] : [];
-  formEnvio = null;
+  formItems  = orderData?.items ? [...orderData.items] : [];
+  formEnvio  = null;
 
   sheetNueva.querySelector('.sheet-title').textContent = editingOrderId ? 'Editar pedido' : 'Nueva venta';
   setCuenta(orderData?.cuenta || 'capi');
   setTipoEnvio(orderData?.tipoEnvio || 'FLEX');
-  document.getElementById('f-nombre').value = orderData?.nombreComprador || '';
-  document.getElementById('f-provincia').value = orderData?.provincia || '';
-  document.getElementById('f-iibb').value = orderData?.iibb ? fmtDec(orderData.iibb) : '';
-  document.getElementById('f-importe-pe').value = orderData?.importeAcreditado || '';
+  document.getElementById('f-nombre').value       = orderData?.nombreComprador || '';
+  document.getElementById('f-provincia').value    = orderData?.provincia || '';
+  document.getElementById('f-iibb').value         = orderData?.iibb ? fmtDec(orderData.iibb) : '';
+  document.getElementById('f-importe-pe').value   = orderData?.importeAcreditado || '';
   document.getElementById('f-importe-flex').value = orderData?.importeVenta || '';
 
   if (orderData?.tipoEnvio === 'FLEX' && orderData.flexLocalidad) {
@@ -446,12 +491,12 @@ function setTipoEnvio(t) {
   currentTipoEnvio = t;
   document.querySelectorAll('[data-envio]').forEach(b => b.classList.toggle('active', b.dataset.envio === t));
   document.getElementById('flex-fields').style.display = t === 'FLEX' ? 'flex' : 'none';
-  document.getElementById('pe-fields').style.display = t === 'PE' ? 'flex' : 'none';
+  document.getElementById('pe-fields').style.display   = t === 'PE'   ? 'flex' : 'none';
 }
 document.querySelectorAll('[data-envio]').forEach(b => b.addEventListener('click', () => setTipoEnvio(b.dataset.envio)));
 
 const localidadInput = document.getElementById('f-localidad');
-const searchResults = document.getElementById('localidad-results');
+const searchResults  = document.getElementById('localidad-results');
 localidadInput.addEventListener('input', () => {
   const q = localidadInput.value.toLowerCase().trim();
   if (!q) { searchResults.classList.remove('show'); return; }
@@ -503,23 +548,20 @@ function updateFlexNeto() {
   }
 }
 
-// ── ITEM SELECTOR: modelo → talle → auto-agrega (1 unidad)
-let formProducto = null;
-let formTalle = null;
+// ── ITEM SELECTOR ─────────────────────────────────────────────────────────────
+let formProducto  = null;
+let formTalle     = null;
 let stockOverride = false;
-
-// estado para venta múltiple
 let multiProducto = null;
-let multiTalle = null;
-let multiCant = null;
+let multiTalle    = null;
+let multiCant     = null;
 
 function initItemSelector() {
   stockOverride = false;
-  formProducto = null;
-  formTalle = null;
+  formProducto = null; formTalle = null;
   multiProducto = null; multiTalle = null; multiCant = null;
-  const overrideBtn = document.getElementById('btn-stock-override');
-  if (overrideBtn) overrideBtn.textContent = '✏️ Manual';
+  const ob = document.getElementById('btn-stock-override');
+  if (ob) ob.textContent = '✏️ Manual';
   renderProductoButtons();
   document.getElementById('talle-wrap').style.display = 'none';
   document.getElementById('btn-add-otro').style.display = 'none';
@@ -528,19 +570,18 @@ function initItemSelector() {
 }
 
 function renderProductoButtons() {
-  const productosDisp = PRODUCTOS.filter(p =>
+  const disp = PRODUCTOS.filter(p =>
     stockOverride || TALLES.some(t => (stock[`${p}_${t}`] ?? 0) > 0)
   );
   const container = document.getElementById('producto-btns');
   if (!container) return;
-  container.innerHTML = productosDisp.length
-    ? productosDisp.map(p => `<button class="producto-btn" onclick="selectProducto('${p}')">${p}</button>`).join('')
+  container.innerHTML = disp.length
+    ? disp.map(p => `<button class="producto-btn" onclick="selectProducto('${p}')">${p}</button>`).join('')
     : `<div style="color:var(--text-3);font-size:14px;padding:4px 0">Sin stock — activá ✏️ Manual.</div>`;
 }
 
 window.selectProducto = (p) => {
-  formProducto = p;
-  formTalle = null;
+  formProducto = p; formTalle = null;
   document.querySelectorAll('#producto-btns .producto-btn').forEach(b =>
     b.classList.toggle('active', b.textContent.trim() === p));
   const tallesDisp = TALLES.filter(t => stockOverride || (stock[`${p}_${t}`] ?? 0) > 0);
@@ -550,10 +591,8 @@ window.selectProducto = (p) => {
 };
 
 window.selectTalle = (t) => {
-  // auto-agrega inmediatamente (1 unidad)
   formItems.push({ producto: formProducto, talle: t });
   renderFormItems();
-  // reset selector
   formProducto = null; formTalle = null;
   document.getElementById('talle-wrap').style.display = 'none';
   document.querySelectorAll('#producto-btns .producto-btn').forEach(b => b.classList.remove('active'));
@@ -587,12 +626,12 @@ document.getElementById('btn-stock-override').addEventListener('click', () => {
   document.getElementById('talle-wrap').style.display = 'none';
 });
 
-// ── VENTA MÚLTIPLE
+// ── VENTA MÚLTIPLE ────────────────────────────────────────────────────────────
 function renderMultiProductoButtons() {
-  const productosDisp = PRODUCTOS.filter(p =>
+  const disp = PRODUCTOS.filter(p =>
     stockOverride || TALLES.some(t => (stock[`${p}_${t}`] ?? 0) > 0)
   );
-  document.getElementById('multi-producto-btns').innerHTML = productosDisp.map(p =>
+  document.getElementById('multi-producto-btns').innerHTML = disp.map(p =>
     `<button class="producto-btn" onclick="multiSelectProducto('${p}')">${p}</button>`
   ).join('');
 }
@@ -626,7 +665,6 @@ window.multiSetCant = (c) => {
     for (let i = 0; i < multiCant; i++)
       formItems.push({ producto: multiProducto, talle: multiTalle });
     renderFormItems();
-    // reset multi para seguir agregando
     multiTalle = null; multiCant = null;
     document.getElementById('multi-talle-wrap').style.display = 'none';
     document.getElementById('multi-cant-wrap').style.display = 'none';
@@ -647,10 +685,10 @@ function renderFormItems() {
 
 window.removeItem = (i) => { formItems.splice(i, 1); renderFormItems(); };
 
-// ── SUBMIT
+// ── SUBMIT ────────────────────────────────────────────────────────────────────
 document.getElementById('btn-guardar-venta').addEventListener('click', async () => {
   const nombre = document.getElementById('f-nombre').value.trim();
-  if (!nombre) { alert('Ingresá el nombre del comprador.'); return; }
+  if (!nombre)       { alert('Ingresá el nombre del comprador.'); return; }
   if (!formItems.length) { alert('Agregá al menos un ítem.'); return; }
 
   if (!editingOrderId) {
@@ -659,34 +697,33 @@ document.getElementById('btn-guardar-venta').addEventListener('click', async () 
     );
     if (dups.length > 0) {
       const det = dups.map(o => `• ${o.nombreComprador} — ${formatItemsShort(o.items)} (${o.status})`).join('\n');
-      const ok = confirm(`Ya existe un pedido activo a nombre de "${nombre}":\n\n${det}\n\n¿Cargar de todas formas?`);
-      if (!ok) return;
+      if (!confirm(`Ya existe un pedido activo a nombre de "${nombre}":\n\n${det}\n\n¿Cargar de todas formas?`)) return;
     }
   }
 
   const base = {
-    cuenta: currentCuenta,
+    cuenta:          currentCuenta,
     nombreComprador: nombre,
-    tipoEnvio: currentTipoEnvio,
-    items: formItems,
-    status: editingOrderId ? (orders.find(o => o.id === editingOrderId)?.status || 'preparar') : 'preparar',
-    corteDone: editingOrderId ? (orders.find(o => o.id === editingOrderId)?.corteDone || false) : false,
+    tipoEnvio:       currentTipoEnvio,
+    items:           formItems,
+    status:          editingOrderId ? (orders.find(o => o.id === editingOrderId)?.status || 'preparar') : 'preparar',
+    corteDone:       editingOrderId ? (orders.find(o => o.id === editingOrderId)?.corteDone || false) : false,
   };
 
   if (currentCuenta === 'enano') {
     base.provincia = document.getElementById('f-provincia').value.trim();
-    base.iibb = parseNum(document.getElementById('f-iibb').value) || 0;
+    base.iibb      = parseNum(document.getElementById('f-iibb').value) || 0;
   }
 
   if (currentTipoEnvio === 'FLEX') {
     if (!formEnvio) { alert('Seleccioná la localidad FLEX.'); return; }
     const venta = parseNum(document.getElementById('f-importe-flex').value);
-    if (!venta) { alert('Ingresá el importe de venta.'); return; }
-    base.importeVenta = venta;
-    base.flexLocalidad = formEnvio.localidad;
-    base.flexZona = formEnvio.zona;
-    base.flexImporte = formEnvio.importe;
-    base.importeNeto = venta - formEnvio.importe;
+    if (!venta)  { alert('Ingresá el importe de venta.'); return; }
+    base.importeVenta    = venta;
+    base.flexLocalidad   = formEnvio.localidad;
+    base.flexZona        = formEnvio.zona;
+    base.flexImporte     = formEnvio.importe;
+    base.importeNeto     = venta - formEnvio.importe;
     base.importeAcreditado = base.importeNeto;
   } else {
     const monto = parseNum(document.getElementById('f-importe-pe').value);
@@ -695,10 +732,10 @@ document.getElementById('btn-guardar-venta').addEventListener('click', async () 
   }
 
   if (!editingOrderId) {
-    const hoy = new Date();
+    const hoy    = new Date();
     const manana = new Date(hoy); manana.setDate(hoy.getDate() + 1);
-    const fmtFecha = d => d.toLocaleDateString('es-AR');
-    base.fechaEstimada = currentTipoEnvio === 'FLEX' ? fmtFecha(hoy) : fmtFecha(manana);
+    const fmtF   = d => d.toLocaleDateString('es-AR');
+    base.fechaEstimada = currentTipoEnvio === 'FLEX' ? fmtF(hoy) : fmtF(manana);
   }
 
   if (editingOrderId) {
@@ -710,20 +747,20 @@ document.getElementById('btn-guardar-venta').addEventListener('click', async () 
   closeSheet(sheetNueva);
 });
 
-// ── CORTE VIEW
+// ── CORTE VIEW ────────────────────────────────────────────────────────────────
 let corteCuenta = 'capi';
 
 function renderCorte() {
   const view = views.corte;
-  const sinCorteCapi = orders.filter(o => !o.corteDone && o.cuenta === 'capi').length;
+  const sinCorteCapi  = orders.filter(o => !o.corteDone && o.cuenta === 'capi').length;
   const sinCorteEnano = orders.filter(o => !o.corteDone && o.cuenta === 'enano').length;
-  const aPrepCount = orders.filter(o => o.status === 'preparar').length;
+  const aPrepCount    = orders.filter(o => o.status === 'preparar').length;
   view.innerHTML = `
     <div class="corte-tabs">
-      <button class="corte-tab${corteCuenta==='capi'?' active':''}" onclick="setCorte('capi')">
+      <button class="corte-tab${corteCuenta==='capi'?' active':''}"    onclick="setCorte('capi')">
         CAPI <span class="corte-count">${sinCorteCapi}</span>
       </button>
-      <button class="corte-tab${corteCuenta==='enano'?' active':''}" onclick="setCorte('enano')">
+      <button class="corte-tab${corteCuenta==='enano'?' active':''}"   onclick="setCorte('enano')">
         ENANO <span class="corte-count">${sinCorteEnano}</span>
       </button>
       <button class="corte-tab${corteCuenta==='deposito'?' active':''}" onclick="setCorte('deposito')">
@@ -775,23 +812,52 @@ function renderDeposito() {
   if (!aPrepararOrders.length)
     return `<div class="empty-state"><span>🏪</span><p>No hay pedidos para preparar</p></div>`;
 
+  // Agrupar ítems por modelo+talle, ordenado por modelo luego talle
   const grupos = {};
   aPrepararOrders.forEach(o => {
     (o.items || []).forEach(item => {
-      const k = `${item.producto} T${item.talle}`;
+      const k = `${item.producto}||${item.talle}`;
       grupos[k] = (grupos[k] || 0) + 1;
     });
   });
-  const lineas = Object.entries(grupos).sort(([a],[b]) => a.localeCompare(b)).map(([k,q]) => `${k} x${q}`);
-  const texto = `A buscar en depósito:\n${lineas.join('\n')}\n\nTotal: ${aPrepararOrders.length} pedidos`;
+
+  const sortedEntries = Object.entries(grupos).sort(([a], [b]) => {
+    const [aP, aT] = a.split('||');
+    const [bP, bT] = b.split('||');
+    return aP !== bP ? aP.localeCompare(bP) : parseInt(aT) - parseInt(bT);
+  });
+
+  // Agrupar por modelo para display visual
+  const porModelo = {};
+  sortedEntries.forEach(([k, qty]) => {
+    const [prod, talle] = k.split('||');
+    if (!porModelo[prod]) porModelo[prod] = [];
+    porModelo[prod].push({ talle, qty });
+  });
+
+  const textoLineas = sortedEntries.map(([k, q]) => {
+    const [p, t] = k.split('||');
+    return `${p} T${t} ×${q}`;
+  });
+  const texto = `A buscar en depósito:\n${textoLineas.join('\n')}\n\nTotal: ${aPrepararOrders.length} pedidos`;
 
   return `
     <div class="card" style="padding:16px">
-      <div class="section-title" style="margin-bottom:10px">A buscar en depósito</div>
-      <div class="text-output">${renderWAText(texto)}</div>
-      <button class="btn btn-primary" style="margin-top:12px" onclick="copyText(${JSON.stringify(texto).replace(/"/g,'&quot;')})">📋 Copiar lista</button>
+      <div class="section-title" style="margin-bottom:12px">A buscar en depósito</div>
+      ${Object.entries(porModelo).map(([modelo, talles]) => `
+        <div class="deposito-modelo">
+          <div class="deposito-modelo-name">${modelo}</div>
+          <div class="deposito-talles">
+            ${talles.map(({ talle, qty }) => `
+              <div class="deposito-item">
+                <span class="deposito-talle">T${talle}</span>
+                <span class="deposito-qty">×${qty}</span>
+              </div>`).join('')}
+          </div>
+        </div>`).join('')}
+      <button class="btn btn-primary" style="margin-top:14px" onclick="copyText(${JSON.stringify(texto).replace(/"/g,'&quot;')})">📋 Copiar lista</button>
     </div>
-    <div class="section-title">Pedidos (${aPrepararOrders.length})</div>
+    <div class="section-title">Pedidos por preparar (${aPrepararOrders.length})</div>
     ${aPrepararOrders.map(o => `
       <div class="card" style="padding:12px 14px">
         <div style="font-weight:600">${o.nombreComprador}</div>
@@ -816,7 +882,7 @@ function generarTextoEnano(pendientes) {
   let total = 0;
   const lines = ['Ventas meli enano'];
   pendientes.forEach((o, i) => {
-    const iibb = o.provincia && o.iibb ? ` (${o.provincia} IIBB ya descontado $${fmtDec(o.iibb)})` : '';
+    const iibb  = o.provincia && o.iibb ? ` (${o.provincia} IIBB ya descontado $${fmtDec(o.iibb)})` : '';
     const monto = o.tipoEnvio === 'FLEX' && o.importeVenta
       ? `importe venta $${fmt(o.importeVenta)} menos *ENVIO FLEX $${fmt(o.flexImporte)}* total sin envío $${fmt(o.importeNeto)}`
       : `se acredito $${fmt(o.importeAcreditado)}`;
@@ -837,7 +903,7 @@ function generarTextoCostos(pendientes, cuenta) {
   const total = especiales * COSTO_ESPECIAL + comunes * COSTO_COMUN;
   const lines = [`Costo ${cuenta.toUpperCase()}`];
   if (especiales > 0) lines.push(`${especiales} cat especiales $${fmt(COSTO_ESPECIAL)}`);
-  if (comunes > 0) lines.push(`${comunes} cat comunes $${fmt(COSTO_COMUN)}`);
+  if (comunes > 0)    lines.push(`${comunes} cat comunes $${fmt(COSTO_COMUN)}`);
   lines.push('', `Total costos $${fmt(total)}`);
   return lines.join('\n');
 }
@@ -866,7 +932,7 @@ window.marcarCortado = async (cuenta) => {
   showToast('¡Marcado como cortado!');
 };
 
-// ── STOCK VIEW (lista por producto)
+// ── STOCK VIEW ────────────────────────────────────────────────────────────────
 function renderStock() {
   const view = views.stock;
   view.innerHTML = `
@@ -902,16 +968,21 @@ window.adjustStock = (key, delta) => {
 };
 
 window.saveStock = async () => {
-  if (!Object.keys(stock).length) { showToast('Stock no cargado aún'); return; }
-  await updateDoc(doc(db, 'meta', 'stock'), { ...stock });
-  showToast('Stock guardado ✓');
+  if (!Object.keys(stock).length) { showToast('Sin stock cargado aún'); return; }
+  localStorage.setItem(LS_STOCK, JSON.stringify(stock));
+  try {
+    await setDoc(doc(db, 'meta', 'stock'), stock);
+    showToast('Stock guardado ✓');
+  } catch(e) {
+    showToast('Guardado localmente ✓');
+  }
 };
 
-// ── CONFIG VIEW
+// ── CONFIG VIEW ───────────────────────────────────────────────────────────────
 let configSearch = '';
 
 function renderConfig() {
-  const view = views.config;
+  const view     = views.config;
   const filtered = configSearch
     ? flexZones.filter(z => z.localidad.toLowerCase().includes(configSearch.toLowerCase()))
     : flexZones;
@@ -919,11 +990,11 @@ function renderConfig() {
     <div class="section-title">Tabla de zonas FLEX</div>
     <input class="form-input config-search" placeholder="Buscar localidad..."
       value="${configSearch}" oninput="filterConfig(this.value)">
-    <div class="card" style="padding:0;overflow:hidden">
-      ${filtered.map(z => `
+    <div class="config-list">
+      ${filtered.map((z, idx) => `
         <div class="config-row">
           <div class="config-localidad">
-            <div>${z.localidad}</div>
+            <div class="config-localidad-name">${z.localidad}</div>
             <div class="config-zona">${z.zona}</div>
           </div>
           <div class="config-importe">$${fmt(z.importe)}</div>
@@ -940,24 +1011,24 @@ window.openEditZone = (idx) => {
   editingZoneIdx = idx;
   const z = flexZones[idx];
   document.getElementById('ez-localidad').value = z.localidad;
-  document.getElementById('ez-importe').value = z.importe;
-  document.getElementById('ez-zona').value = z.zona;
+  document.getElementById('ez-importe').value   = z.importe;
+  document.getElementById('ez-zona').value      = z.zona;
   openSheet(sheetEditZone);
 };
 document.getElementById('btn-save-zone').addEventListener('click', async () => {
   if (editingZoneIdx === null) return;
   flexZones[editingZoneIdx] = {
     localidad: document.getElementById('ez-localidad').value.trim(),
-    zona: document.getElementById('ez-zona').value.trim(),
-    importe: parseInt(document.getElementById('ez-importe').value) || 0,
+    zona:      document.getElementById('ez-zona').value.trim(),
+    importe:   parseInt(document.getElementById('ez-importe').value) || 0,
   };
   await updateDoc(doc(db, 'meta', 'flexZones'), { zones: flexZones });
   closeSheet(sheetEditZone);
   renderConfig();
 });
 
-// ── SHEETS
-function openSheet(sheet) { sheetOverlay.classList.add('open'); sheet.classList.add('open'); }
+// ── SHEETS ────────────────────────────────────────────────────────────────────
+function openSheet(sheet)  { sheetOverlay.classList.add('open'); sheet.classList.add('open'); }
 function closeSheet(sheet) { sheet.classList.remove('open'); sheetOverlay.classList.remove('open'); }
 
 sheetOverlay.addEventListener('click', () => {
@@ -968,7 +1039,7 @@ document.querySelectorAll('[data-close-sheet]').forEach(btn => {
   btn.addEventListener('click', () => { const s = btn.closest('.sheet'); if (s) closeSheet(s); });
 });
 
-// ── TOAST
+// ── TOAST ─────────────────────────────────────────────────────────────────────
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -976,7 +1047,7 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2500);
 }
 
-// ── HELPERS
-function fmt(n) { return Math.round(n || 0).toLocaleString('es-AR'); }
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function fmt(n)    { return Math.round(n || 0).toLocaleString('es-AR'); }
 function fmtDec(n) { return (n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function parseNum(str) { return parseFloat(String(str).replace(/\./g, '').replace(',', '.')) || 0; }

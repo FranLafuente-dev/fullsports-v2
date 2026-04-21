@@ -1,7 +1,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
   getAuth, GoogleAuthProvider, signInWithPopup,
-onAuthStateChanged, setPersistence, browserLocalPersistence, signInAnonymously
+  onAuthStateChanged, setPersistence, browserLocalPersistence
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
   getFirestore, enableIndexedDbPersistence,
@@ -25,7 +25,6 @@ let formItems   = [];
 let formEnvio   = null;
 let currentUser = null;
 let alertTimers = [];
-let skipSwipe = false;
 
 const PRODUCTOS        = ['Mostaza', 'Total Black', 'Media caña', 'Borcegos', 'Caramelo'];
 const TALLES           = [38, 39, 40, 41, 42, 43, 44, 45];
@@ -51,29 +50,46 @@ const sheetDelivery = document.getElementById('sheet-delivery');
 const sheetEditZone = document.getElementById('sheet-edit-zone');
 
 // ── AUTH ─────────────────────────────────────────────────────────────────────
-// ── AUTH ─────────────────────────────────────────────────────────────────────
 let appInited = false;
 
-if (loginScreen) loginScreen.style.display = 'none';
-if (appEl) appEl.style.display = 'flex';
-if (!appInited) { appInited = true; initApp(); }
+loginScreen.style.display = 'none';
+appEl.style.display = 'none';
 
-// Login manual deshabilitado: la app autentica en segundo plano sin pedir cuenta.
-document.getElementById('btn-google')?.addEventListener('click', () => {
-  showToast('✅ Esta app entra directo, sin login manual');
+// Si ya se logueó antes → mostrar app de inmediato sin parpadeo
+if (localStorage.getItem(LS_AUTH)) {
+  appEl.style.display = 'flex';
+  if (!appInited) { appInited = true; initApp(); }
+}
+
+document.getElementById('btn-google').addEventListener('click', async () => {
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+  catch (e) { alert('Error al iniciar sesión: ' + e.message); }
 });
 
 onAuthStateChanged(auth, user => {
-  if (!user) return;
-  currentUser = user;
-  const av = document.getElementById('user-avatar');
-  if (!av) return;
-  av.textContent = user.displayName?.[0] || '✓';
-  if (user.photoURL) av.innerHTML = `<img src="${user.photoURL}">`;
+  if (user && user.email === AUTHORIZED_EMAIL) {
+    localStorage.setItem(LS_AUTH, '1');
+    currentUser = user;
+    loginScreen.style.display = 'none';
+    appEl.style.display = 'flex';
+    const av = document.getElementById('user-avatar');
+    av.textContent = user.displayName?.[0] || '?';
+    if (user.photoURL) av.innerHTML = `<img src="${user.photoURL}">`;
+    if (!appInited) { appInited = true; initApp(); }
+  } else if (user) {
+    auth.signOut();
+    localStorage.removeItem(LS_AUTH);
+    loginScreen.style.display = 'flex';
+    appEl.style.display = 'none';
+  } else {
+    if (!localStorage.getItem(LS_AUTH)) {
+      loginScreen.style.display = 'flex';
+      appEl.style.display = 'none';
+    }
+  }
 });
 
-async function initApp() {
-  await ensureBackgroundAuth();
+function initApp() {
   listenOrders();
   listenStock();
   loadFlexZones();
@@ -82,17 +98,15 @@ async function initApp() {
   setupHistory();
   setupDispatchAlerts();
   setupOfflineDetection();
-  setupSheetDragClose();
   requestNotificationPermission();
   navigateTo('pedidos');
 }
 
-async function ensureBackgroundAuth() {
-  try {
-    if (!auth.currentUser) await signInAnonymously(auth);
-  } catch (e) {
-    console.warn('No se pudo autenticar en segundo plano', e?.message || e);
-  }
+function setupOfflineDetection() {
+  const update = () => offlinePill.classList.toggle('show', !navigator.onLine);
+  window.addEventListener('online',  update);
+  window.addEventListener('offline', update);
+  update();
 }
 
 // ── FIRESTORE LISTENERS ───────────────────────────────────────────────────────
@@ -173,12 +187,10 @@ function setupSwipe() {
   let startX = 0, startY = 0;
   const mc = document.getElementById('main-content');
   mc.addEventListener('touchstart', e => {
-    skipSwipe = Boolean(e.target.closest('.filter-pills, .sheet, .search-results, input, textarea, select'));
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
   }, { passive: true });
   mc.addEventListener('touchend', e => {
-    if (skipSwipe) { skipSwipe = false; return; }
     const dx = e.changedTouches[0].clientX - startX;
     const dy = e.changedTouches[0].clientY - startY;
     if (Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx) * 0.8) return;
@@ -247,23 +259,8 @@ function updateCountdowns() {
 }
 
 // ── PEDIDOS VIEW ──────────────────────────────────────────────────────────────
-let pedidosFilter = 'principal';
+let pedidosFilter = 'todos';
 const STATUS_PRI  = { preparar: 0, pendiente: 1, camino: 2, entregado: 3 };
-
-function parseFechaEstimada(fechaEstimada) {
-  if (!fechaEstimada) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(fechaEstimada)) {
-    const [y, m, d] = fechaEstimada.split('-').map(Number);
-    return new Date(y, m - 1, d);
-  }
-  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(fechaEstimada)) {
-    const [d, m, y] = fechaEstimada.split('/').map(Number);
-    return new Date(y, m - 1, d);
-  }
-  const parsed = new Date(fechaEstimada);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-}
 
 function renderPedidos() {
   const view = views.pedidos;
@@ -272,47 +269,25 @@ function renderPedidos() {
     if (o.status !== 'entregado') return false;
     return Date.now() - (o.deliveredAt?.toMillis?.() || 0) < 48 * 3600 * 1000;
   });
-  const principal = activeOrders.filter(o =>
-    o.status === 'preparar' || (o.status === 'pendiente' && o.tipoEnvio === 'FLEX')
-  );
-
-  const byFilter = {
-    principal,
-    pendiente: activeOrders.filter(o => o.status === 'pendiente'),
-    camino: activeOrders.filter(o => o.status === 'camino'),
-    entregado: entregados,
-    deposito: activeOrders.filter(o => o.status === 'preparar'),
-  };
-
-  const filtered = [...(byFilter[pedidosFilter] || principal)];
+  const all = [...activeOrders, ...entregados];
+  const filtered = pedidosFilter === 'todos' ? all
+    : all.filter(o => o.status === pedidosFilter);
   const counts = {
-    principal: principal.length,
-    pendiente: activeOrders.filter(o => o.status === 'pendiente').length,
-    camino:    activeOrders.filter(o => o.status === 'camino').length,
+    preparar:  all.filter(o => o.status === 'preparar').length,
+    pendiente: all.filter(o => o.status === 'pendiente').length,
+    camino:    all.filter(o => o.status === 'camino').length,
     entregado: entregados.length,
-    deposito:  activeOrders.filter(o => o.status === 'preparar').length,
   };
 
-  if (pedidosFilter === 'camino') {
-    filtered.sort((a, b) => {
-      const aDate = parseFechaEstimada(a.fechaEstimada);
-      const bDate = parseFechaEstimada(b.fechaEstimada);
-      if (aDate && bDate) return aDate - bDate;
-      if (aDate) return -1;
-      if (bDate) return 1;
-      return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
-    });
-  } else {
-    // FLEX siempre arriba (0-3), PE abajo (10-13)
-    filtered.sort((a, b) => {
-      const aS = (a.tipoEnvio === 'FLEX' ? 0 : 10) + (STATUS_PRI[a.status] ?? 9);
-      const bS = (b.tipoEnvio === 'FLEX' ? 0 : 10) + (STATUS_PRI[b.status] ?? 9);
-      return aS - bS;
-    });
-  }
+  // FLEX siempre arriba (0-3), PE abajo (10-13)
+  filtered.sort((a, b) => {
+    const aS = (a.tipoEnvio === 'FLEX' ? 0 : 10) + (STATUS_PRI[a.status] ?? 9);
+    const bS = (b.tipoEnvio === 'FLEX' ? 0 : 10) + (STATUS_PRI[b.status] ?? 9);
+    return aS - bS;
+  });
 
-  const pendienteFlex = activeOrders.filter(o => o.status === 'pendiente' && o.tipoEnvio === 'FLEX').length;
-  const pendientePE   = activeOrders.filter(o => o.status === 'pendiente' && o.tipoEnvio === 'PE').length;
+  const pendienteFlex = all.filter(o => o.status === 'pendiente' && o.tipoEnvio === 'FLEX').length;
+  const pendientePE   = all.filter(o => o.status === 'pendiente' && o.tipoEnvio === 'PE').length;
   const dispatchStrip = (pendienteFlex > 0 || pendientePE > 0) ? `
     <div class="dispatch-strip">
       ${pendienteFlex > 0 ? `<button class="dispatch-btn flex-btn" onclick="despacharTodos('FLEX')">🚚 Despachar todos FLEX (${pendienteFlex})</button>` : ''}
@@ -321,61 +296,21 @@ function renderPedidos() {
 
   view.innerHTML = `
     <div class="filter-pills">
-      ${['principal','pendiente','camino','entregado'].map(f => `
+      ${['todos','preparar','pendiente','camino','entregado'].map(f => `
         <button class="pill${pedidosFilter===f?' active':''}" onclick="setFilter('${f}')">
-          ${{principal:'Principal',pendiente:'Pend. despacho',camino:'En camino',entregado:'Entregados'}[f]}
-          ${counts[f]?`<span style="opacity:.7"> ${counts[f]}</span>`:''}
+          ${{todos:'Todos',preparar:'Por preparar',pendiente:'Pendiente',camino:'En camino',entregado:'Entregados'}[f]}
+          ${f!=='todos'&&counts[f]?`<span style="opacity:.7"> ${counts[f]}</span>`:''}
         </button>`).join('')}
     </div>
     ${dispatchStrip}
-    ${pedidosFilter === 'principal' ? `
-      <button class="dispatch-btn deposito-btn" onclick="setFilter('deposito')">📦 Depósito (${counts.deposito})</button>
-    ` : ''}
     ${filtered.length === 0
       ? `<div class="empty-state"><span>📦</span><p>No hay pedidos</p></div>`
-      : pedidosFilter === 'deposito' ? renderDepositoResumen(filtered) : filtered.map(o => renderOrderCard(o)).join('')}
+      : filtered.map(o => renderOrderCard(o)).join('')}
   `;
   updateCountdowns();
 }
 
 window.setFilter = (f) => { pedidosFilter = f; renderPedidos(); };
-
-function renderDepositoResumen(pedidosPreparar) {
-  const grupos = {};
-  pedidosPreparar.forEach(o => {
-    normalizeItems(o.items).forEach(item => {
-      const k = `${item.producto}||${item.talle}`;
-      grupos[k] = (grupos[k] || 0) + item.cantidad;
-    });
-  });
-
-  const sortedEntries = Object.entries(grupos).sort(([a], [b]) => {
-    const [aP, aT] = a.split('||');
-    const [bP, bT] = b.split('||');
-    return aP !== bP ? aP.localeCompare(bP) : parseInt(aT) - parseInt(bT);
-  });
-
-  return `
-    <div class="card" style="padding:16px">
-      <div class="section-title" style="margin-bottom:12px">A separar en depósito</div>
-      ${sortedEntries.length === 0 ? '<div style="color:var(--text-3)">No hay ítems pendientes.</div>' : `
-        <div class="deposito-talles">
-          ${sortedEntries.map(([k, qty]) => {
-            const [p, t] = k.split('||');
-            return `<div class="deposito-item"><span class="deposito-modelo-name" style="margin:0;text-transform:none;font-size:12px">${p} T${t}</span><span class="deposito-qty">×${qty}</span></div>`;
-          }).join('')}
-        </div>`}
-      <button class="btn btn-green" style="margin-top:14px" onclick="marcarSeparadoDeposito()">✓ Marcar como separados</button>
-      <div style="font-size:12px;color:var(--text-2);margin-top:8px">Al marcar, se descuenta stock automáticamente.</div>
-    </div>
-    <div class="section-title">Pedidos incluidos (${pedidosPreparar.length})</div>
-    ${pedidosPreparar.map(o => `
-      <div class="card" style="padding:12px 14px">
-        <div style="font-weight:600">${o.nombreComprador}</div>
-        <div style="font-size:14px;color:var(--text-2)">${formatItemsShort(o.items)}</div>
-      </div>`).join('')}
-  `;
-}
 
 function renderOrderCard(o) {
   const sinCorte   = !o.corteDone ? '<span class="badge badge-sin-corte">Sin corte</span>' : '';
@@ -438,25 +373,19 @@ function renderOrderCard(o) {
 }
 
 function sortItems(items) {
-  return [...normalizeItems(items)].sort((a, b) =>
+  if (!items) return [];
+  return [...items].sort((a, b) =>
     a.producto !== b.producto ? a.producto.localeCompare(b.producto) : a.talle - b.talle
   );
 }
 
-function normalizeItems(items) {
-  if (!Array.isArray(items)) return [];
-  return items.map(i => ({ ...i, cantidad: Math.max(1, parseInt(i.cantidad || 1)) }));
-}
-
 function formatItemsShort(items) {
-  const normalized = normalizeItems(items);
-  if (normalized.length === 0) return '';
-  const sorted = sortItems(normalized);
-  if (sorted.length === 1 && sorted[0].cantidad === 1) return `${sorted[0].producto} T${sorted[0].talle}`;
+  if (!items || items.length === 0) return '';
+  const sorted = sortItems(items);
+  if (sorted.length === 1) return `${sorted[0].producto} T${sorted[0].talle}`;
   const groups = {};
-  let total = 0;
-  sorted.forEach(i => { const k = `${i.producto} T${i.talle}`; groups[k] = (groups[k] || 0) + i.cantidad; total += i.cantidad; });
-  return `${total} pares — ${Object.entries(groups).map(([k,q]) => q>1?`${k} ×${q}`:k).join(' · ')}`;
+  sorted.forEach(i => { const k = `${i.producto} T${i.talle}`; groups[k] = (groups[k] || 0) + 1; });
+  return `${sorted.length} pares — ${Object.entries(groups).map(([k,q]) => q>1?`${k} ×${q}`:k).join(' · ')}`;
 }
 
 // ── ORDER ACTIONS ─────────────────────────────────────────────────────────────
@@ -465,31 +394,14 @@ window.marcarPreparado = async (id) => {
   await updateDoc(doc(db, 'orders', id), { status: 'pendiente' });
   if (order?.items) {
     const newStock = { ...stock };
-    normalizeItems(order.items).forEach(item => {
+    order.items.forEach(item => {
       const key = `${item.producto}_${item.talle}`;
-      newStock[key] = Math.max(0, (newStock[key] || 0) - item.cantidad);
+      newStock[key] = Math.max(0, (newStock[key] || 0) - 1);
     });
     stock = newStock;
     localStorage.setItem(LS_STOCK, JSON.stringify(stock));
     try { await setDoc(doc(db, 'meta', 'stock'), newStock); } catch(e) {}
   }
-};
-
-window.marcarSeparadoDeposito = async () => {
-  const preparar = orders.filter(o => o.status === 'preparar' && !o.separadoStock);
-  if (!preparar.length) { showToast('No hay pedidos nuevos para separar'); return; }
-  const newStock = { ...stock };
-  for (const o of preparar) {
-    normalizeItems(o.items).forEach(item => {
-      const key = `${item.producto}_${item.talle}`;
-      newStock[key] = Math.max(0, (newStock[key] || 0) - item.cantidad);
-    });
-    await updateDoc(doc(db, 'orders', o.id), { separadoStock: true, separadoAt: serverTimestamp() });
-  }
-  stock = newStock;
-  localStorage.setItem(LS_STOCK, JSON.stringify(stock));
-  try { await setDoc(doc(db, 'meta', 'stock'), newStock); } catch(e) {}
-  showToast(`Separados ${preparar.length} pedidos y stock actualizado`);
 };
 
 window.marcarDespachado = async (id) => {
@@ -523,7 +435,7 @@ window.openDeliveryDate = (id) => {
   const o = orders.find(o => o.id === id);
   document.getElementById('delivery-date-input').value = o?.fechaEstimada || '';
   openSheet(sheetDelivery);
-  };
+};
 document.getElementById('btn-save-delivery').addEventListener('click', async () => {
   const val = document.getElementById('delivery-date-input').value;
   if (!val || !deliveryOrderId) return;
@@ -536,7 +448,7 @@ let editingOrderId = null;
 
 function openNuevaSheet(orderData = null) {
   editingOrderId = orderData?.id || null;
-  formItems  = orderData?.items ? normalizeItems(orderData.items) : [];
+  formItems  = orderData?.items ? [...orderData.items] : [];
   formEnvio  = null;
 
   sheetNueva.querySelector('.sheet-title').textContent = editingOrderId ? 'Editar pedido' : 'Nueva venta';
@@ -679,9 +591,7 @@ window.selectProducto = (p) => {
 };
 
 window.selectTalle = (t) => {
-  const idx = formItems.findIndex(i => i.producto === formProducto && i.talle === t);
-  if (idx >= 0) formItems[idx].cantidad = (formItems[idx].cantidad || 1) + 1;
-  else formItems.push({ producto: formProducto, talle: t, cantidad: 1 });
+  formItems.push({ producto: formProducto, talle: t });
   renderFormItems();
   formProducto = null; formTalle = null;
   document.getElementById('talle-wrap').style.display = 'none';
@@ -752,9 +662,8 @@ window.multiSetCant = (c) => {
   document.querySelectorAll('#multi-cant-wrap .cantidad-btn').forEach(b =>
     b.classList.toggle('active', b.textContent.trim() === String(c)));
   if (multiProducto && multiTalle && multiCant) {
-    const idx = formItems.findIndex(i => i.producto === multiProducto && i.talle === multiTalle);
-    if (idx >= 0) formItems[idx].cantidad = (formItems[idx].cantidad || 1) + multiCant;
-    else formItems.push({ producto: multiProducto, talle: multiTalle, cantidad: multiCant });
+    for (let i = 0; i < multiCant; i++)
+      formItems.push({ producto: multiProducto, talle: multiTalle });
     renderFormItems();
     multiTalle = null; multiCant = null;
     document.getElementById('multi-talle-wrap').style.display = 'none';
@@ -767,25 +676,14 @@ window.multiSetCant = (c) => {
 function renderFormItems() {
   const list = document.getElementById('items-list');
   if (!formItems.length) { list.innerHTML = ''; return; }
-  list.innerHTML = normalizeItems(formItems).map((item, i) => `
+  list.innerHTML = formItems.map((item, i) => `
     <div class="item-row">
       <span class="item-row-text">${item.producto} T${item.talle}</span>
-      <div class="item-qty-wrap">
-        <button class="item-qty-btn" onclick="changeItemQty(${i},-1)">−</button>
-        <span class="item-qty-val">${item.cantidad}</span>
-        <button class="item-qty-btn" onclick="changeItemQty(${i},1)">+</button>
-      </div>
       <button class="item-remove" onclick="removeItem(${i})">×</button>
     </div>`).join('');
 }
 
 window.removeItem = (i) => { formItems.splice(i, 1); renderFormItems(); };
-window.changeItemQty = (i, d) => {
-  const curr = formItems[i];
-  if (!curr) return;
-    curr.cantidad = Math.max(1, (curr.cantidad || 1) + d);
-  renderFormItems();
-};
 
 // ── SUBMIT ────────────────────────────────────────────────────────────────────
 document.getElementById('btn-guardar-venta').addEventListener('click', async () => {
@@ -807,7 +705,7 @@ document.getElementById('btn-guardar-venta').addEventListener('click', async () 
     cuenta:          currentCuenta,
     nombreComprador: nombre,
     tipoEnvio:       currentTipoEnvio,
-    items:           normalizeItems(formItems),
+    items:           formItems,
     status:          editingOrderId ? (orders.find(o => o.id === editingOrderId)?.status || 'preparar') : 'preparar',
     corteDone:       editingOrderId ? (orders.find(o => o.id === editingOrderId)?.corteDone || false) : false,
   };
@@ -917,9 +815,9 @@ function renderDeposito() {
   // Agrupar ítems por modelo+talle, ordenado por modelo luego talle
   const grupos = {};
   aPrepararOrders.forEach(o => {
-    normalizeItems(o.items).forEach(item => {
+    (o.items || []).forEach(item => {
       const k = `${item.producto}||${item.talle}`;
-      grupos[k] = (grupos[k] || 0) + item.cantidad;
+      grupos[k] = (grupos[k] || 0) + 1;
     });
   });
 
@@ -998,9 +896,8 @@ function generarTextoEnano(pendientes) {
 function generarTextoCostos(pendientes, cuenta) {
   let especiales = 0, comunes = 0;
   pendientes.forEach(o => {
-    normalizeItems(o.items).forEach(item => {
-      if (TALLES_ESPECIALES.includes(item.talle)) especiales += item.cantidad;
-      else comunes += item.cantidad;
+    (o.items || []).forEach(item => {
+      if (TALLES_ESPECIALES.includes(item.talle)) especiales++; else comunes++;
     });
   });
   const total = especiales * COSTO_ESPECIAL + comunes * COSTO_COMUN;
@@ -1012,14 +909,12 @@ function generarTextoCostos(pendientes, cuenta) {
 }
 
 function formatItemsCorte(items) {
-  const normalized = normalizeItems(items);
-  if (!normalized.length) return '';
-  const sorted = sortItems(normalized);
-  if (sorted.length === 1 && sorted[0].cantidad === 1) return `${sorted[0].producto.toLowerCase()} ${sorted[0].talle}`;
+  if (!items || !items.length) return '';
+  const sorted = sortItems(items);
+  if (sorted.length === 1) return `${sorted[0].producto.toLowerCase()} ${sorted[0].talle}`;
   const groups = {};
-  let total = 0;
-  sorted.forEach(i => { const k = `${i.producto} ${i.talle}`; groups[k] = (groups[k]||0)+i.cantidad; total += i.cantidad; });
-  return `${total} pares (${Object.entries(groups).map(([k,q]) => q>1?`${k} x${q}`:k).join(' - ')})`;
+  sorted.forEach(i => { const k = `${i.producto} ${i.talle}`; groups[k] = (groups[k]||0)+1; });
+  return `${sorted.length} pares (${Object.entries(groups).map(([k,q]) => q>1?`${k} x${q}`:k).join(' - ')})`;
 }
 
 function renderWAText(text) {
@@ -1051,7 +946,6 @@ function renderStock() {
           return `
             <div class="stock-row ${cls}">
               <span class="stock-talle">T${t}</span>
-              <button class="stock-edit-btn" onclick="editStock('${key}')">✏️</button>
               <div class="stock-stepper">
                 <button class="stepper-btn" data-key="${key}" onclick="adjustStock(this.dataset.key,-1)">−</button>
                 <span class="stepper-val" data-key="${key}">${val}</span>
@@ -1059,7 +953,8 @@ function renderStock() {
               </div>
             </div>`;
         }).join('')}
-      </div>`).join('')}`;
+      </div>`).join('')}
+    <button class="btn btn-primary" onclick="saveStock()">Guardar stock</button>`;
 }
 
 window.adjustStock = (key, delta) => {
@@ -1070,22 +965,6 @@ window.adjustStock = (key, delta) => {
     const row = el.closest('.stock-row');
     if (row) row.className = `stock-row ${stock[key] === 0 ? 'cero' : stock[key] <= 2 ? 'bajo' : 'ok'}`;
   }
-  saveStockSilently();
-};
-
-window.editStock = (key) => {
-  const actual = stock[key] ?? 0;
-  const val = prompt(`Nuevo stock para ${key.replace('_', ' T')}:`, String(actual));
-  if (val === null) return;
-  const parsed = Math.max(0, parseInt(val, 10) || 0);
-  stock[key] = parsed;
-  const el = document.querySelector(`.stepper-val[data-key="${key}"]`);
-  if (el) {
-    el.textContent = parsed;
-    const row = el.closest('.stock-row');
-    if (row) row.className = `stock-row ${parsed === 0 ? 'cero' : parsed <= 2 ? 'bajo' : 'ok'}`;
-  }
-  saveStockSilently();
 };
 
 window.saveStock = async () => {
@@ -1099,58 +978,33 @@ window.saveStock = async () => {
   }
 };
 
-let stockSaveTimer = null;
-function saveStockSilently() {
-  clearTimeout(stockSaveTimer);
-  stockSaveTimer = setTimeout(async () => {
-    localStorage.setItem(LS_STOCK, JSON.stringify(stock));
-    try { await setDoc(doc(db, 'meta', 'stock'), stock); } catch(e) {}
-  }, 250);
-}
-
 // ── CONFIG VIEW ───────────────────────────────────────────────────────────────
 let configSearch = '';
-const openConfigZones = new Set();
 
 function renderConfig() {
   const view     = views.config;
   const filtered = configSearch
     ? flexZones.filter(z => z.localidad.toLowerCase().includes(configSearch.toLowerCase()))
     : flexZones;
-  const porZona = filtered.reduce((acc, z) => {
-    if (!acc[z.zona]) acc[z.zona] = [];
-    acc[z.zona].push(z);
-    return acc;
-  }, {});
   view.innerHTML = `
-    <div class="section-title">Zonas FLEX</div>
+    <div class="section-title">Tabla de zonas FLEX</div>
     <input class="form-input config-search" placeholder="Buscar localidad..."
       value="${configSearch}" oninput="filterConfig(this.value)">
     <div class="config-list">
-      ${Object.entries(porZona).map(([zona, items]) => `
-        <div class="config-zone">
-          <button class="config-zone-head" onclick="toggleZone('${zona.replace(/'/g, "\\'")}')">
-            <span>${zona}</span><span>${openConfigZones.has(zona) ? '▾' : '▸'}</span>
-          </button>
-          ${openConfigZones.has(zona) ? items.map(z => `
-            <div class="config-row">
-              <div class="config-localidad">
-                <div class="config-localidad-name">${z.localidad}</div>
-              </div>
-              <div class="config-importe">$${fmt(z.importe)}</div>
-              <button class="config-edit" onclick="openEditZone(${flexZones.indexOf(z)})">✏️</button>
-            </div>`).join('') : ''}
+      ${filtered.map((z, idx) => `
+        <div class="config-row">
+          <div class="config-localidad">
+            <div class="config-localidad-name">${z.localidad}</div>
+            <div class="config-zona">${z.zona}</div>
+          </div>
+          <div class="config-importe">$${fmt(z.importe)}</div>
+          <button class="config-edit" onclick="openEditZone(${flexZones.indexOf(z)})">✏️</button>
         </div>`).join('')}
     </div>
     <div style="height:16px"></div>`;
 }
 
 window.filterConfig = (v) => { configSearch = v; renderConfig(); };
-window.toggleZone = (zona) => {
-  if (openConfigZones.has(zona)) openConfigZones.delete(zona);
-  else openConfigZones.add(zona);
-  renderConfig();
-};
 
 let editingZoneIdx = null;
 window.openEditZone = (idx) => {
@@ -1184,17 +1038,6 @@ sheetOverlay.addEventListener('click', () => {
 document.querySelectorAll('[data-close-sheet]').forEach(btn => {
   btn.addEventListener('click', () => { const s = btn.closest('.sheet'); if (s) closeSheet(s); });
 });
-
-function setupSheetDragClose() {
-  const handle = sheetNueva.querySelector('.sheet-handle');
-  if (!handle) return;
-  let startY = 0;
-  handle.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
-  handle.addEventListener('touchend', e => {
-    const dy = e.changedTouches[0].clientY - startY;
-    if (dy > 160) closeSheet(sheetNueva);
-  }, { passive: true });
-}
 
 // ── TOAST ─────────────────────────────────────────────────────────────────────
 function showToast(msg) {

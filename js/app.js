@@ -3,21 +3,34 @@ firebase.initializeApp(FIREBASE_CONFIG);
 const db   = firebase.firestore();
 const auth = firebase.auth();
 const TS   = firebase.firestore.FieldValue.serverTimestamp;
-// Persistencia offline de Firestore (IndexedDB)
 db.enablePersistence({synchronizeTabs: false}).catch(() => {});
-// Auth persiste en IndexedDB por defecto — no necesita re-login al reabrir
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
-const PRODUCTOS   = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo'];
+const PRODUCTOS = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo','Banderas 60x90','Banderas 90x150','Remeras Colapinto'];
+
+// Productos con talle fijo (no numérico)
+const PRODUCTOS_FIJO = {
+  'Banderas 60x90':  ['U'],
+  'Banderas 90x150': ['U'],
+  'Remeras Colapinto': ['L'],
+};
+
 const TALLES      = [38,39,40,41,42,43,44,45];
 const TALLES_ESP  = [43,44,45];
 const COSTO_COMUN = 21900;
 const COSTO_ESP   = 22400;
 const H24         = 86400000;
 const LS_ORDERS   = 'fs_orders_v4';
-const LS_STOCK    = 'fs_stock_v2';
+const LS_STOCK    = 'fs_stock_v3';
 const LS_ZONES    = 'fs_zones_v1';
+
+// Stock defaults para nuevos productos (se aplican solo si no existen en Firestore)
+const STOCK_DEFAULTS = {
+  'Banderas 60x90_U': 5,
+  'Banderas 90x150_U': 5,
+  'Remeras Colapinto_L': 5,
+};
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let orders = [], stock = {}, zones = [...FLEX_ZONES];
@@ -25,12 +38,11 @@ let curView = 'pedidos', pedidosTab = 'preparar', corteCuenta = 'capi';
 let editingId = null, curCuenta = 'capi', curEnvio = 'FLEX';
 let curProducto = null, formItems = [], formEnvio = null;
 let deliveryId = null, deliveryAction = 'edit';
-let fsConectado = false;
+let fsConectado = false, stockInitialized = false;
 let editZoneIdx = null, editZonePriceLabel = null;
 let multiProd = null, multiTalle = null;
 let stockAll = false;
-let expandZonas = new Set(), expandParts = new Set();
-let alertTimers = [], zoneHits = [];
+let expandZonas = new Set(), alertTimers = [], zoneHits = [];
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const $loginScreen = document.getElementById('login-screen');
@@ -42,6 +54,7 @@ const $shNueva = document.getElementById('sheet-nueva');
 const $shDeliv = document.getElementById('sheet-delivery');
 const $shZone  = document.getElementById('sheet-edit-zone');
 const $shZoneP = document.getElementById('sheet-edit-precio-zona');
+const $stockFab= document.getElementById('stock-fab');
 const VIEWS = {
   pedidos: document.getElementById('view-pedidos'),
   corte:   document.getElementById('view-corte'),
@@ -49,20 +62,17 @@ const VIEWS = {
   config:  document.getElementById('view-config'),
 };
 
-// ─── ARRANQUE — Google Auth persiste, se restaura solo ───────────────────────
-// Mostrar login o app según si ya hay sesión guardada
+// ─── ARRANQUE ─────────────────────────────────────────────────────────────────
 auth.onAuthStateChanged(user => {
   if (user) {
-    // Ya está logueado (sesión guardada en dispositivo) — entrar directo
     entrarApp(user);
   } else {
-    // No hay sesión → mostrar botón de Google login
     $loginScreen.classList.remove('hidden');
     document.getElementById('btn-google-login').onclick = () => {
       const provider = new firebase.auth.GoogleAuthProvider();
       auth.signInWithPopup(provider)
         .then(r => entrarApp(r.user))
-        .catch(e => {
+        .catch(() => {
           document.getElementById('login-error').textContent = 'Error al iniciar sesión. Intentá de nuevo.';
         });
     };
@@ -72,7 +82,6 @@ auth.onAuthStateChanged(user => {
 function entrarApp(user) {
   $loginScreen.classList.add('hidden');
   $app.style.display = 'flex';
-  // Mostrar inicial del usuario en el avatar
   const av = document.getElementById('user-avatar');
   if (av && user.email) av.textContent = user.email[0].toUpperCase();
   loadCache();
@@ -102,12 +111,30 @@ function connectFirestore() {
   }, e => console.warn('orders:', e));
 
   db.collection('meta').doc('stock').onSnapshot(snap => {
-    if (snap.exists) { stock = snap.data(); saveStock(); renderStock(); }
+    if (snap.exists) {
+      stock = snap.data(); saveStock();
+      initNewProductStock(); // inicializar nuevos productos si faltan
+      renderStock();
+    }
   }, e => console.warn('stock:', e));
 
   db.collection('meta').doc('flexZones').onSnapshot(snap => {
     if (snap.exists) { zones = snap.data().zones; saveZones(); renderConfig(); }
   }, e => console.warn('zones:', e));
+}
+
+// Inicializar stock de nuevos productos la primera vez
+function initNewProductStock() {
+  if (stockInitialized) return;
+  stockInitialized = true;
+  const missing = {};
+  Object.entries(STOCK_DEFAULTS).forEach(([k, v]) => {
+    if (stock[k] === undefined) missing[k] = v;
+  });
+  if (!Object.keys(missing).length) return;
+  Object.assign(stock, missing);
+  saveStock();
+  db.collection('meta').doc('stock').update(missing).catch(() => {});
 }
 
 // ─── AUTO-ARCHIVADO ENANO ─────────────────────────────────────────────────────
@@ -193,6 +220,8 @@ function navInternal(name) {
   document.querySelector(`[data-nav="${name}"]`)?.classList.add('active');
   const T = { pedidos:'FullSports', corte:'Corte', stock:'Stock', config:'Zonas FLEX' };
   document.getElementById('topbar-title').textContent = T[name] || 'FullSports';
+  // Mostrar/ocultar FAB de stock
+  if ($stockFab) $stockFab.classList.toggle('visible', name === 'stock');
 }
 function navigateTo(name) { navInternal(name); history.pushState({ view:name }, ''); }
 
@@ -353,7 +382,7 @@ function calcDep() {
     const k=`${item.producto}||${item.talle}`; g[k]=(g[k]||0)+1;
   }));
   return Object.entries(g)
-    .sort(([a],[b])=>{ const[aP,aT]=a.split('||'),[bP,bT]=b.split('||'); return aP!==bP?aP.localeCompare(bP):parseInt(aT)-parseInt(bT); })
+    .sort(([a],[b])=>{ const[aP,aT]=a.split('||'),[bP,bT]=b.split('||'); return aP!==bP?aP.localeCompare(bP):String(aT).localeCompare(String(bT)); })
     .map(([k,qty])=>{ const[prod,talle]=k.split('||'); return {prod,talle,qty,queda:Math.max(0,(stock[`${prod}_${talle}`]??0)-qty)}; });
 }
 window.toggleDep = () => {
@@ -363,7 +392,7 @@ window.toggleDep = () => {
   box.innerHTML = !lines.length
     ? `<p class="hint-text">Sin pedidos para preparar</p>`
     : `<div class="dep-hdr">${lines.reduce((a,l)=>a+l.qty,0)} pares · ${nP} pedido${nP!==1?'s':''}</div>
-       ${lines.map(l=>`<div class="dep-row"><span class="dep-n">${l.prod} T${l.talle}</span><span class="dep-q">×${l.qty}</span><span class="dep-r ${l.queda===0?'cero':l.queda<=2?'bajo':'ok'}">queda ${l.queda}</span></div>`).join('')}`;
+       ${lines.map(l=>`<div class="dep-row"><span class="dep-n">${l.prod} ${displayTalle(l.talle)}</span><span class="dep-q">×${l.qty}</span><span class="dep-r ${l.queda===0?'cero':l.queda<=2?'bajo':'ok'}">queda ${l.queda}</span></div>`).join('')}`;
   box.style.display='block'; btn.textContent='🏪 Ocultar';
 };
 
@@ -424,13 +453,23 @@ function orderCard(o) {
 }
 
 function sortIt(items) {
-  return [...(items||[])].sort((a,b)=>a.producto!==b.producto?a.producto.localeCompare(b.producto):a.talle-b.talle);
+  return [...(items||[])].sort((a,b)=>{
+    if (a.producto!==b.producto) return a.producto.localeCompare(b.producto);
+    const na=parseInt(a.talle), nb=parseInt(b.talle);
+    if (!isNaN(na)&&!isNaN(nb)) return na-nb;
+    return String(a.talle).localeCompare(String(b.talle));
+  });
 }
 function fmtItemsShort(items) {
   if (!items||!items.length) return '';
-  const s=sortIt(items); if (s.length===1) return `${s[0].producto} T${s[0].talle}`;
-  const g={}; s.forEach(i=>{const k=`${i.producto} T${i.talle}`;g[k]=(g[k]||0)+1;});
+  const s=sortIt(items);
+  if (s.length===1) return `${s[0].producto} ${displayTalle(s[0].talle)}`;
+  const g={}; s.forEach(i=>{const k=`${i.producto} ${displayTalle(i.talle)}`;g[k]=(g[k]||0)+1;});
   return `${s.length} pares — ${Object.entries(g).map(([k,q])=>q>1?`${k}×${q}`:k).join(' · ')}`;
+}
+function displayTalle(t) {
+  if (t==='U') return 'Único';
+  return isNaN(parseInt(t)) ? String(t) : `T${t}`;
 }
 
 // ─── ACCIONES ─────────────────────────────────────────────────────────────────
@@ -563,7 +602,6 @@ function openNuevaSheet(data=null) {
   V('btn-add-otro').style.display='none';
   V('btn-multi').style.display='none';
   V('multi-wrap').style.display='none';
-  removeCantWrap();
   renderFormItems();
   openSheet($shNueva);
   setTimeout(()=>$shNueva.querySelector('.sheet-body').scrollTop=0,50);
@@ -588,10 +626,10 @@ function setupFormListeners() {
   V('btn-stock-override').addEventListener('click',()=>{
     stockAll=!stockAll;
     V('btn-stock-override').textContent=stockAll?'✏️ Todo':'✏️ Manual';
-    curProducto=null; renderProdBtns(); V('talle-wrap').style.display='none'; removeCantWrap();
+    curProducto=null; renderProdBtns(); V('talle-wrap').style.display='none';
   });
   V('btn-add-otro').addEventListener('click',()=>{
-    renderProdBtns(); V('talle-wrap').style.display='none'; removeCantWrap();
+    renderProdBtns(); V('talle-wrap').style.display='none'; curProducto=null;
     V('btn-add-otro').style.display='none'; V('btn-multi').style.display='none';
     V('item-selector-wrap').scrollIntoView({behavior:'smooth',block:'start'});
   });
@@ -602,18 +640,6 @@ function setupFormListeners() {
     V('multi-cant-wrap').style.display='none';
     V('multi-wrap').style.display='block';
     V('multi-wrap').scrollIntoView({behavior:'smooth',block:'start'});
-  });
-  V('mc-minus')?.addEventListener('click',()=>{const i=V('mc-val');if(i)i.value=Math.max(1,parseInt(i.value||1)-1);});
-  V('mc-plus') ?.addEventListener('click',()=>{const i=V('mc-val');if(i)i.value=Math.min(99,parseInt(i.value||1)+1);});
-  V('mc-confirm')?.addEventListener('click',()=>{
-    if (!multiProd||!multiTalle) return;
-    const qty=Math.max(1,parseInt(V('mc-val')?.value||1));
-    for(let i=0;i<qty;i++) formItems.push({producto:multiProd,talle:multiTalle});
-    renderFormItems(); multiTalle=null;
-    V('multi-talle-wrap').style.display='none'; V('multi-cant-wrap').style.display='none';
-    document.querySelectorAll('#multi-talle-btns .talle-btn').forEach(b=>b.classList.remove('active'));
-    V('btn-add-otro').style.display='flex';
-    toast(`${qty} par${qty>1?'es':''} agregado${qty>1?'s':''}`);
   });
   V('btn-guardar-venta').addEventListener('click', guardarVenta);
 }
@@ -678,78 +704,123 @@ function updateNeto() {
 }
 
 // ─── SELECTOR PRODUCTOS / TALLES ──────────────────────────────────────────────
+function getProductTalles(p) {
+  const fixed = PRODUCTOS_FIJO[p];
+  if (fixed) return fixed;
+  return TALLES.filter(t => stockAll || (stock[`${p}_${t}`] ?? 0) > 0);
+}
+
 function renderProdBtns() {
-  const disp=PRODUCTOS.filter(p=>stockAll||TALLES.some(t=>(stock[`${p}_${t}`]??0)>0));
+  const disp=PRODUCTOS.filter(p=>{
+    if (stockAll) return true;
+    return getProductTalles(p).length > 0;
+  });
   const c=V('producto-btns'); if (!c) return;
   c.innerHTML=disp.length
-    ?disp.map(p=>`<button class="producto-btn" onclick="selProd('${p}')">${p}</button>`).join('')
+    ?disp.map(p=>`<button class="producto-btn" onclick="selProd('${p.replace(/'/g,"\\'")}')">${p}</button>`).join('')
     :`<p class="hint-text">Sin stock — activá ✏️ Manual</p>`;
 }
+
 window.selProd = p => {
   curProducto=p;
   document.querySelectorAll('#producto-btns .producto-btn').forEach(b=>b.classList.toggle('active',b.textContent.trim()===p));
-  const avail=TALLES.filter(t=>stockAll||(stock[`${p}_${t}`]??0)>0);
-  V('talle-btns').innerHTML=avail.map(t=>`<button class="talle-btn" onclick="selTalle(${t})">${t}</button>`).join('');
-  V('talle-wrap').style.display='flex'; removeCantWrap();
+  const talles=getProductTalles(p);
+  V('talle-btns').innerHTML=talles.map(t=>{
+    const js=typeof t==='string'?`'${t}'`:t;
+    const unico=PRODUCTOS_FIJO[p]&&talles.length===1;
+    return `<button class="talle-btn${unico?' talle-unico':''}" onclick="selTalle(${js})">${displayTalle(t)}</button>`;
+  }).join('');
+  V('talle-wrap').style.display='flex';
+  // Auto-seleccionar si solo hay un talle posible
+  if (talles.length===1) selTalle(talles[0]);
 };
+
+// Auto-agregar al tocar talle (sin botón "Agregar")
 window.selTalle = t => {
-  document.querySelectorAll('#talle-btns .talle-btn').forEach(b=>b.classList.toggle('active',parseInt(b.textContent)===t));
-  showCantWrap(t);
-};
-function showCantWrap(talle) {
-  removeCantWrap();
-  const w=document.createElement('div'); w.id='scw'; w.className='cant-wrap';
-  w.innerHTML=`<span class="cant-label">Cantidad</span>
-    <div class="cant-row">
-      <button class="stepper-btn" id="sc-">−</button>
-      <input class="cant-val-input" id="sc-v" type="number" value="1" min="1" max="99" inputmode="numeric">
-      <button class="stepper-btn" id="sc+">+</button>
-      <button class="btn btn-primary btn-sm" id="sc-ok">Agregar</button>
-    </div>`;
-  V('talle-wrap').insertAdjacentElement('afterend',w);
-  document.getElementById('sc-').onclick=()=>{const i=V('sc-v');i.value=Math.max(1,parseInt(i.value||1)-1);};
-  document.getElementById('sc+').onclick=()=>{const i=V('sc-v');i.value=Math.min(99,parseInt(i.value||1)+1);};
-  document.getElementById('sc-ok').onclick=()=>{
-    const qty=Math.max(1,parseInt(V('sc-v').value)||1);
-    for(let i=0;i<qty;i++) formItems.push({producto:curProducto,talle});
-    renderFormItems(); curProducto=null;
-    V('talle-wrap').style.display='none'; removeCantWrap();
-    document.querySelectorAll('#producto-btns .producto-btn').forEach(b=>b.classList.remove('active'));
-    V('btn-add-otro').style.display='flex'; V('btn-multi').style.display='flex';
-  };
-}
-function removeCantWrap() { document.getElementById('scw')?.remove(); }
-
-function renderMultiProd() {
-  const disp=PRODUCTOS.filter(p=>stockAll||TALLES.some(t=>(stock[`${p}_${t}`]??0)>0));
-  V('multi-producto-btns').innerHTML=disp.map(p=>`<button class="producto-btn" onclick="mSelProd('${p}')">${p}</button>`).join('');
-}
-window.mSelProd = p => {
-  multiProd=p; multiTalle=null;
-  document.querySelectorAll('#multi-producto-btns .producto-btn').forEach(b=>b.classList.toggle('active',b.textContent.trim()===p));
-  const avail=TALLES.filter(t=>stockAll||(stock[`${p}_${t}`]??0)>0);
-  V('multi-talle-btns').innerHTML=avail.map(t=>`<button class="talle-btn" onclick="mSelTalle(${t})">${t}</button>`).join('');
-  V('multi-talle-wrap').style.display='flex'; V('multi-cant-wrap').style.display='none';
-};
-window.mSelTalle = t => {
-  multiTalle=t;
-  document.querySelectorAll('#multi-talle-btns .talle-btn').forEach(b=>b.classList.toggle('active',parseInt(b.textContent)===t));
-  const i=V('mc-val'); if(i) i.value=1;
-  V('multi-cant-wrap').style.display='flex';
+  if (!curProducto) return;
+  formItems.push({producto:curProducto, talle:t});
+  renderFormItems();
+  curProducto=null;
+  V('talle-wrap').style.display='none';
+  document.querySelectorAll('#producto-btns .producto-btn').forEach(b=>b.classList.remove('active'));
+  V('btn-add-otro').style.display='flex';
+  V('btn-multi').style.display='flex';
+  toast('Par agregado ✓');
 };
 
+// ─── ITEMS LISTA ──────────────────────────────────────────────────────────────
 function renderFormItems() {
   const list=V('items-list'); if (!list) return;
   if (!formItems.length) { list.innerHTML=''; return; }
   const g={};
-  formItems.forEach((item,i)=>{const k=`${item.producto}||${item.talle}`;if(!g[k])g[k]={...item,idx:[]};g[k].idx.push(i);});
-  list.innerHTML=Object.entries(g).map(([,{producto,talle,idx}])=>`
-    <div class="item-row">
-      <span class="item-row-text">${producto} T${talle}${idx.length>1?` <b>×${idx.length}</b>`:''}</span>
-      <button class="item-remove" onclick="rmItem(${idx[idx.length-1]})">×</button>
-    </div>`).join('');
+  formItems.forEach(item=>{
+    const k=`${item.producto}||${item.talle}`;
+    if(!g[k]) g[k]={...item,count:0};
+    g[k].count++;
+  });
+  list.innerHTML=Object.entries(g).map(([k,{producto,talle,count}])=>{
+    const kEnc=encodeURIComponent(k);
+    return `<div class="item-row">
+      <span class="item-row-text">${producto} ${displayTalle(talle)}</span>
+      <div class="item-row-right">
+        ${count>1?`<span class="item-qty-badge">×${count}</span>`:''}
+        <button class="btn-pencil item-pencil" onclick="editItemQty('${kEnc}')">✏️</button>
+        <button class="item-remove" onclick="removeGroup('${kEnc}')">×</button>
+      </div>
+    </div>`;
+  }).join('');
 }
-window.rmItem = i => { formItems.splice(i,1); renderFormItems(); };
+
+window.editItemQty = kEnc => {
+  const k=decodeURIComponent(kEnc);
+  const [producto,talleStr]=k.split('||');
+  const talle=isNaN(parseInt(talleStr))?talleStr:parseInt(talleStr);
+  const current=formItems.filter(i=>i.producto===producto&&String(i.talle)===talleStr).length;
+  const v=prompt(`Cantidad — ${producto} ${displayTalle(talle)}:`,current);
+  if (v===null) return;
+  const n=parseInt(v);
+  if (isNaN(n)||n<0) { toast('Número inválido'); return; }
+  formItems=formItems.filter(i=>!(i.producto===producto&&String(i.talle)===talleStr));
+  for(let i=0;i<n;i++) formItems.push({producto,talle});
+  renderFormItems();
+};
+
+window.removeGroup = kEnc => {
+  const k=decodeURIComponent(kEnc);
+  const [producto,talleStr]=k.split('||');
+  formItems=formItems.filter(i=>!(i.producto===producto&&String(i.talle)===talleStr));
+  renderFormItems();
+  if(!formItems.length) { V('btn-add-otro').style.display='none'; V('btn-multi').style.display='none'; }
+};
+
+// ─── MULTI PANEL (agregar otro modelo) ───────────────────────────────────────
+function renderMultiProd() {
+  const disp=PRODUCTOS.filter(p=>stockAll||getProductTalles(p).length>0);
+  V('multi-producto-btns').innerHTML=disp.map(p=>`<button class="producto-btn" onclick="mSelProd('${p.replace(/'/g,"\\'")}')">${p}</button>`).join('');
+}
+window.mSelProd = p => {
+  multiProd=p; multiTalle=null;
+  document.querySelectorAll('#multi-producto-btns .producto-btn').forEach(b=>b.classList.toggle('active',b.textContent.trim()===p));
+  const talles=getProductTalles(p);
+  V('multi-talle-btns').innerHTML=talles.map(t=>{
+    const js=typeof t==='string'?`'${t}'`:t;
+    return `<button class="talle-btn" onclick="mSelTalle(${js})">${displayTalle(t)}</button>`;
+  }).join('');
+  V('multi-talle-wrap').style.display='flex';
+  V('multi-cant-wrap').style.display='none';
+  if (talles.length===1) mSelTalle(talles[0]);
+};
+window.mSelTalle = t => {
+  if (!multiProd) return;
+  formItems.push({producto:multiProd,talle:t});
+  renderFormItems();
+  multiProd=null; multiTalle=null;
+  V('multi-wrap').style.display='none';
+  V('multi-talle-wrap').style.display='none';
+  V('btn-add-otro').style.display='flex';
+  V('btn-multi').style.display='flex';
+  toast('Ítem agregado ✓');
+};
 
 // ─── GUARDAR VENTA ────────────────────────────────────────────────────────────
 async function guardarVenta() {
@@ -845,16 +916,16 @@ function renderDepCorte() {
   if (!prep.length) return `<div class="empty-state"><span>🏪</span><p>Sin pedidos para preparar</p></div>`;
   const lines=calcDep();
   const pm={}; lines.forEach(l=>{if(!pm[l.prod])pm[l.prod]=[];pm[l.prod].push(l);});
-  const txt=`A buscar:\n${lines.map(l=>`${l.prod} T${l.talle} ×${l.qty}`).join('\n')}\n\nTotal: ${prep.length} pedidos`;
+  const txt=`A buscar:\n${lines.map(l=>`${l.prod} ${displayTalle(l.talle)} ×${l.qty}`).join('\n')}\n\nTotal: ${prep.length} pedidos`;
   return `<div class="card" style="padding:16px">
     <div class="section-title">A buscar en depósito</div>
     ${Object.entries(pm).map(([m,ls])=>`
       <div class="deposito-modelo"><div class="deposito-modelo-name">${m}</div>
-        <div class="deposito-talles">${ls.map(l=>`<div class="deposito-item"><span class="deposito-talle">T${l.talle}</span><span class="deposito-qty">×${l.qty}</span></div>`).join('')}</div>
+        <div class="deposito-talles">${ls.map(l=>`<div class="deposito-item"><span class="deposito-talle">${displayTalle(l.talle)}</span><span class="deposito-qty">×${l.qty}</span></div>`).join('')}</div>
       </div>`).join('')}
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--sep)">
       <div class="dep-hdr" style="margin-bottom:6px">Stock restante</div>
-      ${lines.map(l=>`<div class="dep-row"><span class="dep-n">${l.prod} T${l.talle}</span><span class="dep-q">−${l.qty}</span><span class="dep-r ${l.queda===0?'cero':l.queda<=2?'bajo':'ok'}">queda ${l.queda}</span></div>`).join('')}
+      ${lines.map(l=>`<div class="dep-row"><span class="dep-n">${l.prod} ${displayTalle(l.talle)}</span><span class="dep-q">−${l.qty}</span><span class="dep-r ${l.queda===0?'cero':l.queda<=2?'bajo':'ok'}">queda ${l.queda}</span></div>`).join('')}
     </div>
     <button class="btn btn-primary" style="margin-top:14px;width:100%" onclick="copyTxt(${esc(txt)})">📋 Copiar lista</button>
   </div>
@@ -894,8 +965,9 @@ function textoCostos(pend,c) {
 }
 function fmtItemsCorte(items) {
   if(!items||!items.length)return'';
-  const s=sortIt(items); if(s.length===1)return`${s[0].producto.toLowerCase()} ${s[0].talle}`;
-  const g={}; s.forEach(i=>{const k=`${i.producto} ${i.talle}`;g[k]=(g[k]||0)+1;});
+  const s=sortIt(items);
+  if(s.length===1)return`${s[0].producto.toLowerCase()} ${displayTalle(s[0].talle)}`;
+  const g={}; s.forEach(i=>{const k=`${i.producto} ${displayTalle(i.talle)}`;g[k]=(g[k]||0)+1;});
   return`${s.length} pares (${Object.entries(g).map(([k,q])=>q>1?`${k} x${q}`:k).join(' - ')})`;
 }
 function renderWA(t){return t.replace(/\*(.*?)\*/g,'<b>$1</b>').replace(/\n/g,'<br>');}
@@ -911,25 +983,51 @@ window.doCortado = async c=>{
 // ─── STOCK VIEW ───────────────────────────────────────────────────────────────
 function renderStock() {
   const v=VIEWS.stock; if (!v) return;
-  v.innerHTML=`
-    ${PRODUCTOS.map(p=>`
-      <div class="card stock-product-card">
-        <div class="stock-product-name">${p}</div>
-        ${TALLES.map(t=>{
-          const k=`${p}_${t}`,val=stock[k]??0,cls=val===0?'cero':val<=2?'bajo':'ok';
-          return`<div class="stock-row ${cls}">
-            <span class="stock-talle">T${t}</span>
-            <div class="stock-stepper">
-              <button class="stepper-btn" onclick="adjSt('${k}',-1)">−</button>
-              <span class="stepper-val" id="sv-${k}">${val}</span>
-              <button class="stepper-btn" onclick="adjSt('${k}',1)">+</button>
-              <button class="stepper-btn stepper-pencil" onclick="editSt('${k}')">✏️</button>
-            </div>
-          </div>`;
-        }).join('')}
-      </div>`).join('')}
-    <button class="btn btn-primary" style="margin:8px 0 24px" onclick="doSaveStock()">💾 Guardar stock</button>`;
+
+  const cardsHtml = PRODUCTOS.map(p => {
+    const talles = PRODUCTOS_FIJO[p] ? PRODUCTOS_FIJO[p] : TALLES;
+    const conStock = talles.filter(t=>(stock[`${p}_${t}`]??0)>0);
+    const sinStock = talles.filter(t=>(stock[`${p}_${t}`]??0)===0);
+    const pEnc = encodeURIComponent(p);
+
+    const activeRows = conStock.map(t=>renderStockRow(p,t)).join('');
+    const zeroRows   = sinStock.map(t=>renderStockRow(p,t)).join('');
+    const zeroSection = sinStock.length ? `
+      <button class="zero-toggle btn-link" onclick="toggleZeroStock('${pEnc}')">▼ Sin stock (${sinStock.length})</button>
+      <div id="zero-${pEnc}" class="zero-section" style="display:none">${zeroRows}</div>
+    ` : '';
+
+    return `<div class="card stock-product-card">
+      <div class="stock-product-name">${p}</div>
+      ${activeRows || `<div class="hint-text" style="padding:6px 0;color:var(--red)">Sin stock disponible</div>`}
+      ${zeroSection}
+    </div>`;
+  }).join('');
+
+  v.innerHTML = cardsHtml;
 }
+
+function renderStockRow(p, t) {
+  const k=`${p}_${t}`, val=stock[k]??0, cls=val===0?'cero':val<=2?'bajo':'ok';
+  return `<div class="stock-row ${cls}">
+    <span class="stock-talle">${displayTalle(t)}</span>
+    <div class="stock-stepper">
+      <button class="stepper-btn" onclick="adjSt('${k}',-1)">−</button>
+      <span class="stepper-val" id="sv-${k}">${val}</span>
+      <button class="stepper-btn" onclick="adjSt('${k}',1)">+</button>
+      <button class="stepper-btn stepper-pencil" onclick="editSt('${k}')">✏️</button>
+    </div>
+  </div>`;
+}
+
+window.toggleZeroStock = pEnc => {
+  const div = document.getElementById(`zero-${pEnc}`); if (!div) return;
+  const btn = div.previousElementSibling;
+  const show = div.style.display === 'none';
+  div.style.display = show ? 'block' : 'none';
+  if (btn) btn.textContent = show ? '▲ Ocultar agotados' : `▼ Sin stock (${div.querySelectorAll('.stock-row').length})`;
+};
+
 window.adjSt=(k,d)=>{
   stock[k]=Math.max(0,(stock[k]??0)+d);
   const el=document.getElementById(`sv-${k}`);
@@ -937,7 +1035,7 @@ window.adjSt=(k,d)=>{
 };
 window.editSt=k=>{
   const el=document.getElementById(`sv-${k}`); if(!el)return;
-  const v=prompt(`Cantidad para ${k.replace('_',' T')}:`,stock[k]??0);
+  const v=prompt(`Cantidad para ${k.replace('_',' ')}:`,stock[k]??0);
   if(v===null)return; const n=parseInt(v);
   if(isNaN(n)||n<0){toast('Número inválido');return;}
   stock[k]=n; el.textContent=n; upRowCls(el,n);
@@ -964,22 +1062,22 @@ function renderConfig() {
       <div class="card">
         <div class="config-zona-header" onclick="toggleZona('${zona.replace(/'/g,"\\'")}')">
           <div class="config-zona-info">
-            <div class="config-zona-name">${zona}</div>
+            <div class="config-zona-label">${zona}</div>
             <div class="config-zona-sub">$${fmt(locs[0].importe)} · ${locs.length} localidades</div>
           </div>
           <div class="config-zona-right">
             <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();editZonaPrice('${zona.replace(/'/g,"\\'")}',${locs[0].importe})">✏️ Precio</button>
-            <span class="config-zona-arrow">${expandZonas.has(zona)?'▲':'▼'}</span>
+            <span class="zona-arrow">${expandZonas.has(zona)?'▲':'▼'}</span>
           </div>
         </div>
         ${expandZonas.has(zona)?`
         <div class="config-zona-body">
           ${locs.map(l=>`
-            <div class="config-partido-hdr" onclick="togglePart('${l.idx}')">
+            <div class="config-partido-hdr">
               <span>${l.localidad}</span>
               <div style="display:flex;align-items:center;gap:8px">
                 <span style="font-size:12px;color:var(--text-3)">$${fmt(l.importe)}</span>
-                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();editLoc(${l.idx})">✏️</button>
+                <button class="btn btn-ghost btn-sm" onclick="editLoc(${l.idx})">✏️</button>
               </div>
             </div>`).join('')}
         </div>`:''}
@@ -987,7 +1085,6 @@ function renderConfig() {
     </div>`;
 }
 window.toggleZona = z=>{expandZonas.has(z)?expandZonas.delete(z):expandZonas.add(z);renderConfig();};
-window.togglePart = i=>{const s=String(i);expandParts.has(s)?expandParts.delete(s):expandParts.add(s);renderConfig();};
 window.editZonaPrice = (zona,precio)=>{
   editZonePriceLabel=zona;
   V('ez-zona-label').textContent=zona;

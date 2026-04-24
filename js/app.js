@@ -370,13 +370,16 @@ function setupFabMenu() {
   const wrap = document.getElementById('fab-radial-wrap');
   if (!fab) return;
 
-  let pressTimer   = null;
-  let didLongPress = false;
+  let pressTimer     = null;
+  let autoCloseTimer = null;
+  let didLongPress   = false;
 
   const isOpen = () => fab.classList.contains('menu-open');
 
   function openRadial() {
     fab.classList.add('menu-open');
+    clearTimeout(autoCloseTimer);
+    autoCloseTimer = setTimeout(closeRadial, 5000);
     if (!wrap) return;
     const items = wrap.querySelectorAll('.fab-radial-item');
     items.forEach(i => { i.classList.remove('open'); i.classList.add('animating'); });
@@ -384,6 +387,7 @@ function setupFabMenu() {
   }
 
   function closeRadial() {
+    clearTimeout(autoCloseTimer);
     fab.classList.remove('menu-open');
     if (!wrap) return;
     const items = wrap.querySelectorAll('.fab-radial-item');
@@ -403,33 +407,28 @@ function setupFabMenu() {
 
   fab.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
 
-  fab.addEventListener('touchend', () => {
+  // Non-passive para poder llamar preventDefault y evitar el click sintético del browser
+  fab.addEventListener('touchend', e => {
     clearTimeout(pressTimer);
-    if (!didLongPress) {
-      if (isOpen()) closeRadial();
-      openNuevaSheet();
-    }
-    didLongPress = false;
+    if (didLongPress) { didLongPress = false; return; } // ya manejado en el timer
+    e.preventDefault(); // bloquea el click sintético de 300ms
+    if (isOpen()) closeRadial();
+    openNuevaSheet();
   });
 
-  // Desktop fallback
+  // Solo desktop (sin eventos touch disponibles)
   fab.addEventListener('click', () => {
     if ('ontouchstart' in window) return;
     if (isOpen()) { closeRadial(); return; }
     openNuevaSheet();
   });
 
-  // Cerrar al tocar fuera
+  // Cerrar al tocar fuera del FAB y del menú
   document.addEventListener('touchstart', e => {
     if (isOpen() && !fab.contains(e.target) && !(wrap && wrap.contains(e.target))) {
       closeRadial();
     }
   }, { passive: true });
-  document.addEventListener('click', e => {
-    if (isOpen() && !fab.contains(e.target) && !(wrap && wrap.contains(e.target))) {
-      closeRadial();
-    }
-  });
 }
 
 window.fabRadialGo = name => {

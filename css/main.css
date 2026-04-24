@@ -222,27 +222,53 @@ body {
 /* ── NUEVA FAB ───────────────────────────────────────────────────────────── */
 .nueva-fab {
   position: fixed;
-  bottom: calc(var(--nav-h) + 22px);
+  bottom: calc(var(--nav-h) + 32px);
   right: 20px;
   z-index: 180;
-  width: 52px; height: 52px;
-  border-radius: 17px;
+  width: 62px; height: 62px;
+  border-radius: 50%;
   background: linear-gradient(145deg, #FFD700, #FF8000);
   border: none; cursor: pointer;
   display: none; align-items: center; justify-content: center;
   box-shadow:
-    0 10px 32px rgba(255,155,0,0.65),
-    0 3px 10px rgba(0,0,0,0.22),
-    inset 0 1.5px 0 rgba(255,255,255,0.42);
-  font-size: 28px; font-weight: 300; color: #fff; line-height: 1;
+    0 12px 36px rgba(255,155,0,0.68),
+    0 4px 12px rgba(0,0,0,0.24),
+    inset 0 1.5px 0 rgba(255,255,255,0.45);
+  font-size: 32px; font-weight: 300; color: #fff; line-height: 1;
   font-family: inherit;
   transition: transform 0.2s var(--spring), box-shadow 0.2s;
 }
 .nueva-fab.visible { display: flex; }
 .nueva-fab:active {
   transform: scale(0.86);
-  box-shadow: 0 5px 16px rgba(255,155,0,0.4), 0 2px 6px rgba(0,0,0,0.15);
+  box-shadow: 0 5px 18px rgba(255,155,0,0.4), 0 2px 6px rgba(0,0,0,0.15);
 }
+
+/* ── FAB LONG-PRESS MENU ─────────────────────────────────────────────────── */
+.fab-menu-overlay {
+  position: fixed; inset: 0; z-index: 250;
+  background: rgba(0,0,0,0.52);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  display: none; align-items: flex-end; justify-content: flex-end;
+  padding: 0 20px calc(var(--nav-h) + 108px) 0;
+}
+@media (prefers-color-scheme: light) {
+  .fab-menu-overlay { background: rgba(180,185,210,0.58); }
+}
+.fab-menu-overlay.open { display: flex; }
+.fab-menu { display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+.fab-menu-item {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--card); border: 1px solid var(--border-hi);
+  border-radius: 18px; padding: 13px 22px;
+  font-size: 15px; font-weight: 700; color: var(--text);
+  cursor: pointer; font-family: inherit; white-space: nowrap;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.1);
+  transition: transform 0.18s var(--spring), opacity 0.15s;
+}
+.fab-menu-item:active { transform: scale(0.93); }
+.fab-menu-label { font-size: 14px; font-weight: 700; }
 
 /* ── SECTION TITLE ───────────────────────────────────────────────────────── */
 .section-title {
@@ -378,12 +404,12 @@ body {
 
 /* ── BOTTOM SHEET ────────────────────────────────────────────────────────── */
 .sheet-overlay {
-  display: none; position: fixed; inset: 0; z-index: 50;
+  display: none; position: fixed; inset: 0; z-index: 210;
   background: rgba(0,0,0,0.45); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
 }
 .sheet-overlay.open { display: block; }
 .sheet {
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 51;
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 211;
   background: var(--bg-2);
   border-radius: 22px 22px 0 0;
   box-shadow: var(--shadow-lg);
@@ -578,6 +604,22 @@ input:-webkit-autofill:focus {
   display: inline-block; margin-left: 5px;
   background: rgba(255,255,255,0.22); border-radius: 10px; padding: 1px 6px; font-size: 11px;
 }
+.corte-tab { font-size: 11px; }
+
+/* ── FLEX QUINCENA ───────────────────────────────────────────────────────── */
+.flex-stat-row { display: flex; gap: 10px; margin-top: 10px; }
+.flex-stat-box {
+  flex: 1; border-radius: var(--radius-sm); padding: 12px;
+  display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid var(--border);
+}
+.flex-stat-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-3); }
+.flex-stat-val   { font-size: 20px; font-weight: 800; color: var(--text); }
+.flex-stat-n     { font-size: 11px; color: var(--text-3); }
+.flex-order-row  { display: flex; justify-content: space-between; align-items: flex-start; padding: 7px 0; border-bottom: 1px solid var(--sep); font-size: 13px; }
+.flex-order-row:last-child { border-bottom: none; }
+.flex-period-card { cursor: pointer; }
+.flex-period-body { border-top: 1px solid var(--sep); padding: 8px 0 4px; margin-top: 8px; }
 .text-output {
   background: var(--bg); border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 14px;
@@ -635,7 +677,7 @@ input:-webkit-autofill:focus {
 /* Stock FAB — aparece sobre la nueva-fab en vista stock */
 .stock-fab {
   position: fixed;
-  bottom: calc(var(--nav-h) + 86px);
+  bottom: calc(var(--nav-h) + 108px);
   right: 20px;
   z-index: 150;
   display: none;

@@ -247,8 +247,32 @@
   </div>
 </div>
 
-<!-- NUEVA FAB — siempre visible, abre el formulario de nueva venta -->
-<button id="nueva-fab" class="nueva-fab" onclick="openNuevaSheet()">+</button>
+<!-- NUEVA FAB — tap corto = nueva venta · tap largo = menú de navegación -->
+<button id="nueva-fab" class="nueva-fab">+</button>
+
+<!-- FAB LONG-PRESS MENU -->
+<div id="fab-menu-overlay" class="fab-menu-overlay">
+  <div class="fab-menu">
+    <button class="fab-menu-item" onclick="fabMenuGo('pedidos')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+      </svg>
+      <span class="fab-menu-label">Pedidos</span>
+    </button>
+    <button class="fab-menu-item" onclick="fabMenuGo('corte')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z"/>
+      </svg>
+      <span class="fab-menu-label">Corte</span>
+    </button>
+    <button class="fab-menu-item" onclick="fabMenuGo('stock')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2M12 12v5M9.5 14.5h5"/>
+      </svg>
+      <span class="fab-menu-label">Stock</span>
+    </button>
+  </div>
+</div>
 
 <!-- STOCK FAB — solo visible en la vista Stock -->
 <button id="stock-fab" class="stock-fab" onclick="doSaveStock()">💾 Guardar stock</button>

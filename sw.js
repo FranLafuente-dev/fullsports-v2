@@ -1,5 +1,5 @@
-// FullSports SW v17 — network first + cache fallback para offline
-const CACHE = 'fs-v17';
+// FullSports SW v18 — network first + cache fallback para offline
+const CACHE = 'fs-v18';
 
 // Archivos del app shell a pre-cachear
 const SHELL = ['./', './css/main.css', './js/app.js', './js/flex-zones.js', './manifest.json'];

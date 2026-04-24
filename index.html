@@ -249,11 +249,17 @@ const FIREBASE_CONFIG = {
 <!-- App principal -->
 <script src="js/app.js"></script>
 
-<!-- Service Worker -->
+<!-- Service Worker — desregistra viejos, registra nuevo -->
 <script>
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
-  navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload());
+  // Primero desregistrar cualquier SW viejo
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    const unregAll = regs.map(r => r.unregister());
+    return Promise.all(unregAll);
+  }).then(() => {
+    // Registrar el nuevo (sin cache agresivo)
+    return navigator.serviceWorker.register('./sw.js');
+  }).catch(() => {});
 }
 </script>
 </body>

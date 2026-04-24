@@ -67,6 +67,29 @@ body {
 .view.active { display: flex; flex-direction: column; gap: 10px; }
 .view::-webkit-scrollbar { display: none; }
 
+/* ── LOGIN SCREEN ────────────────────────────────────────────────────────── */
+#login-screen {
+  position: fixed; inset: 0; z-index: 100; background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+}
+#login-screen.hidden { display: none; }
+.login-wrap {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 40px 32px; text-align: center;
+}
+.login-logo { font-size: 64px; margin-bottom: 8px; }
+.login-title { font-size: 32px; font-weight: 800; letter-spacing: -1px; }
+.login-sub { font-size: 14px; color: var(--text-2); margin-bottom: 16px; }
+.btn-google {
+  display: flex; align-items: center; gap: 12px;
+  background: #fff; color: #1a1a1a; border: none;
+  padding: 14px 24px; border-radius: 14px; font-size: 16px; font-weight: 600;
+  cursor: pointer; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  font-family: inherit; transition: transform 0.15s, box-shadow 0.15s;
+}
+.btn-google:active { transform: scale(0.97); box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
+.login-error { color: var(--red); font-size: 13px; min-height: 20px; margin-top: 8px; }
+
 /* ── CARD ─────────────────────────────────────────────────────────────────── */
 .card {
   background: var(--card);

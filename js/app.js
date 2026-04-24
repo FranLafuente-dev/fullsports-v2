@@ -3,7 +3,10 @@ firebase.initializeApp(FIREBASE_CONFIG);
 const db   = firebase.firestore();
 const auth = firebase.auth();
 const TS   = firebase.firestore.FieldValue.serverTimestamp;
-db.enablePersistence().catch(() => {});
+// Persistencia offline de Firestore (IndexedDB)
+db.enablePersistence({synchronizeTabs: false}).catch(() => {});
+// Auth persiste en IndexedDB por defecto — no necesita re-login al reabrir
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const PRODUCTOS   = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo'];
@@ -30,6 +33,7 @@ let expandZonas = new Set(), expandParts = new Set();
 let alertTimers = [], zoneHits = [];
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
+const $loginScreen = document.getElementById('login-screen');
 const $app     = document.getElementById('app');
 const $offline = document.getElementById('status-pill');
 const $alert   = document.getElementById('alert-banner');
@@ -45,13 +49,37 @@ const VIEWS = {
   config:  document.getElementById('view-config'),
 };
 
-// ─── ARRANQUE ─────────────────────────────────────────────────────────────────
-loadCache();
-renderAll();
-initUI();
+// ─── ARRANQUE — Google Auth persiste, se restaura solo ───────────────────────
+// Mostrar login o app según si ya hay sesión guardada
+auth.onAuthStateChanged(user => {
+  if (user) {
+    // Ya está logueado (sesión guardada en dispositivo) — entrar directo
+    entrarApp(user);
+  } else {
+    // No hay sesión → mostrar botón de Google login
+    $loginScreen.classList.remove('hidden');
+    document.getElementById('btn-google-login').onclick = () => {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      auth.signInWithPopup(provider)
+        .then(r => entrarApp(r.user))
+        .catch(e => {
+          document.getElementById('login-error').textContent = 'Error al iniciar sesión. Intentá de nuevo.';
+        });
+    };
+  }
+});
 
-auth.signInAnonymously().catch(() => {});
-auth.onAuthStateChanged(u => { if (u && !fsConectado) connectFirestore(); });
+function entrarApp(user) {
+  $loginScreen.classList.add('hidden');
+  $app.style.display = 'flex';
+  // Mostrar inicial del usuario en el avatar
+  const av = document.getElementById('user-avatar');
+  if (av && user.email) av.textContent = user.email[0].toUpperCase();
+  loadCache();
+  renderAll();
+  initUI();
+  connectFirestore();
+}
 
 // ─── CACHE LOCAL ──────────────────────────────────────────────────────────────
 function loadCache() {

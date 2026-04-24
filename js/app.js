@@ -7,10 +7,9 @@ db.enablePersistence({synchronizeTabs: false}).catch(() => {});
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
-const PRODUCTOS = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo','Banderas 60x90','Banderas 90x150','Remeras Colapinto'];
+const PRODUCTOS = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo','Banderas','Remeras Colapinto'];
 const PRODUCTOS_FIJO = {
-  'Banderas 60x90':  ['U'],
-  'Banderas 90x150': ['U'],
+  'Banderas': ['60x90','90x150'],
   'Remeras Colapinto': ['L'],
 };
 const TALLES      = [38,39,40,41,42,43,44,45];
@@ -23,8 +22,8 @@ const LS_STOCK         = 'fs_stock_v3';
 const LS_ZONES         = 'fs_zones_v1';
 const LS_FLEX_PERIODS  = 'fs_flexperiods_v1';
 const STOCK_DEFAULTS = {
-  'Banderas 60x90_U': 5,
-  'Banderas 90x150_U': 5,
+  'Banderas_60x90': 5,
+  'Banderas_90x150': 5,
   'Remeras Colapinto_L': 5,
 };
 
@@ -154,14 +153,21 @@ function connectFirestore() {
 function initNewProductStock() {
   if (stockInitialized) return;
   stockInitialized = true;
-  const missing = {};
-  Object.entries(STOCK_DEFAULTS).forEach(([k, v]) => {
-    if (stock[k] === undefined) missing[k] = v;
+  let changed = false;
+  // Migrar claves viejas de Banderas → nuevo esquema
+  const migOld = { 'Banderas 60x90_U': 'Banderas_60x90', 'Banderas 90x150_U': 'Banderas_90x150' };
+  Object.entries(migOld).forEach(([oldK, newK]) => {
+    if (stock[oldK] !== undefined && stock[newK] === undefined) {
+      stock[newK] = stock[oldK]; delete stock[oldK]; changed = true;
+    }
   });
-  if (!Object.keys(missing).length) return;
-  Object.assign(stock, missing);
+  Object.entries(STOCK_DEFAULTS).forEach(([k, v]) => {
+    if (stock[k] === undefined) { stock[k] = v; changed = true; }
+  });
+  if (!changed) return;
   saveStock();
-  db.collection('meta').doc('stock').update(missing).catch(() => {});
+  // set() reemplaza el doc completo y elimina las claves viejas en Firestore
+  db.collection('meta').doc('stock').set(stock).catch(() => {});
 }
 
 // ─── DIÁLOGO CUSTOM (reemplaza confirm nativo) ───────────────────────────────
@@ -245,19 +251,9 @@ function updateTopbarDate() {
 }
 
 function updateDispatchBar() {
+  // La info de despacho vive en los botones mkDispBtn — la barra de chips está oculta
   const bar = document.getElementById('dispatch-bar');
-  if (!bar) return;
-  const hasFlex = orders.some(o => (o.status==='preparar'||o.status==='pendiente') && o.tipoEnvio==='FLEX');
-  const hasPE   = orders.some(o => (o.status==='preparar'||o.status==='pendiente') && o.tipoEnvio==='PE');
-  if (!hasFlex && !hasPE) { bar.classList.remove('show'); return; }
-  const chip = (tipo, icon) => {
-    const diff = dispTarget(tipo) - new Date();
-    const min  = Math.floor(diff / 60000);
-    const cls  = min <= 15 ? 'urgent' : min <= 60 ? 'warn' : '';
-    return `<span class="dispatch-cd ${cls}">${icon} ${tipo} ${fmtDiff(diff)}</span>`;
-  };
-  bar.innerHTML = (hasFlex ? chip('FLEX','🚚') : '') + (hasPE ? chip('PE','📦') : '');
-  bar.classList.add('show');
+  if (bar) bar.classList.remove('show');
 }
 
 function setupStockScrollFab() {
@@ -287,6 +283,7 @@ function initUI() {
   setupAddFlexSheet();
   setupEditFlexSheet();
   setupPedidosTabSwipe();
+  setupCorteTabSwipe();
   requestNotificationPermission();
   navigateTo('pedidos');
   setTimeout(checkAutoArchiveEnano, 1000);
@@ -509,9 +506,16 @@ async function requestNotificationPermission() {
 }
 
 // ─── ALERTAS ──────────────────────────────────────────────────────────────────
+function nextBusinessDay(d) {
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+  return d;
+}
 function dispTarget(tipo) {
-  const t = new Date(); t.setHours(tipo==='FLEX'?13:14,0,0,0);
-  if (t <= new Date()) t.setDate(t.getDate()+1);
+  const now = new Date();
+  const t = new Date(now);
+  t.setHours(tipo === 'FLEX' ? 13 : 14, 0, 0, 0);
+  if (t <= now) t.setDate(t.getDate() + 1);
+  nextBusinessDay(t);
   return t;
 }
 function fmtDiff(diff) {
@@ -559,7 +563,7 @@ function updateCountdowns() {
 // ─── PEDIDOS VIEW ─────────────────────────────────────────────────────────────
 const SPRI = {preparar:0,pendiente:1,camino:2,entregado:3};
 
-function renderPedidos() {
+function renderPedidos(animDir='') {
   const v = VIEWS.pedidos; if (!v) return;
 
   const preparar  = orders.filter(o=>o.status==='preparar');
@@ -586,17 +590,17 @@ function renderPedidos() {
     const sorted=[...preparar].sort((a,b)=>(a.tipoEnvio==='FLEX'?0:10)-(b.tipoEnvio==='FLEX'?0:10));
     const bar=`<div style="display:flex;flex-direction:column;gap:8px">
       <div class="home-bar">
-        ${nFlex ? mkDispBtn('FLEX','🚚',nFlex) : ''}
-        ${nPE   ? mkDispBtn('PE',  '📦',nPE)   : ''}
+        ${mkDispBtn('FLEX','🚚',nFlex)}
+        ${mkDispBtn('PE',  '📦',nPE)}
       </div>
       <button class="btn-dep" id="btn-dep" onclick="toggleDep()" style="width:100%">🏪 Depósito</button>
     </div>
     <div id="dep-box" style="display:none" class="dep-box"></div>`;
     body = bar + (sorted.length
       ? `<div class="ped-body">${sorted.map(orderCard).join('')}</div>`
-      : `<div class="empty-state"><span>✅</span><p>Sin pedidos por preparar</p></div>`);
+      : `<div class="empty-state empty-preparar"><div class="empty-check-circle">✓</div><p>¡Estás al día!</p><span class="empty-sub">No hay pedidos pendientes</span></div>`);
 
-  } else if (pedidosTab==='despacho') {
+  } else if (pedidosTab === 'despacho') {
     const nFlexPend=pendiente.filter(o=>o.tipoEnvio==='FLEX').length;
     const nPEPend  =pendiente.filter(o=>o.tipoEnvio==='PE').length;
     const sorted=[...pendiente,...camino].sort((a,b)=>{
@@ -604,10 +608,10 @@ function renderPedidos() {
       if(a.status==='camino'&&b.status==='camino') return parseLocalDate(a.fechaEstimada)-parseLocalDate(b.fechaEstimada);
       return 0;
     });
-    const dispBar=(nFlexPend||nPEPend)?`<div class="home-bar">
-      ${nFlexPend ? mkDispBtn('FLEX','🚚',nFlexPend) : ''}
-      ${nPEPend   ? mkDispBtn('PE',  '📦',nPEPend)   : ''}
-    </div>`:'';
+    const dispBar=`<div class="home-bar">
+      ${mkDispBtn('FLEX','🚚',nFlexPend)}
+      ${mkDispBtn('PE',  '📦',nPEPend)}
+    </div>`;
     body = dispBar + (sorted.length
       ? `<div class="ped-body">${sorted.map(orderCard).join('')}</div>`
       : `<div class="empty-state"><span>📦</span><p>Sin pedidos en camino</p></div>`);
@@ -631,10 +635,15 @@ function renderPedidos() {
         Entregados${nEntr?`<span class="tab-badge">${nEntr}</span>`:''}
       </button>
     </div>
-    ${body}`;
+    <div class="ped-main-content${animDir?' '+animDir:''}">${body}</div>`;
   updateCountdowns();
 }
-window.setTab = t => { pedidosTab=t; renderPedidos(); };
+window.setTab = t => {
+  const tabs=['preparar','despacho','entregados'];
+  const dir = tabs.indexOf(t) > tabs.indexOf(pedidosTab) ? 'slide-in-right' : 'slide-in-left';
+  pedidosTab=t;
+  renderPedidos(dir);
+};
 
 function parseLocalDate(s) {
   if (!s) return Infinity;
@@ -750,8 +759,10 @@ function fmtItemsShort(items) {
   return `${s.length} pares — ${Object.entries(g).map(([k,q])=>q>1?`${k}×${q}`:k).join(' · ')}`;
 }
 function displayTalle(t) {
-  if (t==='U') return 'Único';
-  return isNaN(parseInt(t)) ? String(t) : `T${t}`;
+  if (t === 'U') return 'Único';
+  const n = parseInt(t, 10);
+  // Solo añade "T" si el valor entero representa exactamente el string (evita "T60x90")
+  return (!isNaN(n) && String(n) === String(t)) ? `T${t}` : String(t);
 }
 
 // ─── ACCIONES ─────────────────────────────────────────────────────────────────
@@ -786,7 +797,7 @@ window.acDespachado = async id => {
 
 window.despacharTodos = async tipo => {
   const pend=orders.filter(o=>o.status==='pendiente'&&o.tipoEnvio===tipo);
-  if (!pend.length) return;
+  if (!pend.length) { toast(`Sin pedidos ${tipo} listos para despachar`); return; }
   const ok = await showConfirm(`¿Despachar ${pend.length} pedido${pend.length>1?'s':''} ${tipo}?`, {
     icon: tipo==='FLEX'?'🚚':'📦', confirmText:'Despachar', confirmClass:'btn-primary',
     sub: pend.map(o=>o.nombreComprador).join(', '),
@@ -1063,6 +1074,8 @@ function setupFormListeners() {
   document.querySelectorAll('[data-cuenta]').forEach(b=>b.addEventListener('click',()=>setCuenta(b.dataset.cuenta)));
   document.querySelectorAll('[data-envio]').forEach(b=>b.addEventListener('click',()=>setEnvio(b.dataset.envio)));
   V('f-importe-flex').addEventListener('input',updateNeto);
+  // Title case al salir del campo nombre
+  V('f-nombre')?.addEventListener('blur', e => { e.target.value = titleCase(e.target.value); });
 
   V('btn-stock-override').addEventListener('click',()=>{
     stockAll=!stockAll;
@@ -1272,7 +1285,7 @@ window.mSelTalle = t => {
 
 // ─── GUARDAR VENTA ────────────────────────────────────────────────────────────
 async function guardarVenta() {
-  const nombre=V('f-nombre').value.trim();
+  const nombre=titleCase(V('f-nombre').value.trim());
   if (!nombre)           { toast('Ingresá el nombre'); return; }
   if (!formItems.length) { toast('Agregá al menos un ítem'); return; }
 
@@ -1326,7 +1339,7 @@ async function guardarVenta() {
 }
 
 // ─── CORTE VIEW ───────────────────────────────────────────────────────────────
-function renderCorte() {
+function renderCorte(animDir='') {
   const v=VIEWS.corte; if (!v) return;
   const nC=orders.filter(o=>!o.corteDone&&o.cuenta==='capi').length;
   const nE=orders.filter(o=>!o.corteDone&&o.cuenta==='enano').length;
@@ -1337,9 +1350,9 @@ function renderCorte() {
       <button class="corte-tab${corteCuenta==='enano'?' active':''}" onclick="setCorte('enano')">ENANO${nE?` <span class="corte-count">${nE}</span>`:''}</button>
       <button class="corte-tab${corteCuenta==='flex'?' active':''}"  onclick="setCorte('flex')">FLEX $</button>
     </div>
-    ${renderCorteBody()}`;
+    <div class="ped-main-content${animDir?' '+animDir:''}">${renderCorteBody()}</div>`;
 }
-window.setCorte = c => { corteCuenta=c; renderCorte(); };
+window.setCorte = (c, dir='') => { corteCuenta=c; renderCorte(dir); };
 
 function renderCorteBody() {
   if (corteCuenta==='deposito') return renderDepCorte();
@@ -1473,8 +1486,14 @@ function calcFlexPeriod(fromMs, toMs) {
   };
   const seen = new Set();
 
-  // Registros manuales (incluye los guardados al despachar y al borrar)
+  // Primera pasada: recolectar IDs excluidos por tombstones
   flexManualRecords.forEach(rec => {
+    if (rec.deleted && rec.orderId) seen.add(rec.orderId);
+  });
+
+  // Registros manuales activos (incluye los guardados al despachar y al borrar)
+  flexManualRecords.forEach(rec => {
+    if (rec.deleted) return;
     if (!rec.fechaMs || rec.fechaMs < fromMs || rec.fechaMs > toMs) return;
     seen.add(rec.orderId || rec.id);
     const acc = rec.cuenta==='capi' ? r.capi : r.enano;
@@ -1490,7 +1509,7 @@ function calcFlexPeriod(fromMs, toMs) {
     if (o.tipoEnvio!=='FLEX' || !o.flexImporte) return;
     const dAt = ms(o.despachadoAt);
     if (!dAt || dAt < fromMs || dAt > toMs) return;
-    if (seen.has(o.id)) return; // ya cubierta por registro manual
+    if (seen.has(o.id)) return; // ya cubierta por registro manual o excluida por tombstone
     const acc = o.cuenta==='capi' ? r.capi : r.enano;
     acc.total += o.flexImporte;
     acc.count++;
@@ -1524,32 +1543,34 @@ function renderCorteFlexBody() {
       </div>
     </div>
     <div style="margin-top:8px;font-size:13px;color:var(--text-2)">Total: <b>$${fmt(stats.capi.total+stats.enano.total)}</b></div>
-    ${allOrders.length ? `<div style="margin-top:12px">
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn ${alreadyClosed?'btn-ghost':'btn-primary'}" style="flex:1" onclick="cerrarQuincena()">
+        ${alreadyClosed ? '↻ Recalcular' : '📥 Cerrar quincena'}
+      </button>
+      <button class="btn btn-ghost" onclick="downloadFlexPDF()" title="Descargar PDF">📄</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="openAddFlexSheet()">➕ Agregar</button>
+    </div>
+    ${allOrders.length ? `<div style="margin-top:12px;border-top:1px solid var(--sep);padding-top:8px">
       ${allOrders.map(o=>{
         const d=new Date(o.despachadoAt);
         const fecha=`${d.getDate()}/${d.getMonth()+1}`;
-        const editBtn = o.isManual
-          ? `<button onclick="event.stopPropagation();openEditFlexSheet('${o.recordId||o.id}')" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;color:var(--text-3)">✏️</button>`
-          : `<button onclick="event.stopPropagation();openEditFlexSheet('${o.id}')" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;color:var(--text-3)">✏️</button>`;
+        const editBtn = `<button onclick="event.stopPropagation();openEditFlexSheet('${o.isManual?(o.recordId||o.id):o.id}')" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;color:var(--text-3)">✏️</button>`;
+        const delBtn  = o.isManual
+          ? `<button onclick="event.stopPropagation();deleteFlexRecord('${o.id}',true)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px;color:var(--red);opacity:0.65">🗑</button>`
+          : `<button onclick="event.stopPropagation();deleteFlexRecord('${o.id}',false)" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px;color:var(--red);opacity:0.65">🗑</button>`;
         return `<div class="flex-order-row">
           <div style="flex:1;min-width:0">
             <span class="badge badge-${o.cuenta}" style="font-size:9px;padding:2px 6px">${o.cuenta.toUpperCase()}</span>
             <span style="margin-left:6px;font-weight:600">${o.nombre}</span>
             <div style="font-size:11px;color:var(--text-3);margin-top:1px">${o.localidad} <span style="opacity:0.7">· ${fecha}</span></div>
           </div>
-          <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;margin-left:8px">
+          <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;margin-left:8px">
             <div style="font-size:13px;font-weight:700;color:var(--red)">−$${fmt(o.flexImporte)}</div>
-            ${editBtn}
+            ${editBtn}${delBtn}
           </div>
         </div>`;
       }).join('')}
     </div>` : `<p class="hint-text" style="margin-top:8px">Sin envíos FLEX despachados en este período</p>`}
-    <div style="display:flex;gap:8px;margin-top:14px">
-      <button class="btn ${alreadyClosed?'btn-ghost':'btn-primary'}" style="flex:1" onclick="cerrarQuincena()">
-        ${alreadyClosed ? '↻ Recalcular' : '📥 Cerrar quincena'}
-      </button>
-      <button class="btn btn-ghost" style="flex:1" onclick="openAddFlexSheet()">➕ Agregar</button>
-    </div>
   </div>`;
 
   // Historial agrupado por mes
@@ -1649,6 +1670,61 @@ window.cerrarQuincena = async () => {
   renderCorte();
 };
 
+window.downloadFlexPDF = () => {
+  const period = getCurrentPeriod();
+  const stats = calcFlexPeriod(period.fromMs, period.toMs);
+  const allOrders = [...stats.capi.orders, ...stats.enano.orders]
+    .sort((a,b) => b.despachadoAt - a.despachadoAt);
+  if (!allOrders.length) { toast('Sin envíos FLEX para exportar'); return; }
+  const rows = allOrders.map(o => {
+    const d = new Date(o.despachadoAt);
+    const fecha = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+    return `<tr><td>${fecha}</td><td>${o.cuenta.toUpperCase()}</td><td>${o.nombre}</td><td>${o.localidad}</td><td style="text-align:right">$${fmt(o.flexImporte)}</td></tr>`;
+  }).join('');
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>FLEX ${period.label}</title>
+<style>body{font-family:Arial,sans-serif;font-size:12px;padding:24px;color:#111}
+h2{margin:0 0 4px;font-size:16px}.sub{color:#555;margin-bottom:16px;font-size:12px}
+table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px 10px;text-align:left}
+th{background:#f0f0f0;font-weight:bold;font-size:11px;text-transform:uppercase}
+.total{font-weight:bold;font-size:14px;margin-top:14px;text-align:right}
+@media print{body{padding:10px}button{display:none}}</style></head><body>
+<h2>Envíos FLEX — ${period.label}</h2>
+<div class="sub">CAPI: $${fmt(stats.capi.total)} (${stats.capi.count} env.)&nbsp;&nbsp;·&nbsp;&nbsp;ENANO: $${fmt(stats.enano.total)} (${stats.enano.count} env.)</div>
+<table><tr><th>Fecha</th><th>Cuenta</th><th>Cliente</th><th>Localidad</th><th>Costo</th></tr>${rows}</table>
+<div class="total">Total: $${fmt(stats.capi.total + stats.enano.total)}</div>
+<script>window.onload=()=>{window.print();}<\/script></body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { toast('Habilitá pop-ups para descargar'); return; }
+  w.document.write(html);
+  w.document.close();
+};
+
+window.deleteFlexRecord = async (id, isManual) => {
+  const rec = isManual ? flexManualRecords.find(r => r.id === id) : null;
+  const nombre = rec?.nombre || '';
+  const ok = await showConfirm('¿Eliminar este registro FLEX?', {
+    icon: '🗑',
+    sub: nombre,
+    confirmText: 'Eliminar',
+    confirmClass: 'btn-danger',
+  });
+  if (!ok) return;
+  if (isManual) {
+    flexManualRecords = flexManualRecords.filter(r => r.id !== id);
+  } else {
+    // Tombstone: marca el pedido como excluido del período sin borrarlo del historial
+    flexManualRecords.push({
+      id: `del-${Date.now()}-${id}`,
+      deleted: true,
+      orderId: id,
+      fechaMs: 0, cuenta: 'capi', nombre: '', localidad: '', zona: '', flexImporte: 0,
+    });
+  }
+  syncFlexRecords();
+  renderCorte();
+  toast('Registro eliminado ✓');
+};
+
 window.eliminarPeriodo = async id => {
   const p = flexPeriods.find(p => p.id === id);
   if (!p) return;
@@ -1727,14 +1803,34 @@ function setupAddFlexSheet() {
     });
   }
 
-  V('btn-save-add-flex')?.addEventListener('click',()=>{
-    const nombre=V('af-nombre').value.trim();
+  V('af-nombre')?.addEventListener('blur', e => { e.target.value = titleCase(e.target.value); });
+  V('btn-save-add-flex')?.addEventListener('click', async () => {
+    const nombre=titleCase(V('af-nombre').value.trim());
     if (!nombre) { toast('Ingresá el nombre'); return; }
     if (!addFlexZone) { toast('Seleccioná la localidad'); return; }
     const fecha=V('af-fecha').value;
     if (!fecha) { toast('Ingresá la fecha'); return; }
     const [y,m,d]=fecha.split('-');
     const fechaMs=new Date(+y,+m-1,+d,12,0,0).getTime();
+
+    // Detección de duplicados: mismo día + misma localidad
+    const nuevoDia = new Date(fechaMs);
+    const nuevoDiaStr = `${nuevoDia.getFullYear()}-${nuevoDia.getMonth()}-${nuevoDia.getDate()}`;
+    const dupes = flexManualRecords.filter(r => {
+      if (r.deleted || !r.fechaMs) return false;
+      const rDia = new Date(r.fechaMs);
+      return `${rDia.getFullYear()}-${rDia.getMonth()}-${rDia.getDate()}` === nuevoDiaStr
+        && r.localidad === addFlexZone.localidad;
+    });
+    if (dupes.length) {
+      const ok = await showConfirm(
+        `Ya hay ${dupes.length} envío${dupes.length>1?'s':''} a ${addFlexZone.localidad} ese día`,
+        { icon:'⚠️', sub:dupes.map(r=>r.nombre).join(' · '),
+          confirmText:'Guardar igual', cancelText:'Revisar', confirmClass:'btn-primary' }
+      );
+      if (!ok) return;
+    }
+
     flexManualRecords.push({
       id:`${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
       cuenta:addFlexCuenta, nombre, localidad:addFlexZone.localidad,
@@ -1783,6 +1879,7 @@ function setupEditFlexSheet() {
     });
   }
 
+  V('ef-nombre')?.addEventListener('blur', e => { e.target.value = titleCase(e.target.value); });
   V('btn-save-edit-flex')?.addEventListener('click',()=>{
     if (!editFlexId) return;
     const idx=flexManualRecords.findIndex(r=>r.id===editFlexId);
@@ -1790,7 +1887,7 @@ function setupEditFlexSheet() {
     flexManualRecords[idx]={
       ...flexManualRecords[idx],
       cuenta:editFlexCuenta,
-      nombre:V('ef-nombre').value.trim()||flexManualRecords[idx].nombre,
+      nombre:titleCase(V('ef-nombre').value.trim()||flexManualRecords[idx].nombre),
       localidad:editFlexZone?.localidad||flexManualRecords[idx].localidad,
       zona:editFlexZone?.zona||flexManualRecords[idx].zona,
       flexImporte:parseInt(V('ef-importe').value)||flexManualRecords[idx].flexImporte,
@@ -1807,9 +1904,27 @@ function setupPedidosTabSwipe() {
   view.addEventListener('touchend',e=>{
     const dx=e.changedTouches[0].clientX-x0, dy=e.changedTouches[0].clientY-y0;
     if (Math.abs(dx)<45||Math.abs(dy)>Math.abs(dx)*0.75) return;
+    e.stopPropagation(); // evita que también dispare el swipe de sección
     const tabs=['preparar','despacho','entregados'], i=tabs.indexOf(pedidosTab);
     if (dx<0&&i<tabs.length-1) setTab(tabs[i+1]);
     if (dx>0&&i>0)              setTab(tabs[i-1]);
+  },{passive:true});
+}
+
+// ─── SWIPE ENTRE TABS DE CORTE ────────────────────────────────────────────────
+function setupCorteTabSwipe() {
+  const view = VIEWS.corte; if (!view) return;
+  const tabs = ['capi','enano','flex'];
+  let x0=0, y0=0;
+  view.addEventListener('touchstart',e=>{x0=e.touches[0].clientX;y0=e.touches[0].clientY;},{passive:true});
+  view.addEventListener('touchend',e=>{
+    const dx=e.changedTouches[0].clientX-x0, dy=e.changedTouches[0].clientY-y0;
+    if (Math.abs(dx)<45||Math.abs(dy)>Math.abs(dx)*0.75) return;
+    e.stopPropagation();
+    const i=tabs.indexOf(corteCuenta);
+    const dir = dx < 0 ? 'slide-in-right' : 'slide-in-left';
+    if (dx<0&&i<tabs.length-1) setCorte(tabs[i+1], dir);
+    if (dx>0&&i>0) setCorte(tabs[i-1], dir);
   },{passive:true});
 }
 
@@ -2026,3 +2141,4 @@ function V(id){ return document.getElementById(id); }
 function fmt(n){ return Math.round(n||0).toLocaleString('es-AR'); }
 function fmtDec(n){ return (n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function parseNum(s){ return parseFloat(String(s).replace(/\./g,'').replace(',','.'))||0; }
+function titleCase(s){ return s.replace(/\b\w/g, c => c.toUpperCase()); }

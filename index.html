@@ -34,6 +34,8 @@
   <div id="topbar">
     <h1 id="topbar-title">FullSports</h1>
     <div class="topbar-right">
+      <button class="undo-btn" id="btn-undo" onclick="doUndo()" disabled title="Deshacer">↩</button>
+      <button class="undo-btn" id="btn-redo" onclick="doRedo()" disabled title="Rehacer">↪</button>
       <span class="status-pill" id="status-pill"></span>
       <!-- Avatar — toca para abrir menú de perfil -->
       <div class="avatar" id="user-avatar">FS</div>
@@ -71,7 +73,7 @@
     <div class="view" id="view-config"></div>
   </div>
 
-  <!-- NAV: Pedidos · Corte · (+) · Stock -->
+  <!-- NAV: Pedidos · Corte · Stock -->
   <nav id="bottom-nav">
     <button class="nav-btn" data-nav="pedidos">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -84,13 +86,6 @@
         <path d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z"/>
       </svg>
       <span>Corte</span>
-    </button>
-    <button class="nav-btn nueva-btn" data-nav="nueva">
-      <div class="nav-nueva-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path d="M12 5v14M5 12h14"/>
-        </svg>
-      </div>
     </button>
     <button class="nav-btn" data-nav="stock">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -252,7 +247,10 @@
   </div>
 </div>
 
-<!-- STOCK FAB -->
+<!-- NUEVA FAB — siempre visible, abre el formulario de nueva venta -->
+<button id="nueva-fab" class="nueva-fab" onclick="openNuevaSheet()">+</button>
+
+<!-- STOCK FAB — solo visible en la vista Stock -->
 <button id="stock-fab" class="stock-fab" onclick="doSaveStock()">💾 Guardar stock</button>
 
 <!-- TOAST -->

@@ -40,7 +40,7 @@
 
   --radius:    18px;
   --radius-sm: 12px;
-  --nav-h:     60px;
+  --nav-h:     52px;
   --spring:    cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-out:  cubic-bezier(0.22, 0.61, 0.36, 1);
 }
@@ -94,7 +94,7 @@ body {
 #main-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; position: relative; }
 .view {
   display: none; flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
-  padding: 12px 14px calc(var(--nav-h) + 56px);
+  padding: 12px 14px calc(var(--nav-h) + 90px);
   scrollbar-width: none; overscroll-behavior: contain;
 }
 .view.active { display: flex; flex-direction: column; gap: 10px; }
@@ -178,32 +178,33 @@ body {
 
 /* ── BOTTOM NAV — Liquid Glass ───────────────────────────────────────────── */
 #bottom-nav {
-  position: fixed; bottom: 14px; left: 18px; right: 18px; z-index: 200;
+  position: fixed; bottom: 18px; left: 22px; right: 22px; z-index: 200;
   height: var(--nav-h);
-  background: rgba(18,20,38,0.78);
-  backdrop-filter: blur(48px) saturate(220%) brightness(1.1);
-  -webkit-backdrop-filter: blur(48px) saturate(220%) brightness(1.1);
-  border: 1px solid rgba(255,255,255,0.16);
-  border-radius: 30px;
+  background: rgba(12,14,28,0.68);
+  backdrop-filter: blur(56px) saturate(260%) brightness(1.2);
+  -webkit-backdrop-filter: blur(56px) saturate(260%) brightness(1.2);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 40px;
   box-shadow:
-    0 12px 48px rgba(0,0,0,0.6),
-    0 2px 8px rgba(0,0,0,0.25),
+    0 24px 64px rgba(0,0,0,0.75),
+    0 8px 24px rgba(0,0,0,0.40),
+    0 2px 6px rgba(0,0,0,0.22),
     inset 0 1.5px 0 rgba(255,255,255,0.18),
-    inset 0 -1px 0 rgba(0,0,0,0.25);
+    inset 0 -1px 0 rgba(0,0,0,0.28);
   display: flex; align-items: center; justify-content: space-around;
-  padding: 0 8px; overflow: visible;
+  padding: 0 6px; overflow: visible;
 }
 @media (prefers-color-scheme: light) {
   #bottom-nav {
-    background: rgba(255,255,255,0.9);
-    border: 1px solid rgba(0,0,0,0.10);
-    box-shadow: 0 8px 40px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.05),
+    background: rgba(255,255,255,0.82);
+    border: 1px solid rgba(0,0,0,0.08);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.14), 0 8px 24px rgba(0,0,0,0.08),
       inset 0 1.5px 0 rgba(255,255,255,1);
   }
 }
 .nav-btn {
   flex: 1; display: flex; flex-direction: column; align-items: center;
-  gap: 3px; background: none; border: none; cursor: pointer;
+  gap: 2px; background: none; border: none; cursor: pointer;
   color: var(--text-3); font-family: inherit;
   transition: color 0.2s, transform 0.12s var(--spring);
   position: relative; height: 100%; justify-content: center; padding: 0 4px;
@@ -211,26 +212,36 @@ body {
 .nav-btn:active { transform: scale(0.86); }
 .nav-btn.active { color: var(--accent); }
 .nav-btn.active::after {
-  content: ''; position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
-  width: 20px; height: 3px; border-radius: 2px;
+  content: ''; position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+  width: 18px; height: 3px; border-radius: 2px;
   background: var(--accent); box-shadow: 0 0 8px rgba(108,99,255,0.7);
 }
-.nav-btn svg  { width: 22px; height: 22px; stroke-width: 2; }
+.nav-btn svg  { width: 20px; height: 20px; stroke-width: 2; }
 .nav-btn span { font-size: 9px; font-weight: 600; letter-spacing: 0.3px; }
 
-.nav-btn.nueva-btn { flex: none; width: 74px; color: var(--text); position: relative; overflow: visible; }
-.nav-btn.nueva-btn::after { display: none; }
-.nav-nueva-icon {
-  width: 58px; height: 58px; border-radius: 18px;
-  background: linear-gradient(145deg, #FFD700, #FF8C00);
+/* ── NUEVA FAB ───────────────────────────────────────────────────────────── */
+.nueva-fab {
+  position: fixed;
+  bottom: calc(var(--nav-h) + 22px);
+  right: 20px;
+  z-index: 180;
+  width: 52px; height: 52px;
+  border-radius: 17px;
+  background: linear-gradient(145deg, #FFD700, #FF8000);
+  border: none; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 6px 24px rgba(255,160,0,0.55), 0 2px 8px rgba(0,0,0,0.2),
-    inset 0 1.5px 0 rgba(255,255,255,0.4);
+  box-shadow:
+    0 10px 32px rgba(255,155,0,0.65),
+    0 3px 10px rgba(0,0,0,0.22),
+    inset 0 1.5px 0 rgba(255,255,255,0.42);
+  font-size: 28px; font-weight: 300; color: #fff; line-height: 1;
+  font-family: inherit;
   transition: transform 0.2s var(--spring), box-shadow 0.2s;
-  margin-top: -18px;
 }
-.nav-nueva-icon:active { transform: scale(0.86); box-shadow: 0 3px 12px rgba(255,160,0,0.35); }
-.nav-nueva-icon svg { width: 26px; height: 26px; color: #fff; stroke-width: 2.5; }
+.nueva-fab:active {
+  transform: scale(0.86);
+  box-shadow: 0 5px 16px rgba(255,155,0,0.4), 0 2px 6px rgba(0,0,0,0.15);
+}
 
 /* ── SECTION TITLE ───────────────────────────────────────────────────────── */
 .section-title {
@@ -620,11 +631,11 @@ input:-webkit-autofill:focus {
 }
 .zero-section { border-top: 1px dashed var(--sep); margin-top: 4px; }
 
-/* Stock FAB */
+/* Stock FAB — aparece sobre la nueva-fab en vista stock */
 .stock-fab {
   position: fixed;
-  bottom: calc(var(--nav-h) + 26px);
-  right: 18px;
+  bottom: calc(var(--nav-h) + 86px);
+  right: 20px;
   z-index: 150;
   display: none;
   align-items: center;
@@ -677,7 +688,7 @@ input:-webkit-autofill:focus {
 
 /* ── TOAST ───────────────────────────────────────────────────────────────── */
 #toast {
-  position: fixed; bottom: calc(var(--nav-h) + 46px); left: 50%;
+  position: fixed; bottom: calc(var(--nav-h) + 100px); left: 50%;
   transform: translateX(-50%) translateY(12px);
   background: rgba(30,32,54,0.95);
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
@@ -695,6 +706,18 @@ input:-webkit-autofill:focus {
 
 /* ── HINTS ───────────────────────────────────────────────────────────────── */
 .hint-text { font-size: 12px; color: var(--text-3); margin: 0; padding: 2px 0; }
+
+/* ── UNDO / REDO ─────────────────────────────────────────────────────────── */
+.undo-btn {
+  width: 30px; height: 30px; border-radius: 9px;
+  background: var(--gray-light); border: 1px solid var(--border);
+  color: var(--text-2); font-size: 15px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, color 0.15s, transform 0.12s var(--spring);
+  font-family: inherit;
+}
+.undo-btn:not(:disabled):active { background: var(--accent-light); color: var(--accent); transform: scale(0.88); }
+.undo-btn:disabled { opacity: 0.28; cursor: default; }
 
 /* ── AVATAR POPUP ────────────────────────────────────────────────────────── */
 .avatar {

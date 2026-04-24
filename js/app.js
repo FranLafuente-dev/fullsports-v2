@@ -39,6 +39,7 @@ let multiProd = null;
 let stockAll = false;
 let expandZonas = new Set(), expandParts = new Set();
 let alertTimers = [], zoneHits = [];
+const UNDO_STACK = [], REDO_STACK = [];
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const $loginScreen = document.getElementById('login-screen');
@@ -392,14 +393,20 @@ function renderPedidos() {
       : `<div class="empty-state"><span>✅</span><p>Sin pedidos por preparar</p></div>`);
 
   } else if (pedidosTab==='despacho') {
+    const nFlexPend=pendiente.filter(o=>o.tipoEnvio==='FLEX').length;
+    const nPEPend  =pendiente.filter(o=>o.tipoEnvio==='PE').length;
     const sorted=[...pendiente,...camino].sort((a,b)=>{
       const sp=SPRI[a.status]-SPRI[b.status]; if(sp!==0) return sp;
       if(a.status==='camino'&&b.status==='camino') return parseLocalDate(a.fechaEstimada)-parseLocalDate(b.fechaEstimada);
       return 0;
     });
-    body = sorted.length
+    const dispBar=(nFlexPend||nPEPend)?`<div class="home-bar">
+      ${nFlexPend?`<button class="dispatch-btn flex-btn" onclick="despacharTodos('FLEX')">🚚 Despachar FLEX (${nFlexPend})</button>`:''}
+      ${nPEPend  ?`<button class="dispatch-btn pe-btn"   onclick="despacharTodos('PE')">📦 Despachar PE (${nPEPend})</button>`:''}
+    </div>`:'';
+    body = dispBar + (sorted.length
       ? `<div class="ped-body">${sorted.map(orderCard).join('')}</div>`
-      : `<div class="empty-state"><span>📦</span><p>Sin pedidos en camino</p></div>`;
+      : `<div class="empty-state"><span>📦</span><p>Sin pedidos en camino</p></div>`);
 
   } else {
     const sorted=[...entregados].sort((a,b)=>ms(b.deliveredAt)-ms(a.deliveredAt));
@@ -546,6 +553,7 @@ function displayTalle(t) {
 // ─── ACCIONES ─────────────────────────────────────────────────────────────────
 window.acPreparado = async id => {
   const o=orders.find(o=>o.id===id); if (!o) return;
+  pushUndo({type:'patch', id, prev:{status:o.status}, next:{status:'pendiente'}});
   mutateOrder(id,{status:'pendiente'});
   pedidosTab='despacho'; renderPedidos(); renderCorte();
   try {
@@ -563,6 +571,7 @@ window.acDespachado = async id => {
   const o=orders.find(o=>o.id===id); if (!o) return;
   if (o.cuenta==='capi') { openDelivery(id,'dispatch'); return; }
   const fecha=proximoDia();
+  pushUndo({type:'patch', id, prev:{status:o.status,fechaEstimada:o.fechaEstimada||null,despachadoAt:o.despachadoAt||null}, next:{status:'camino',fechaEstimada:fecha,despachadoAt:Date.now()}});
   mutateOrder(id,{status:'camino',fechaEstimada:fecha,despachadoAt:Date.now()});
   renderPedidos();
   try { await db.collection('orders').doc(id).update({status:'camino',despachadoAt:TS(),fechaEstimada:fecha}); }
@@ -574,6 +583,11 @@ window.despacharTodos = async tipo => {
   if (!pend.length) return;
   if (!confirm(`¿Despachar ${pend.length} pedido${pend.length>1?'s':''} ${tipo}?`)) return;
   const fecha=proximoDia();
+  pushUndo({
+    type:'multi',
+    prevs: pend.map(o=>({id:o.id, data:{status:'pendiente', fechaEstimada:o.fechaEstimada||null, despachadoAt:o.despachadoAt||null}})),
+    nexts: pend.map(o=>({id:o.id, data:{status:'camino', fechaEstimada:fecha, despachadoAt:Date.now()}})),
+  });
   pend.forEach(o=>mutateOrder(o.id,{status:'camino',fechaEstimada:fecha,despachadoAt:Date.now()}));
   pedidosTab='despacho'; renderPedidos(); renderCorte();
   try {
@@ -584,7 +598,9 @@ window.despacharTodos = async tipo => {
 };
 
 window.acEntregado = async id => {
+  const o=orders.find(o=>o.id===id);
   const f=new Date().toLocaleDateString('es-AR');
+  pushUndo({type:'patch', id, prev:{status:o?.status||'camino',fechaEntrega:o?.fechaEntrega||null,deliveredAt:o?.deliveredAt||null}, next:{status:'entregado',fechaEntrega:f,deliveredAt:Date.now()}});
   mutateOrder(id,{status:'entregado',fechaEntrega:f,deliveredAt:Date.now()});
   renderPedidos(); renderCorte();
   try { await db.collection('orders').doc(id).update({status:'entregado',deliveredAt:TS(),fechaEntrega:f}); }
@@ -593,6 +609,8 @@ window.acEntregado = async id => {
 
 window.acEliminar = async id => {
   if (!confirm('¿Eliminar este pedido?')) return;
+  const order = orders.find(o=>o.id===id);
+  if (order) pushUndo({type:'delete', id, order:JSON.parse(JSON.stringify(order))});
   orders=orders.filter(o=>o.id!==id); saveOrders(); renderPedidos(); renderCorte();
   try { await db.collection('orders').doc(id).delete(); } catch(e){toast('Sin red');}
 };
@@ -606,6 +624,60 @@ function mutateOrder(id,patch) {
   const i=orders.findIndex(o=>o.id===id);
   if (i>=0) { orders[i]={...orders[i],...patch}; saveOrders(); }
 }
+
+// ─── UNDO / REDO ──────────────────────────────────────────────────────────────
+function pushUndo(entry) {
+  UNDO_STACK.push(entry);
+  REDO_STACK.length = 0;
+  if (UNDO_STACK.length > 20) UNDO_STACK.shift();
+  updateUndoUI();
+}
+function updateUndoUI() {
+  const u = document.getElementById('btn-undo');
+  const r = document.getElementById('btn-redo');
+  if (u) u.disabled = !UNDO_STACK.length;
+  if (r) r.disabled = !REDO_STACK.length;
+}
+window.doUndo = async () => {
+  if (!UNDO_STACK.length) { toast('Sin acciones para deshacer'); return; }
+  const entry = UNDO_STACK.pop();
+  REDO_STACK.push(entry);
+  await applyHistoryEntry(entry, 'undo');
+  updateUndoUI();
+  toast('Deshecho ✓');
+};
+window.doRedo = async () => {
+  if (!REDO_STACK.length) { toast('Sin acciones para rehacer'); return; }
+  const entry = REDO_STACK.pop();
+  UNDO_STACK.push(entry);
+  await applyHistoryEntry(entry, 'redo');
+  updateUndoUI();
+  toast('Rehecho ✓');
+};
+async function applyHistoryEntry(entry, dir) {
+  if (entry.type === 'patch') {
+    const patch = dir === 'undo' ? entry.prev : entry.next;
+    mutateOrder(entry.id, patch);
+    renderPedidos(); renderCorte();
+    try { await db.collection('orders').doc(entry.id).update(patch); } catch(e) {}
+  } else if (entry.type === 'multi') {
+    const list = dir === 'undo' ? entry.prevs : entry.nexts;
+    list.forEach(({id, data}) => mutateOrder(id, data));
+    renderPedidos(); renderCorte();
+    try { for (const {id, data} of list) await db.collection('orders').doc(id).update(data); } catch(e) {}
+  } else if (entry.type === 'delete') {
+    if (dir === 'undo') {
+      orders.unshift({id: entry.id, ...entry.order});
+      saveOrders(); renderPedidos(); renderCorte();
+      try { await db.collection('orders').doc(entry.id).set(entry.order); } catch(e) {}
+    } else {
+      orders = orders.filter(o => o.id !== entry.id);
+      saveOrders(); renderPedidos(); renderCorte();
+      try { await db.collection('orders').doc(entry.id).delete(); } catch(e) {}
+    }
+  }
+}
+
 function proximoDia() {
   const d=new Date(); d.setDate(d.getDate()+1);
   return d.toLocaleDateString('es-AR');
@@ -1059,7 +1131,12 @@ function renderDepCorte() {
 function textoCapi(pend) {
   let tot=0; const L=['Ventas Meli capi'];
   pend.forEach((o,i)=>{
-    const m=o.tipoEnvio==='FLEX'&&o.importeVenta?`se acredito $${fmt(o.importeNeto)}`:`se acredito $${fmt(o.importeAcreditado)}`;
+    let m;
+    if (o.tipoEnvio==='FLEX'&&o.importeVenta) {
+      m=`importe venta $${fmt(o.importeVenta)} menos envio FLEX $${fmt(o.flexImporte)} se acredito $${fmt(o.importeNeto)}`;
+    } else {
+      m=`se acredito $${fmt(o.importeAcreditado)}`;
+    }
     L.push(`${i+1}. ${o.nombreComprador} - ${fmtItemsCorte(o.items)} - ${m}`); tot+=o.importeAcreditado||0;
   });
   L.push('',`Total acreditado a mp capi $${fmt(Math.round(tot/100)*100)}`); return L.join('\n');

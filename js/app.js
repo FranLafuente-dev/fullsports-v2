@@ -1,78 +1,43 @@
-import { initializeApp }        from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getAuth, signInAnonymously, onAuthStateChanged }
-  from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-import { getFirestore, enableIndexedDbPersistence,
-         collection, doc, setDoc, addDoc, updateDoc, deleteDoc,
-         onSnapshot, serverTimestamp, query, orderBy }
-  from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
-import { FIREBASE_CONFIG } from './config.js';
-import { FLEX_ZONES }      from './flex-zones.js';
+// ─── FIREBASE INIT ────────────────────────────────────────────────────────────
+firebase.initializeApp(FIREBASE_CONFIG);
+const db   = firebase.firestore();
+const auth = firebase.auth();
+const TS   = firebase.firestore.FieldValue.serverTimestamp;
+db.enablePersistence().catch(() => {});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FIREBASE
-// ─────────────────────────────────────────────────────────────────────────────
-const fbApp = initializeApp(FIREBASE_CONFIG);
-const auth  = getAuth(fbApp);
-const db    = getFirestore(fbApp);
-enableIndexedDbPersistence(db).catch(() => {});
+// ─── CONSTANTES ───────────────────────────────────────────────────────────────
+const PRODUCTOS   = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo'];
+const TALLES      = [38,39,40,41,42,43,44,45];
+const TALLES_ESP  = [43,44,45];
+const COSTO_COMUN = 21900;
+const COSTO_ESP   = 22400;
+const H24         = 86400000;
+const LS_ORDERS   = 'fs_orders_v4';
+const LS_STOCK    = 'fs_stock_v2';
+const LS_ZONES    = 'fs_zones_v1';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CONSTANTES
-// ─────────────────────────────────────────────────────────────────────────────
-const PRODUCTOS    = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo'];
-const TALLES       = [38,39,40,41,42,43,44,45];
-const COSTO_COMUN  = 21900;
-const COSTO_ESP    = 22400;
-const TALLES_ESP   = [43,44,45];
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let orders = [], stock = {}, zones = [...FLEX_ZONES];
+let curView = 'pedidos', pedidosTab = 'preparar', corteCuenta = 'capi';
+let editingId = null, curCuenta = 'capi', curEnvio = 'FLEX';
+let curProducto = null, formItems = [], formEnvio = null;
+let deliveryId = null, deliveryAction = 'edit';
+let fsConectado = false;
+let editZoneIdx = null, editZonePriceLabel = null;
+let multiProd = null, multiTalle = null;
+let stockAll = false;
+let expandZonas = new Set(), expandParts = new Set();
+let alertTimers = [], zoneHits = [];
 
-const LS_ORDERS = 'fs_orders_v4';
-const LS_STOCK  = 'fs_stock_v2';
-const LS_ZONES  = 'fs_zones_v1';
-
-const H24 = 86400000; // 24 horas en ms
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STATE
-// ─────────────────────────────────────────────────────────────────────────────
-let orders    = [];
-let stock     = {};
-let zones     = [...FLEX_ZONES];
-let formItems = [];
-let formEnvio = null;
-let alertTimers = [];
-let zoneHits  = [];
-
-// form state
-let editingId    = null;
-let curCuenta    = 'capi';
-let curEnvio     = 'FLEX';
-let curProducto  = null;
-let stockAll     = false;
-let multiProd    = null;
-let multiTalle   = null;
-
-// ui state
-let pedidosTab   = 'preparar';
-let corteCuenta  = 'capi';
-let expandZonas  = new Set();
-let expandParts  = new Set();
-let editZonePriceLabel = null;
-let editZoneIdx  = null;
-let deliveryId   = null;
-let deliveryAction = 'edit'; // 'edit' | 'dispatch'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DOM
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── DOM ──────────────────────────────────────────────────────────────────────
 const $app     = document.getElementById('app');
-const $offline = document.getElementById('offline-pill');
+const $offline = document.getElementById('status-pill');
 const $alert   = document.getElementById('alert-banner');
 const $overlay = document.getElementById('sheet-overlay');
 const $shNueva = document.getElementById('sheet-nueva');
 const $shDeliv = document.getElementById('sheet-delivery');
 const $shZone  = document.getElementById('sheet-edit-zone');
 const $shZoneP = document.getElementById('sheet-edit-precio-zona');
-
 const VIEWS = {
   pedidos: document.getElementById('view-pedidos'),
   corte:   document.getElementById('view-corte'),
@@ -80,25 +45,15 @@ const VIEWS = {
   config:  document.getElementById('view-config'),
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ARRANQUE — app directa, sin login ni PIN
-// ─────────────────────────────────────────────────────────────────────────────
-$app.style.display = 'flex';
+// ─── ARRANQUE ─────────────────────────────────────────────────────────────────
 loadCache();
 renderAll();
 initUI();
 
-let fsConectado = false;
+auth.signInAnonymously().catch(() => {});
+auth.onAuthStateChanged(u => { if (u && !fsConectado) connectFirestore(); });
 
-// Auth anónima Firebase en background para Firestore
-signInAnonymously(auth).catch(() => {});
-onAuthStateChanged(auth, user => {
-  if (user && !fsConectado) connectFirestore();
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CACHE
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── CACHE LOCAL ──────────────────────────────────────────────────────────────
 function loadCache() {
   try { const r = localStorage.getItem(LS_ORDERS); if (r) orders = JSON.parse(r); } catch(e) { orders = []; }
   try { const r = localStorage.getItem(LS_STOCK);  if (r) stock  = JSON.parse(r); } catch(e) { stock  = {}; }
@@ -108,62 +63,42 @@ function saveOrders() { try { localStorage.setItem(LS_ORDERS, JSON.stringify(ord
 function saveStock()  { try { localStorage.setItem(LS_STOCK,  JSON.stringify(stock));  } catch(e) {} }
 function saveZones()  { try { localStorage.setItem(LS_ZONES,  JSON.stringify(zones));  } catch(e) {} }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FIRESTORE — listeners en tiempo real
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── FIRESTORE ────────────────────────────────────────────────────────────────
 function connectFirestore() {
   if (fsConectado) return;
   fsConectado = true;
 
-  onSnapshot(query(collection(db,'orders'), orderBy('createdAt','desc')), snap => {
+  db.collection('orders').orderBy('createdAt','desc').onSnapshot(snap => {
     orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    saveOrders();
-    renderPedidos();
-    renderCorte();
-    checkAutoArchiveEnano();
+    saveOrders(); renderPedidos(); renderCorte(); checkAutoArchiveEnano();
   }, e => console.warn('orders:', e));
 
-  onSnapshot(doc(db,'meta','stock'), snap => {
-    if (snap.exists()) { stock = snap.data(); saveStock(); renderStock(); }
+  db.collection('meta').doc('stock').onSnapshot(snap => {
+    if (snap.exists) { stock = snap.data(); saveStock(); renderStock(); }
   }, e => console.warn('stock:', e));
 
-  onSnapshot(doc(db,'meta','flexZones'), snap => {
-    if (snap.exists()) { zones = snap.data().zones; saveZones(); renderConfig(); }
+  db.collection('meta').doc('flexZones').onSnapshot(snap => {
+    if (snap.exists) { zones = snap.data().zones; saveZones(); renderConfig(); }
   }, e => console.warn('zones:', e));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AUTO-ARCHIVADO ENANO — 24h en camino → entregado
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── AUTO-ARCHIVADO ENANO ─────────────────────────────────────────────────────
 function checkAutoArchiveEnano() {
   const now = Date.now();
   const vencidos = orders.filter(o =>
-    o.status === 'camino' &&
-    o.cuenta === 'enano' &&
-    ms(o.despachadoAt) > 0 &&
-    now - ms(o.despachadoAt) >= H24
+    o.status === 'camino' && o.cuenta === 'enano' &&
+    ms(o.despachadoAt) > 0 && now - ms(o.despachadoAt) >= H24
   );
   if (!vencidos.length) return;
   vencidos.forEach(async o => {
     const f = new Date().toLocaleDateString('es-AR');
-    mutateOrder(o.id, { status: 'entregado', fechaEntrega: f, deliveredAt: Date.now() });
-    try {
-      await updateDoc(doc(db,'orders',o.id), {
-        status: 'entregado',
-        deliveredAt: serverTimestamp(),
-        fechaEntrega: f,
-      });
-    } catch(e) {}
+    mutateOrder(o.id, { status:'entregado', fechaEntrega:f, deliveredAt:Date.now() });
+    try { await db.collection('orders').doc(o.id).update({ status:'entregado', deliveredAt:TS(), fechaEntrega:f }); } catch(e) {}
   });
   renderPedidos();
 }
-
-// Revisar cada minuto si hay enanos vencidos
 setInterval(checkAutoArchiveEnano, 60000);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TIMESTAMP helper
-// ─────────────────────────────────────────────────────────────────────────────
 function ms(ts) {
   if (!ts) return 0;
   if (typeof ts.toMillis === 'function') return ts.toMillis();
@@ -172,9 +107,7 @@ function ms(ts) {
   return 0;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// UI INIT (una sola vez)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── UI INIT ──────────────────────────────────────────────────────────────────
 let uiOk = false;
 function initUI() {
   if (uiOk) return; uiOk = true;
@@ -186,24 +119,18 @@ function initUI() {
   setupLocalidadSearch();
   setupFormListeners();
   setupDeliverySheet();
+  setupZoneSheets();
   requestNotificationPermission();
   navigateTo('pedidos');
-  // Chequear auto-archivado al abrir
   setTimeout(checkAutoArchiveEnano, 1000);
 }
 
 function renderAll() {
-  renderPedidos();
-  renderCorte();
-  renderStock();
-  renderConfig();
+  renderPedidos(); renderCorte(); renderStock(); renderConfig();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// NAVEGACIÓN CON ANIMACIONES
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── NAVEGACIÓN ───────────────────────────────────────────────────────────────
 const TABS = ['pedidos','corte','stock','config'];
-let curView = 'pedidos';
 
 function setupNav() {
   document.querySelectorAll('[data-nav]').forEach(btn =>
@@ -216,30 +143,23 @@ function setupNav() {
   history.replaceState({ view:'pedidos' }, '');
   window.addEventListener('popstate', () => {
     const i = TABS.indexOf(curView);
-    const p = i > 0 ? TABS[i-1] : 'pedidos';
-    navInternal(p); history.pushState({ view:p }, '');
+    navInternal(i > 0 ? TABS[i-1] : 'pedidos');
   });
 }
 
 function navInternal(name) {
   const prevIdx = TABS.indexOf(curView);
   const nextIdx = TABS.indexOf(name);
-  const direction = nextIdx > prevIdx ? 'right' : 'left';
-
   curView = name;
-  Object.values(VIEWS).forEach(v => {
-    v.classList.remove('active','slide-right','slide-left');
-  });
+  Object.values(VIEWS).forEach(v => v.classList.remove('active','slide-right','slide-left'));
   document.querySelectorAll('[data-nav]').forEach(b => b.classList.remove('active'));
-
-  const nextView = VIEWS[name];
-  if (nextView) {
-    nextView.classList.add('active');
+  const nv = VIEWS[name];
+  if (nv) {
+    nv.classList.add('active');
     if (prevIdx !== nextIdx) {
-      nextView.classList.add(direction === 'right' ? 'slide-right' : 'slide-left');
-      nextView.addEventListener('animationend', () => {
-        nextView.classList.remove('slide-right','slide-left');
-      }, { once: true });
+      const cls = nextIdx > prevIdx ? 'slide-right' : 'slide-left';
+      nv.classList.add(cls);
+      nv.addEventListener('animationend', () => nv.classList.remove(cls), { once:true });
     }
   }
   document.querySelector(`[data-nav="${name}"]`)?.classList.add('active');
@@ -248,12 +168,11 @@ function navInternal(name) {
 }
 function navigateTo(name) { navInternal(name); history.pushState({ view:name }, ''); }
 
-// Swipe horizontal
 function setupSwipe() {
   let x0=0, y0=0;
   const mc = document.getElementById('main-content');
-  mc.addEventListener('touchstart', e=>{ x0=e.touches[0].clientX; y0=e.touches[0].clientY; }, { passive:true });
-  mc.addEventListener('touchend', e=>{
+  mc.addEventListener('touchstart', e => { x0=e.touches[0].clientX; y0=e.touches[0].clientY; }, { passive:true });
+  mc.addEventListener('touchend', e => {
     const dx = e.changedTouches[0].clientX - x0;
     const dy = e.changedTouches[0].clientY - y0;
     if (Math.abs(dx) < 80 || Math.abs(dy) > Math.abs(dx)/2.5) return;
@@ -263,20 +182,23 @@ function setupSwipe() {
   }, { passive:true });
 }
 
-// Cerrar sheet arrastrando hacia abajo
 function setupSheetDrag() {
   document.querySelectorAll('.sheet').forEach(sh => {
     ['sheet-handle','sheet-title'].forEach(cls => {
       const el = sh.querySelector('.'+cls); if (!el) return;
       let y0 = 0;
-      el.addEventListener('touchstart', e=>{ y0=e.touches[0].clientY; }, { passive:true });
-      el.addEventListener('touchend',   e=>{ if (e.changedTouches[0].clientY - y0 > 60) closeSheet(sh); }, { passive:true });
+      el.addEventListener('touchstart', e => { y0=e.touches[0].clientY; }, { passive:true });
+      el.addEventListener('touchend',   e => { if (e.changedTouches[0].clientY - y0 > 60) closeSheet(sh); }, { passive:true });
     });
   });
 }
 
 function setupOffline() {
-  const upd = () => $offline.classList.toggle('show', !navigator.onLine);
+  const upd = () => {
+    const online = navigator.onLine;
+    $offline.className = 'status-pill ' + (online ? 'online' : 'offline');
+    $offline.textContent = online ? 'En línea' : 'Sin conexión';
+  };
   window.addEventListener('online',  () => { upd(); connectFirestore(); });
   window.addEventListener('offline', upd);
   upd();
@@ -284,19 +206,18 @@ function setupOffline() {
 
 async function requestNotificationPermission() {
   if ('Notification' in window && Notification.permission === 'default')
-    await Notification.requestPermission();
+    await Notification.requestPermission().catch(() => {});
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ALERTAS DE DESPACHO
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── ALERTAS ──────────────────────────────────────────────────────────────────
 function dispTarget(tipo) {
   const t = new Date(); t.setHours(tipo==='FLEX'?13:14,0,0,0);
   if (t <= new Date()) t.setDate(t.getDate()+1);
   return t;
 }
-function fmtDiff(ms_) {
-  const m = Math.max(0,Math.floor(ms_/60000)), h = Math.floor(m/60);
+function fmtDiff(diff) {
+  if (diff <= 0) return 'Ya!';
+  const h=Math.floor(diff/3600000), m=Math.floor(diff/60000);
   return h>0 ? `${h}h ${String(m%60).padStart(2,'0')}m` : `${m}m`;
 }
 function setupAlerts() {
@@ -316,28 +237,26 @@ function setupAlerts() {
 function showAlert(type,msg) {
   $alert.className=`alert-banner show ${type}`; $alert.textContent=msg;
   setTimeout(()=>$alert.classList.remove('show'),8000);
-  if (Notification.permission==='granted') new Notification('FullSports',{body:msg});
+  if (typeof Notification !== 'undefined' && Notification.permission==='granted')
+    new Notification('FullSports',{body:msg});
 }
 function updateCountdowns() {
-  document.querySelectorAll('[data-cd]').forEach(el=>{
+  document.querySelectorAll('[data-cd]').forEach(el => {
     const diff=dispTarget(el.dataset.cd)-new Date(), min=Math.floor(diff/60000);
     el.textContent=fmtDiff(diff);
     el.className='countdown'+(min<=15?' urgent':min<=60?' warn':'');
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PEDIDOS VIEW
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── PEDIDOS VIEW ─────────────────────────────────────────────────────────────
 const SPRI = {preparar:0,pendiente:1,camino:2,entregado:3};
 
 function renderPedidos() {
-  const v=VIEWS.pedidos; if (!v) return;
+  const v = VIEWS.pedidos; if (!v) return;
 
   const preparar  = orders.filter(o=>o.status==='preparar');
   const pendiente = orders.filter(o=>o.status==='pendiente');
   const camino    = orders.filter(o=>o.status==='camino');
-  // Ventana 24h para entregados
   const entregados= orders.filter(o=>o.status==='entregado' && Date.now()-ms(o.deliveredAt)<H24);
 
   const nPrep=preparar.length;
@@ -347,35 +266,33 @@ function renderPedidos() {
   const nPE  =pendiente.filter(o=>o.tipoEnvio==='PE').length;
 
   let body='';
-
   if (pedidosTab==='preparar') {
     const sorted=[...preparar].sort((a,b)=>(a.tipoEnvio==='FLEX'?0:10)-(b.tipoEnvio==='FLEX'?0:10));
     const bar=`<div class="home-bar">
       ${nFlex?`<button class="dispatch-btn flex-btn" onclick="despacharTodos('FLEX')">🚚 Despachar FLEX (${nFlex})</button>`:''}
-      ${nPE  ?`<button class="dispatch-btn pe-btn"   onclick="despacharTodos('PE')">📦 Despachar PE (${nPE})</button>`:''}
+      ${nPE  ?`<button class="dispatch-btn pe-btn" onclick="despacharTodos('PE')">📦 Despachar PE (${nPE})</button>`:''}
       <button class="btn-dep" id="btn-dep" onclick="toggleDep()">🏪 Depósito</button>
     </div>
     <div id="dep-box" style="display:none" class="dep-box"></div>`;
-    body = bar+(sorted.length
+    body = bar + (sorted.length
       ? `<div class="ped-body">${sorted.map(orderCard).join('')}</div>`
       : `<div class="empty-state"><span>✅</span><p>Sin pedidos por preparar</p></div>`);
 
   } else if (pedidosTab==='despacho') {
-    // Ordenar: primero pendientes, luego camino. Camino capi por fecha estimada.
     const sorted=[...pendiente,...camino].sort((a,b)=>{
-      const sp = SPRI[a.status]-SPRI[b.status]; if (sp!==0) return sp;
-      if (a.status==='camino'&&b.status==='camino') return parseLocalDate(a.fechaEstimada)-parseLocalDate(b.fechaEstimada);
+      const sp=SPRI[a.status]-SPRI[b.status]; if(sp!==0) return sp;
+      if(a.status==='camino'&&b.status==='camino') return parseLocalDate(a.fechaEstimada)-parseLocalDate(b.fechaEstimada);
       return 0;
     });
-    body=sorted.length
-      ?`<div class="ped-body">${sorted.map(orderCard).join('')}</div>`
-      :`<div class="empty-state"><span>📦</span><p>Sin pedidos en camino</p></div>`;
+    body = sorted.length
+      ? `<div class="ped-body">${sorted.map(orderCard).join('')}</div>`
+      : `<div class="empty-state"><span>📦</span><p>Sin pedidos en camino</p></div>`;
 
   } else {
     const sorted=[...entregados].sort((a,b)=>ms(b.deliveredAt)-ms(a.deliveredAt));
-    body=sorted.length
-      ?`<div class="ped-body">${sorted.map(orderCard).join('')}</div>`
-      :`<div class="empty-state"><span>📭</span><p>Sin entregados en las últimas 24hs</p></div>`;
+    body = sorted.length
+      ? `<div class="ped-body">${sorted.map(orderCard).join('')}</div>`
+      : `<div class="empty-state"><span>📭</span><p>Sin entregados en las últimas 24hs</p></div>`;
   }
 
   v.innerHTML=`
@@ -395,10 +312,9 @@ function renderPedidos() {
 }
 window.setTab = t => { pedidosTab=t; renderPedidos(); };
 
-function parseLocalDate(ddmmyyyy) {
-  if (!ddmmyyyy) return Infinity;
-  const p=ddmmyyyy.split('/');
-  if (p.length!==3) return Infinity;
+function parseLocalDate(s) {
+  if (!s) return Infinity;
+  const p=s.split('/'); if (p.length!==3) return Infinity;
   return new Date(p[2],p[1]-1,p[0]).getTime();
 }
 
@@ -448,7 +364,6 @@ function orderCard(o) {
   let fechaLine='';
   if (o.status==='camino'&&o.fechaEstimada) {
     fechaLine=`<div class="order-fecha">📅 Entrega estimada: <b>${o.fechaEstimada}</b> <button class="btn-link" onclick="openDelivery('${o.id}','edit')">✏️</button></div>`;
-    // Barra de progreso para enano
     if (o.cuenta==='enano'&&ms(o.despachadoAt)>0) {
       const elapsed=Math.min(1,(Date.now()-ms(o.despachadoAt))/H24);
       fechaLine+=`<div class="transit-bar"><div class="transit-bar-fill" style="width:${Math.round(elapsed*100)}%"></div></div>`;
@@ -463,8 +378,8 @@ function orderCard(o) {
   </div>`;
   else if (o.status==='pendiente') act=`<div class="card-act">
     <button class="btn btn-primary btn-sm" onclick="acDespachado('${o.id}')">🚚 Despachar</button>
-    <button class="btn btn-ghost btn-sm"   onclick="acEditar('${o.id}')">✏️</button>
-    <button class="btn btn-danger btn-sm"  onclick="acEliminar('${o.id}')">🗑</button>
+    <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️</button>
+    <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
   </div>`;
   else if (o.status==='camino') act=`<div class="card-act">
     <button class="btn btn-green btn-sm" onclick="acEntregado('${o.id}')">✓ Entregado</button>
@@ -490,36 +405,29 @@ function fmtItemsShort(items) {
   return `${s.length} pares — ${Object.entries(g).map(([k,q])=>q>1?`${k}×${q}`:k).join(' · ')}`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ACCIONES DE PEDIDOS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── ACCIONES ─────────────────────────────────────────────────────────────────
 window.acPreparado = async id => {
-  const o=orders.find(o=>o.id===id);
+  const o=orders.find(o=>o.id===id); if (!o) return;
   mutateOrder(id,{status:'pendiente'});
   pedidosTab='despacho'; renderPedidos(); renderCorte();
   try {
-    await updateDoc(doc(db,'orders',id),{status:'pendiente'});
-    if (o?.items) {
+    await db.collection('orders').doc(id).update({status:'pendiente'});
+    if (o.items) {
       const ns={...stock};
       o.items.forEach(i=>{const k=`${i.producto}_${i.talle}`;ns[k]=Math.max(0,(ns[k]||0)-1);});
       stock=ns; saveStock();
-      await setDoc(doc(db,'meta','stock'),ns);
+      await db.collection('meta').doc('stock').set(ns);
     }
   } catch(e){toast('Sin red — se sincronizará');}
 };
 
 window.acDespachado = async id => {
   const o=orders.find(o=>o.id===id); if (!o) return;
-  if (o.cuenta==='capi') {
-    // Pedir fecha estimada para capi
-    openDelivery(id, 'dispatch');
-    return;
-  }
-  // Enano: auto 24h desde ahora
-  const enanoFecha = proximoDia();
-  mutateOrder(id,{status:'camino', fechaEstimada:enanoFecha, despachadoAt:Date.now()});
+  if (o.cuenta==='capi') { openDelivery(id,'dispatch'); return; }
+  const fecha=proximoDia();
+  mutateOrder(id,{status:'camino',fechaEstimada:fecha,despachadoAt:Date.now()});
   renderPedidos();
-  try { await updateDoc(doc(db,'orders',id),{status:'camino',despachadoAt:serverTimestamp(),fechaEstimada:enanoFecha}); }
+  try { await db.collection('orders').doc(id).update({status:'camino',despachadoAt:TS(),fechaEstimada:fecha}); }
   catch(e){toast('Sin red');}
 };
 
@@ -527,72 +435,55 @@ window.despacharTodos = async tipo => {
   const pend=orders.filter(o=>o.status==='pendiente'&&o.tipoEnvio===tipo);
   if (!pend.length) return;
   if (!confirm(`¿Despachar ${pend.length} pedido${pend.length>1?'s':''} ${tipo}?`)) return;
-  const fechaAuto = proximoDia();
-  pend.forEach(o=>mutateOrder(o.id,{
-    status:'camino',
-    fechaEstimada: fechaAuto,
-    despachadoAt: Date.now()
-  }));
+  const fecha=proximoDia();
+  pend.forEach(o=>mutateOrder(o.id,{status:'camino',fechaEstimada:fecha,despachadoAt:Date.now()}));
   pedidosTab='despacho'; renderPedidos(); renderCorte();
   try {
-    for(const o of pend) {
-      await updateDoc(doc(db,'orders',o.id),{
-        status:'camino',
-        despachadoAt:serverTimestamp(),
-        fechaEstimada: fechaAuto
-      });
-    }
+    for(const o of pend)
+      await db.collection('orders').doc(o.id).update({status:'camino',despachadoAt:TS(),fechaEstimada:fecha});
     toast(`${pend.length} pedidos ${tipo} despachados ✓`);
   } catch(e){toast('Sin red');}
 };
 
 window.acEntregado = async id => {
   const f=new Date().toLocaleDateString('es-AR');
-  mutateOrder(id,{status:'entregado',fechaEntrega:f,deliveredAt:Date.now()}); renderPedidos(); renderCorte();
-  try { await updateDoc(doc(db,'orders',id),{status:'entregado',deliveredAt:serverTimestamp(),fechaEntrega:f}); } catch(e){toast('Sin red');}
+  mutateOrder(id,{status:'entregado',fechaEntrega:f,deliveredAt:Date.now()});
+  renderPedidos(); renderCorte();
+  try { await db.collection('orders').doc(id).update({status:'entregado',deliveredAt:TS(),fechaEntrega:f}); }
+  catch(e){toast('Sin red');}
 };
+
 window.acEliminar = async id => {
   if (!confirm('¿Eliminar este pedido?')) return;
   orders=orders.filter(o=>o.id!==id); saveOrders(); renderPedidos(); renderCorte();
-  try { await deleteDoc(doc(db,'orders',id)); } catch(e){toast('Sin red');}
+  try { await db.collection('orders').doc(id).delete(); } catch(e){toast('Sin red');}
 };
+
 window.acEditar = id => { const o=orders.find(o=>o.id===id); if(o) openNuevaSheet(o); };
 
 function mutateOrder(id,patch) {
   const i=orders.findIndex(o=>o.id===id);
   if (i>=0) { orders[i]={...orders[i],...patch}; saveOrders(); }
 }
-
 function proximoDia() {
   const d=new Date(); d.setDate(d.getDate()+1);
   return d.toLocaleDateString('es-AR');
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SHEET FECHA ESTIMADA (editar o despachar capi)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── DELIVERY SHEET ───────────────────────────────────────────────────────────
 function setupDeliverySheet() {
   document.getElementById('btn-save-delivery')?.addEventListener('click', async () => {
-    const val = document.getElementById('delivery-date-input').value;
-    if (!val || !deliveryId) { closeSheet($shDeliv); return; }
-    const fechaStr = inputToDate(val);
-
-    if (deliveryAction === 'dispatch') {
-      // Despachar capi con la fecha elegida
-      mutateOrder(deliveryId, { status:'camino', fechaEstimada:fechaStr, despachadoAt:Date.now() });
+    const val=document.getElementById('delivery-date-input').value;
+    if (!val||!deliveryId) { closeSheet($shDeliv); return; }
+    const fechaStr=inputToDate(val);
+    if (deliveryAction==='dispatch') {
+      mutateOrder(deliveryId,{status:'camino',fechaEstimada:fechaStr,despachadoAt:Date.now()});
       renderPedidos(); renderCorte();
-      try {
-        await updateDoc(doc(db,'orders',deliveryId),{
-          status:'camino',
-          despachadoAt:serverTimestamp(),
-          fechaEstimada:fechaStr,
-        });
-        toast('Despachado ✓');
-      } catch(e){toast('Sin red');}
+      try { await db.collection('orders').doc(deliveryId).update({status:'camino',despachadoAt:TS(),fechaEstimada:fechaStr}); toast('Despachado ✓'); }
+      catch(e){toast('Sin red');}
     } else {
-      // Editar fecha estimada
-      mutateOrder(deliveryId, { fechaEstimada:fechaStr }); renderPedidos();
-      try { await updateDoc(doc(db,'orders',deliveryId),{fechaEstimada:fechaStr}); } catch(e){}
+      mutateOrder(deliveryId,{fechaEstimada:fechaStr}); renderPedidos();
+      try { await db.collection('orders').doc(deliveryId).update({fechaEstimada:fechaStr}); } catch(e){}
     }
     closeSheet($shDeliv);
   });
@@ -602,58 +493,48 @@ window.openDelivery = (id, action='edit') => {
   deliveryId=id; deliveryAction=action;
   const o=orders.find(o=>o.id===id);
   const titleEl=document.getElementById('delivery-sheet-title');
-  if (titleEl) titleEl.textContent = action==='dispatch' ? 'Fecha estimada de entrega (CAPI)' : 'Editar fecha estimada';
+  if (titleEl) titleEl.textContent=action==='dispatch'?'Fecha estimada de entrega (CAPI)':'Editar fecha estimada';
   const inp=document.getElementById('delivery-date-input');
-  if (inp) inp.value = action==='edit' ? (dateToInput(o?.fechaEstimada)||'') : tomorrowInput();
+  if (inp) inp.value=action==='edit'?(dateToInput(o?.fechaEstimada)||''):tomorrowInput();
   openSheet($shDeliv);
 };
 
-function dateToInput(ddmmyyyy) {
-  if (!ddmmyyyy) return '';
-  const p=ddmmyyyy.split('/'); if (p.length!==3) return '';
+function dateToInput(s) {
+  if (!s) return '';
+  const p=s.split('/'); if (p.length!==3) return '';
   return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
 }
-function inputToDate(yyyymmdd) {
-  if (!yyyymmdd) return '';
-  const [y,m,d]=yyyymmdd.split('-');
+function inputToDate(s) {
+  if (!s) return '';
+  const [y,m,d]=s.split('-');
   return `${d}/${m}/${y}`;
 }
 function tomorrowInput() {
   const d=new Date(); d.setDate(d.getDate()+1);
-  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), dd=String(d.getDate()).padStart(2,'0');
-  return `${y}-${m}-${dd}`;
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FORMULARIO NUEVA VENTA
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── FORMULARIO NUEVA VENTA ───────────────────────────────────────────────────
 function openNuevaSheet(data=null) {
-  editingId   = data?.id||null;
-  formItems   = data?.items ? [...data.items] : [];
-  formEnvio   = null;
-  curProducto = null;
-  stockAll    = false;
-
-  $shNueva.querySelector('.sheet-title').textContent = editingId ? 'Editar pedido' : 'Nueva venta';
+  editingId=data?.id||null; formItems=data?.items?[...data.items]:[]; formEnvio=null; curProducto=null; stockAll=false;
+  $shNueva.querySelector('.sheet-title').textContent=editingId?'Editar pedido':'Nueva venta';
   setCuenta(data?.cuenta||'capi');
   setEnvio(data?.tipoEnvio||'FLEX');
-  V('f-nombre').value       = data?.nombreComprador||'';
-  V('f-provincia').value    = data?.provincia||'';
-  V('f-iibb').value         = data?.iibb ? fmtDec(data.iibb) : '';
-  V('f-importe-pe').value   = data?.importeAcreditado||'';
-  V('f-importe-flex').value = data?.importeVenta||'';
-  V('btn-stock-override').textContent = '✏️ Manual';
-
+  V('f-nombre').value=data?.nombreComprador||'';
+  V('f-provincia').value=data?.provincia||'';
+  V('f-iibb').value=data?.iibb?fmtDec(data.iibb):'';
+  V('f-importe-pe').value=data?.importeAcreditado||'';
+  V('f-importe-flex').value=data?.importeVenta||'';
+  V('btn-stock-override').textContent='✏️ Manual';
   if (data?.tipoEnvio==='FLEX'&&data.flexLocalidad) {
     formEnvio={localidad:data.flexLocalidad,zona:data.flexZona,importe:data.flexImporte};
     showZoneSelected();
   } else clearZone();
-
   renderProdBtns();
-  V('talle-wrap').style.display   = 'none';
-  V('btn-add-otro').style.display = 'none';
-  V('btn-multi').style.display    = 'none';
-  V('multi-wrap').style.display   = 'none';
+  V('talle-wrap').style.display='none';
+  V('btn-add-otro').style.display='none';
+  V('btn-multi').style.display='none';
+  V('multi-wrap').style.display='none';
   removeCantWrap();
   renderFormItems();
   openSheet($shNueva);
@@ -669,7 +550,7 @@ function setEnvio(t) {
   curEnvio=t;
   document.querySelectorAll('[data-envio]').forEach(b=>b.classList.toggle('active',b.dataset.envio===t));
   V('flex-fields').style.display=t==='FLEX'?'flex':'none';
-  V('pe-fields').style.display  =t==='PE'  ?'flex':'none';
+  V('pe-fields').style.display=t==='PE'?'flex':'none';
 }
 
 function setupFormListeners() {
@@ -709,85 +590,53 @@ function setupFormListeners() {
   V('btn-guardar-venta').addEventListener('click', guardarVenta);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// BÚSQUEDA DE LOCALIDAD — FIX: position:fixed para evitar clip por overflow
-// El div #localidad-results está fuera del sheet en el HTML,
-// y lo posicionamos con fixed relativo al input mediante getBoundingClientRect().
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── BÚSQUEDA LOCALIDAD ───────────────────────────────────────────────────────
 function setupLocalidadSearch() {
-  const inp = V('f-localidad');
-  const res = V('localidad-results');
-  if (!inp || !res) return;
+  const inp=V('f-localidad'), res=V('localidad-results');
+  if (!inp||!res) return;
 
   function positionDropdown() {
-    const rect = inp.getBoundingClientRect();
-    res.style.top   = `${rect.bottom + 4}px`;
-    res.style.left  = `${rect.left}px`;
-    res.style.width = `${rect.width}px`;
+    const r=inp.getBoundingClientRect();
+    res.style.top=`${r.bottom+4}px`; res.style.left=`${r.left}px`; res.style.width=`${r.width}px`;
   }
-
   function buildResults() {
-    const q = inp.value.toLowerCase().trim();
+    const q=inp.value.toLowerCase().trim();
     if (!q) { res.classList.remove('show'); zoneHits=[]; return; }
-    zoneHits = zones.filter(z=>z.localidad.toLowerCase().includes(q)).slice(0,8);
+    zoneHits=zones.filter(z=>z.localidad.toLowerCase().includes(q)).slice(0,8);
     if (!zoneHits.length) { res.classList.remove('show'); return; }
-
-    res.innerHTML = zoneHits.map((z,i)=>`
+    res.innerHTML=zoneHits.map((z,i)=>`
       <div class="search-result-item" data-zi="${i}">
-        <div>
-          <div class="sri-name">${z.localidad}</div>
-          <div class="search-result-zona">${z.zona}</div>
-        </div>
+        <div><div class="sri-name">${z.localidad}</div><div class="search-result-zona">${z.zona}</div></div>
         <div class="sri-precio">$${fmt(z.importe)}</div>
       </div>`).join('');
-
-    positionDropdown();
-    res.classList.add('show');
-
-    res.querySelectorAll('.search-result-item').forEach(el => {
-      const pick = e => {
+    positionDropdown(); res.classList.add('show');
+    res.querySelectorAll('.search-result-item').forEach(el=>{
+      const pick=e=>{
         e.preventDefault(); e.stopPropagation();
-        const z = zoneHits[parseInt(el.dataset.zi)];
-        if (!z) return;
-        formEnvio = { localidad:z.localidad, zona:z.zona, importe:z.importe };
-        inp.value = '';
-        res.classList.remove('show');
-        showZoneSelected();
-        updateNeto();
+        const z=zoneHits[parseInt(el.dataset.zi)]; if (!z) return;
+        formEnvio={localidad:z.localidad,zona:z.zona,importe:z.importe};
+        inp.value=''; res.classList.remove('show');
+        showZoneSelected(); updateNeto();
       };
-      el.addEventListener('mousedown',  pick);
-      el.addEventListener('touchstart', pick, {passive:false});
+      el.addEventListener('mousedown',pick);
+      el.addEventListener('touchstart',pick,{passive:false});
     });
   }
-
-  inp.addEventListener('input', buildResults);
-
-  // Reposicionar si hay scroll (ej. sheet body scrollea)
-  document.addEventListener('scroll', () => {
-    if (res.classList.contains('show')) positionDropdown();
-  }, true);
-
-  // Cerrar al hacer click fuera
-  document.addEventListener('click', e => {
-    if (!e.target.closest('.search-wrap') && !res.contains(e.target)) {
-      res.classList.remove('show');
-    }
-  });
+  inp.addEventListener('input',buildResults);
+  document.addEventListener('scroll',()=>{ if(res.classList.contains('show')) positionDropdown(); },true);
+  document.addEventListener('click',e=>{ if(!e.target.closest('.search-wrap')&&!res.contains(e.target)) res.classList.remove('show'); });
 }
 
 function showZoneSelected() {
   const el=V('flex-selected'); if (!el||!formEnvio) return;
   el.innerHTML=`
-    <div>
-      <div class="flex-selected-name">${formEnvio.localidad}</div>
-      <div style="font-size:11px;color:var(--text-3)">${formEnvio.zona}</div>
-    </div>
+    <div><div class="flex-selected-name">${formEnvio.localidad}</div><div style="font-size:11px;color:var(--text-3)">${formEnvio.zona}</div></div>
     <div style="text-align:right">
       <div class="flex-selected-importe">−$${fmt(formEnvio.importe)}</div>
       <button class="btn-link" style="color:var(--red);font-size:11px" id="btn-clear-zone">Cambiar</button>
     </div>`;
   el.classList.add('show');
-  document.getElementById('btn-clear-zone')?.addEventListener('click', clearZone);
+  document.getElementById('btn-clear-zone')?.addEventListener('click',clearZone);
   updateNeto();
 }
 function clearZone() {
@@ -800,9 +649,7 @@ function updateNeto() {
   const fn=V('flex-neto'); if(fn) fn.textContent=formEnvio&&v>0?`Neto: $${fmt(v-formEnvio.importe)}`:'';
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SELECTOR PRODUCTOS / TALLES
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── SELECTOR PRODUCTOS / TALLES ──────────────────────────────────────────────
 function renderProdBtns() {
   const disp=PRODUCTOS.filter(p=>stockAll||TALLES.some(t=>(stock[`${p}_${t}`]??0)>0));
   const c=V('producto-btns'); if (!c) return;
@@ -867,7 +714,7 @@ function renderFormItems() {
   const list=V('items-list'); if (!list) return;
   if (!formItems.length) { list.innerHTML=''; return; }
   const g={};
-  formItems.forEach((item,i)=>{ const k=`${item.producto}||${item.talle}`; if(!g[k]) g[k]={...item,idx:[]}; g[k].idx.push(i); });
+  formItems.forEach((item,i)=>{const k=`${item.producto}||${item.talle}`;if(!g[k])g[k]={...item,idx:[]};g[k].idx.push(i);});
   list.innerHTML=Object.entries(g).map(([,{producto,talle,idx}])=>`
     <div class="item-row">
       <span class="item-row-text">${producto} T${talle}${idx.length>1?` <b>×${idx.length}</b>`:''}</span>
@@ -876,23 +723,19 @@ function renderFormItems() {
 }
 window.rmItem = i => { formItems.splice(i,1); renderFormItems(); };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GUARDAR VENTA
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── GUARDAR VENTA ────────────────────────────────────────────────────────────
 async function guardarVenta() {
   const nombre=V('f-nombre').value.trim();
   if (!nombre)           { toast('Ingresá el nombre'); return; }
   if (!formItems.length) { toast('Agregá al menos un ítem'); return; }
-
   if (!editingId) {
     const dups=orders.filter(o=>o.nombreComprador.toLowerCase()===nombre.toLowerCase()&&o.status!=='entregado');
     if (dups.length&&!confirm(`Ya hay un pedido de "${nombre}". ¿Continuar?`)) return;
   }
-
   const base={
     cuenta:curCuenta, nombreComprador:nombre, tipoEnvio:curEnvio, items:formItems,
-    status: editingId?(orders.find(o=>o.id===editingId)?.status||'preparar'):'preparar',
-    corteDone: editingId?(orders.find(o=>o.id===editingId)?.corteDone||false):false,
+    status:editingId?(orders.find(o=>o.id===editingId)?.status||'preparar'):'preparar',
+    corteDone:editingId?(orders.find(o=>o.id===editingId)?.corteDone||false):false,
   };
   if (curCuenta==='enano') { base.provincia=V('f-provincia').value.trim(); base.iibb=parseNum(V('f-iibb').value)||0; }
   if (curEnvio==='FLEX') {
@@ -911,21 +754,19 @@ async function guardarVenta() {
   closeSheet($shNueva);
   try {
     if (editingId) {
-      await updateDoc(doc(db,'orders',editingId),base);
+      await db.collection('orders').doc(editingId).update(base);
       mutateOrder(editingId,base); saveOrders(); renderPedidos(); renderCorte();
       toast('Actualizado ✓');
     } else {
-      base.createdAt=serverTimestamp();
-      const ref=await addDoc(collection(db,'orders'),base);
+      base.createdAt=TS();
+      const ref=await db.collection('orders').add(base);
       orders.unshift({id:ref.id,...base}); saveOrders(); renderPedidos(); renderCorte();
       toast('Venta guardada ✓');
     }
-  } catch(e) { toast('Error al guardar'); console.error(e); }
+  } catch(e){ toast('Error al guardar: '+e.message); }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CORTE VIEW
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── CORTE VIEW ───────────────────────────────────────────────────────────────
 function renderCorte() {
   const v=VIEWS.corte; if (!v) return;
   const nC=orders.filter(o=>!o.corteDone&&o.cuenta==='capi').length;
@@ -933,8 +774,8 @@ function renderCorte() {
   const nP=orders.filter(o=>o.status==='preparar').length;
   v.innerHTML=`
     <div class="corte-tabs">
-      <button class="corte-tab${corteCuenta==='capi'?' active':''}"     onclick="setCorte('capi')">CAPI <span class="corte-count">${nC}</span></button>
-      <button class="corte-tab${corteCuenta==='enano'?' active':''}"    onclick="setCorte('enano')">ENANO <span class="corte-count">${nE}</span></button>
+      <button class="corte-tab${corteCuenta==='capi'?' active':''}" onclick="setCorte('capi')">CAPI <span class="corte-count">${nC}</span></button>
+      <button class="corte-tab${corteCuenta==='enano'?' active':''}" onclick="setCorte('enano')">ENANO <span class="corte-count">${nE}</span></button>
       <button class="corte-tab${corteCuenta==='deposito'?' active':''}" onclick="setCorte('deposito')">Depósito${nP?` <span class="corte-count">${nP}</span>`:''}</button>
     </div>
     ${renderCorteBody()}`;
@@ -975,8 +816,7 @@ function renderDepCorte() {
   const prep=orders.filter(o=>o.status==='preparar');
   if (!prep.length) return `<div class="empty-state"><span>🏪</span><p>Sin pedidos para preparar</p></div>`;
   const lines=calcDep();
-  const pm={};
-  lines.forEach(l=>{if(!pm[l.prod])pm[l.prod]=[];pm[l.prod].push(l);});
+  const pm={}; lines.forEach(l=>{if(!pm[l.prod])pm[l.prod]=[];pm[l.prod].push(l);});
   const txt=`A buscar:\n${lines.map(l=>`${l.prod} T${l.talle} ×${l.qty}`).join('\n')}\n\nTotal: ${prep.length} pedidos`;
   return `<div class="card" style="padding:16px">
     <div class="section-title">A buscar en depósito</div>
@@ -985,7 +825,7 @@ function renderDepCorte() {
         <div class="deposito-talles">${ls.map(l=>`<div class="deposito-item"><span class="deposito-talle">T${l.talle}</span><span class="deposito-qty">×${l.qty}</span></div>`).join('')}</div>
       </div>`).join('')}
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--sep)">
-      <div class="dep-hdr" style="margin-bottom:6px">Stock restante tras preparar</div>
+      <div class="dep-hdr" style="margin-bottom:6px">Stock restante</div>
       ${lines.map(l=>`<div class="dep-row"><span class="dep-n">${l.prod} T${l.talle}</span><span class="dep-q">−${l.qty}</span><span class="dep-r ${l.queda===0?'cero':l.queda<=2?'bajo':'ok'}">queda ${l.queda}</span></div>`).join('')}
     </div>
     <button class="btn btn-primary" style="margin-top:14px;width:100%" onclick="copyTxt(${esc(txt)})">📋 Copiar lista</button>
@@ -1032,17 +872,15 @@ function fmtItemsCorte(items) {
 }
 function renderWA(t){return t.replace(/\*(.*?)\*/g,'<b>$1</b>').replace(/\n/g,'<br>');}
 function esc(t){return JSON.stringify(t).replace(/"/g,'&quot;');}
-window.copyTxt = t=>navigator.clipboard.writeText(t).then(()=>toast('¡Copiado!'));
+window.copyTxt = t=>navigator.clipboard.writeText(t).then(()=>toast('¡Copiado!')).catch(()=>toast('Error al copiar'));
 window.doCortado = async c=>{
   const pend=orders.filter(o=>!o.corteDone&&o.cuenta===c);
   pend.forEach(o=>mutateOrder(o.id,{corteDone:true})); renderCorte();
-  try{for(const o of pend)await updateDoc(doc(db,'orders',o.id),{corteDone:true});toast('Cortado ✓');}
+  try{for(const o of pend) await db.collection('orders').doc(o.id).update({corteDone:true}); toast('Cortado ✓');}
   catch(e){toast('Sin red');}
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STOCK VIEW
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── STOCK VIEW ───────────────────────────────────────────────────────────────
 function renderStock() {
   const v=VIEWS.stock; if (!v) return;
   v.innerHTML=`
@@ -1077,133 +915,106 @@ window.editSt=k=>{
   stock[k]=n; el.textContent=n; upRowCls(el,n);
 };
 function upRowCls(el,v){const r=el.closest('.stock-row');if(r)r.className=`stock-row ${v===0?'cero':v<=2?'bajo':'ok'}`;}
-window.doSaveStock=async()=>{
+window.doSaveStock = async ()=>{
   saveStock();
-  try{await setDoc(doc(db,'meta','stock'),stock);toast('Stock guardado ✓');}
-  catch(e){toast('Guardado localmente ✓');}
+  try{ await db.collection('meta').doc('stock').set(stock); toast('Stock guardado ✓'); }
+  catch(e){ toast('Guardado local ✓'); }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CONFIG — zonas FLEX
-// ─────────────────────────────────────────────────────────────────────────────
-function buildTree() {
-  const T={};
-  zones.forEach(z=>{
-    const p=z.zona.split(' - '),zL=p[0].trim(),pL=p[1]?.trim()||z.zona;
-    if(!T[zL])T[zL]={importe:z.importe,pts:{}};
-    if(!T[zL].pts[pL])T[zL].pts[pL]=[];
-    T[zL].pts[pL].push(z);
-  });
-  return T;
-}
+// ─── CONFIG / ZONAS FLEX ──────────────────────────────────────────────────────
 function renderConfig() {
-  const v=VIEWS.config; if(!v) return;
-  const T=buildTree();
-  const C={'Zona 1':'#007AFF','Zona 2':'#34C759','Zona 3':'#FF9500','Zona 4':'#FF3B30'};
-  const D={'Zona 1':'CABA','Zona 2':'GBA 1er cordón','Zona 3':'GBA 2do cordón','Zona 4':'GBA 3er cordón'};
+  const v=VIEWS.config; if (!v) return;
+  const grupos={};
+  zones.forEach((z,i)=>{
+    if(!grupos[z.zona])grupos[z.zona]=[];
+    grupos[z.zona].push({...z,idx:i});
+  });
   v.innerHTML=`
     <div class="section-title">Zonas FLEX</div>
-    <p class="config-hint">Tocá una zona para desplegar · ✏️ edita precio</p>
     <div class="config-zona-list">
-    ${Object.entries(T).sort(([a],[b])=>a.localeCompare(b)).map(([zL,zD])=>{
-      const col=C[zL]||'#6b7280', open=expandZonas.has(zL);
-      const nLoc=Object.values(zD.pts).reduce((a,b)=>a+b.length,0);
-      return`<div class="config-zona-card">
-        <div class="config-zona-header" onclick="togZona('${zL}')" style="border-left:4px solid ${col}">
+    ${Object.entries(grupos).map(([zona,locs])=>`
+      <div class="card">
+        <div class="config-zona-header" onclick="toggleZona('${zona.replace(/'/g,"\\'")}')">
           <div class="config-zona-info">
-            <span class="config-zona-label" style="color:${col}">${zL}</span>
-            <span class="config-zona-sub">${D[zL]||''}</span>
+            <div class="config-zona-name">${zona}</div>
+            <div class="config-zona-sub">$${fmt(locs[0].importe)} · ${locs.length} localidades</div>
           </div>
           <div class="config-zona-right">
-            <span class="config-zona-precio">$${fmt(zD.importe)}</span>
-            <button class="icon-btn" onclick="event.stopPropagation();editZPrice('${zL}',${zD.importe})">✏️</button>
-            <span class="zona-arrow">${open?'▲':'▼'}</span>
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();editZonaPrice('${zona.replace(/'/g,"\\'")}',${locs[0].importe})">✏️ Precio</button>
+            <span class="config-zona-arrow">${expandZonas.has(zona)?'▲':'▼'}</span>
           </div>
         </div>
-        ${open?`<div class="config-zona-body">
-          <div class="config-zona-stats">${Object.keys(zD.pts).length} partidos · ${nLoc} localidades</div>
-          ${Object.entries(zD.pts).sort(([a],[b])=>a.localeCompare(b)).map(([pL,locs])=>{
-            const pk=`${zL}||${pL}`, po=expandParts.has(pk);
-            return`<div class="config-partido">
-              <div class="config-partido-hdr" onclick="togPart('${pk}')">
-                <span class="config-partido-name">${pL}</span>
-                <span class="config-partido-n">${locs.length}</span>
-                <span class="zona-arrow">${po?'▲':'▼'}</span>
+        ${expandZonas.has(zona)?`
+        <div class="config-zona-body">
+          ${locs.map(l=>`
+            <div class="config-partido-hdr" onclick="togglePart('${l.idx}')">
+              <span>${l.localidad}</span>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:12px;color:var(--text-3)">$${fmt(l.importe)}</span>
+                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();editLoc(${l.idx})">✏️</button>
               </div>
-              ${po?`<div class="config-partido-locs">
-                ${locs.map(z=>`<div class="config-loc-row">
-                  <span>${z.localidad}</span>
-                  <button class="icon-btn" onclick="editLoc(${zones.indexOf(z)})">✏️</button>
-                </div>`).join('')}
-              </div>`:''}
-            </div>`;
-          }).join('')}
+            </div>`).join('')}
         </div>`:''}
-      </div>`;
-    }).join('')}
-    </div><div style="height:16px"></div>`;
+      </div>`).join('')}
+    </div>`;
 }
-window.togZona = z=>{expandZonas.has(z)?expandZonas.delete(z):expandZonas.add(z);renderConfig();};
-window.togPart = k=>{expandParts.has(k)?expandParts.delete(k):expandParts.add(k);renderConfig();};
-
-window.editZPrice = (zL,precio)=>{
-  editZonePriceLabel=zL;
-  V('ez-zona-label').textContent=`${zL} — aplica a todas sus localidades`;
+window.toggleZona = z=>{expandZonas.has(z)?expandZonas.delete(z):expandZonas.add(z);renderConfig();};
+window.togglePart = i=>{const s=String(i);expandParts.has(s)?expandParts.delete(s):expandParts.add(s);renderConfig();};
+window.editZonaPrice = (zona,precio)=>{
+  editZonePriceLabel=zona;
+  V('ez-zona-label').textContent=zona;
   V('ez-zona-precio').value=precio;
   openSheet($shZoneP);
 };
-document.getElementById('btn-save-precio-zona')?.addEventListener('click', async()=>{
-  if(!editZonePriceLabel)return;
-  const np=parseInt(V('ez-zona-precio').value)||0;
-  zones=zones.map(z=>z.zona.startsWith(editZonePriceLabel)?{...z,importe:np}:z);
-  saveZones();
-  try{await setDoc(doc(db,'meta','flexZones'),{zones});toast(`${editZonePriceLabel} actualizada ✓`);}
-  catch(e){toast('Guardado localmente ✓');}
-  closeSheet($shZoneP); renderConfig();
-});
-
 window.editLoc = idx=>{
   editZoneIdx=idx; const z=zones[idx];
   V('ez-localidad').value=z.localidad; V('ez-importe').value=z.importe; V('ez-zona').value=z.zona;
   openSheet($shZone);
 };
-document.getElementById('btn-save-zone').addEventListener('click', async()=>{
-  if(editZoneIdx===null)return;
-  zones[editZoneIdx]={localidad:V('ez-localidad').value.trim(),zona:V('ez-zona').value.trim(),importe:parseInt(V('ez-importe').value)||0};
-  saveZones();
-  try{await setDoc(doc(db,'meta','flexZones'),{zones});}catch(e){}
-  closeSheet($shZone); renderConfig();
-});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SHEETS
-// ─────────────────────────────────────────────────────────────────────────────
-function openSheet(sh){$overlay.classList.add('open');sh.classList.add('open');}
+function setupZoneSheets() {
+  document.getElementById('btn-save-precio-zona')?.addEventListener('click', async()=>{
+    if (!editZonePriceLabel) return;
+    const precio=parseInt(V('ez-zona-precio').value)||0;
+    zones=zones.map(z=>z.zona===editZonePriceLabel?{...z,importe:precio}:z);
+    saveZones();
+    try{ await db.collection('meta').doc('flexZones').set({zones}); toast(`${editZonePriceLabel} actualizada ✓`); }
+    catch(e){ toast('Guardado localmente ✓'); }
+    closeSheet($shZoneP); renderConfig();
+  });
+
+  document.getElementById('btn-save-zone')?.addEventListener('click', async()=>{
+    if(editZoneIdx===null)return;
+    zones[editZoneIdx]={localidad:V('ez-localidad').value.trim(),zona:V('ez-zona').value.trim(),importe:parseInt(V('ez-importe').value)||0};
+    saveZones();
+    try{ await db.collection('meta').doc('flexZones').set({zones}); }catch(e){}
+    closeSheet($shZone); renderConfig();
+  });
+}
+
+// ─── SHEETS ───────────────────────────────────────────────────────────────────
+function openSheet(sh){ $overlay.classList.add('open'); sh.classList.add('open'); }
 function closeSheet(sh){
   sh.classList.remove('open');
-  if(!document.querySelectorAll('.sheet.open').length)$overlay.classList.remove('open');
+  if(!document.querySelectorAll('.sheet.open').length) $overlay.classList.remove('open');
 }
 $overlay.addEventListener('click',()=>{
   document.querySelectorAll('.sheet.open').forEach(s=>s.classList.remove('open'));
   $overlay.classList.remove('open');
 });
 document.querySelectorAll('[data-close-sheet]').forEach(b=>
-  b.addEventListener('click',()=>{const s=b.closest('.sheet');if(s)closeSheet(s);})
+  b.addEventListener('click',()=>{ const s=b.closest('.sheet'); if(s) closeSheet(s); })
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TOAST
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── TOAST ────────────────────────────────────────────────────────────────────
 function toast(msg){
   const t=document.getElementById('toast');
   t.textContent=msg; t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),2500);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
-function V(id){return document.getElementById(id);}
-function fmt(n){return Math.round(n||0).toLocaleString('es-AR');}
-function fmtDec(n){return(n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});}
-function parseNum(s){return parseFloat(String(s).replace(/\./g,'').replace(',','.'))||0;}
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+function V(id){ return document.getElementById(id); }
+function fmt(n){ return Math.round(n||0).toLocaleString('es-AR'); }
+function fmtDec(n){ return (n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function parseNum(s){ return parseFloat(String(s).replace(/\./g,'').replace(',','.'))||0; }

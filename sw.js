@@ -1,5 +1,5 @@
-// FullSports Service Worker v11 — Firebase CDN cacheado, offline completo
-const CACHE = 'fs-v11';
+// FullSports SW v12 — compat SDK cacheado
+const CACHE = 'fs-v12';
 const FB = 'https://www.gstatic.com/firebasejs/10.12.2/';
 
 const SHELL = [
@@ -7,20 +7,17 @@ const SHELL = [
   './index.html',
   './css/main.css',
   './js/app.js',
-  './js/config.js',
   './js/flex-zones.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
-  FB + 'firebase-app.js',
-  FB + 'firebase-auth.js',
-  FB + 'firebase-firestore.js',
+  FB + 'firebase-app-compat.js',
+  FB + 'firebase-auth-compat.js',
+  FB + 'firebase-firestore-compat.js',
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(SHELL)).catch(() => {})
-  );
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).catch(() => {}));
   self.skipWaiting();
 });
 
@@ -35,21 +32,15 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = e.request.url;
-  // Excluir APIs de Firestore/Auth (streaming, no cacheables)
-  if (
-    url.includes('googleapis.com') ||
-    url.includes('google.com/identitytoolkit') ||
-    url.includes('accounts.google')
-  ) return;
-
+  // Solo excluir APIs en tiempo real de Firestore/Auth (streams, no cacheables)
+  if (url.includes('googleapis.com') || url.includes('accounts.google')) return;
   if (e.request.method !== 'GET') return;
 
   e.respondWith(
     caches.match(e.request).then(cached => {
       const fresh = fetch(e.request).then(resp => {
-        if (resp && resp.status === 200) {
+        if (resp && resp.status === 200)
           caches.open(CACHE).then(c => c.put(e.request, resp.clone()));
-        }
         return resp;
       }).catch(() => cached);
       return cached || fresh;

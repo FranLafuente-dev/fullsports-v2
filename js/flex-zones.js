@@ -1,4 +1,4 @@
-export const FLEX_ZONES = [
+const FLEX_ZONES = [
   { localidad: "20 de Junio", zona: "Zona 3 - La Matanza Sur", importe: 5500 },
   { localidad: "3 de Febrero", zona: "Zona 2 - Tres de Febrero", importe: 4600 },
   { localidad: "9 de Abril", zona: "Zona 3 - Esteban Echeverría", importe: 5500 },

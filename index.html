@@ -15,13 +15,12 @@
 </head>
 <body>
 
-<!-- MAIN APP -->
+<!-- APP -->
 <div id="app">
-
   <div id="topbar">
     <h1 id="topbar-title">FullSports</h1>
     <div class="topbar-right">
-      <span class="offline-pill" id="offline-pill">Sin conexión</span>
+      <span class="status-pill" id="status-pill"></span>
       <div class="avatar" id="user-avatar">FS</div>
     </div>
   </div>
@@ -79,7 +78,6 @@
   <div class="sheet-handle"></div>
   <div class="sheet-title">Nueva venta</div>
   <div class="sheet-body">
-
     <div class="form-group">
       <div class="form-label">Cuenta</div>
       <div class="toggle-group">
@@ -87,12 +85,10 @@
         <button class="toggle-btn" data-cuenta="enano">ENANO</button>
       </div>
     </div>
-
     <div class="form-group">
       <div class="form-label">Nombre comprador</div>
       <input class="form-input" id="f-nombre" type="text" placeholder="Ej: María González" autocomplete="off">
     </div>
-
     <div id="enano-fields" style="display:none;flex-direction:column;gap:16px">
       <div class="form-group">
         <div class="form-label">Provincia</div>
@@ -103,7 +99,6 @@
         <input class="form-input" id="f-iibb" type="text" placeholder="Ej: 1674,42" inputmode="decimal">
       </div>
     </div>
-
     <div class="form-group">
       <div class="form-label">Tipo de despacho</div>
       <div class="toggle-group">
@@ -111,7 +106,6 @@
         <button class="toggle-btn" data-envio="PE">Punto de Envío (14:00hs)</button>
       </div>
     </div>
-
     <div id="flex-fields" style="display:flex;flex-direction:column;gap:12px">
       <div class="form-group">
         <div class="form-label">Localidad</div>
@@ -126,14 +120,12 @@
         <div class="flex-neto" id="flex-neto"></div>
       </div>
     </div>
-
     <div id="pe-fields" style="display:none;flex-direction:column;gap:12px">
       <div class="form-group">
         <div class="form-label">Importe acreditado</div>
         <input class="form-input" id="f-importe-pe" type="text" placeholder="Ej: 38047" inputmode="numeric">
       </div>
     </div>
-
     <div class="form-group" id="item-selector-wrap">
       <div class="form-label-row">
         <span class="form-label">Producto</span>
@@ -141,16 +133,12 @@
       </div>
       <div id="producto-btns" class="producto-grid"></div>
     </div>
-
     <div class="form-group" id="talle-wrap" style="display:none">
       <div class="form-label">Talle</div>
       <div id="talle-btns" class="talle-grid"></div>
     </div>
-
     <div id="items-list"></div>
-
     <button class="btn btn-ghost" id="btn-add-otro" style="display:none">+ Agregar otro par</button>
-
     <div id="multi-wrap" style="display:none" class="multi-card">
       <div class="multi-title">➕ Ítem adicional</div>
       <div class="form-group">
@@ -171,9 +159,7 @@
         </div>
       </div>
     </div>
-
     <button class="btn btn-ghost" id="btn-multi" style="display:none">📦 Agregar otro modelo</button>
-
     <button class="btn btn-primary" id="btn-guardar-venta">Guardar venta</button>
     <button class="btn btn-ghost" data-close-sheet>Cancelar</button>
     <div style="height:8px"></div>
@@ -183,7 +169,7 @@
 <!-- DROPDOWN LOCALIDAD (fuera del sheet para evitar clip por overflow) -->
 <div class="search-results" id="localidad-results"></div>
 
-<!-- SHEET: FECHA ENTREGA / DESPACHO CAPI -->
+<!-- SHEET: FECHA ESTIMADA / DESPACHO CAPI -->
 <div class="sheet" id="sheet-delivery">
   <div class="sheet-handle"></div>
   <div class="sheet-title" id="delivery-sheet-title">Fecha estimada de entrega</div>
@@ -219,7 +205,7 @@
   </div>
 </div>
 
-<!-- SHEET: EDITAR PRECIO DE ZONA COMPLETA -->
+<!-- SHEET: EDITAR PRECIO DE ZONA -->
 <div class="sheet" id="sheet-edit-precio-zona">
   <div class="sheet-handle"></div>
   <div class="sheet-title">Editar precio de zona</div>
@@ -240,22 +226,35 @@
 <!-- TOAST -->
 <div id="toast"></div>
 
-<script type="module" src="js/app.js"></script>
+<!-- Firebase compat SDK (cacheado por SW) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<!-- Firebase config -->
 <script>
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').then(reg => {
-      reg.addEventListener('updatefound', () => {
-        const nw = reg.installing;
-        nw.addEventListener('statechange', () => {
-          if (nw.state === 'activated') window.location.reload();
-        });
-      });
-    }).catch(()=>{});
-    // Recargar si el SW actualizado toma el control
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      window.location.reload();
-    });
-  }
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDWw6yWGucUrB6JLlxyWOQoC06rfehQ-Ts",
+  authDomain: "fullsports-panel.firebaseapp.com",
+  projectId: "fullsports-panel",
+  storageBucket: "fullsports-panel.firebasestorage.app",
+  messagingSenderId: "313454432344",
+  appId: "1:313454432344:web:d4a9736d4270058f1b7a2d"
+};
+</script>
+
+<!-- Datos zonas FLEX -->
+<script src="js/flex-zones.js"></script>
+
+<!-- App principal -->
+<script src="js/app.js"></script>
+
+<!-- Service Worker -->
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload());
+}
 </script>
 </body>
 </html>

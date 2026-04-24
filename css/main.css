@@ -86,11 +86,17 @@ body {
 }
 #topbar h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
 .topbar-right { display: flex; align-items: center; gap: 10px; }
-.offline-pill {
-  background: var(--orange-light); color: var(--orange);
-  font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 20px; display: none;
+.status-pill {
+  font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 20px;
+  display: flex; align-items: center; gap: 5px; transition: all 0.3s;
 }
-.offline-pill.show { display: block; }
+.status-pill::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+}
+.status-pill.online  { background: rgba(52,199,89,0.15); color: var(--green); }
+.status-pill.online::before  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.status-pill.offline { background: var(--orange-light); color: var(--orange); }
+.status-pill.offline::before { background: var(--orange); }
 .avatar {
   width: 32px; height: 32px; border-radius: 50%;
   background: linear-gradient(135deg, var(--accent), var(--purple));

@@ -8,14 +8,11 @@ auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const PRODUCTOS = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo','Banderas 60x90','Banderas 90x150','Remeras Colapinto'];
-
-// Productos con talle fijo (no numérico)
 const PRODUCTOS_FIJO = {
   'Banderas 60x90':  ['U'],
   'Banderas 90x150': ['U'],
   'Remeras Colapinto': ['L'],
 };
-
 const TALLES      = [38,39,40,41,42,43,44,45];
 const TALLES_ESP  = [43,44,45];
 const COSTO_COMUN = 21900;
@@ -24,8 +21,6 @@ const H24         = 86400000;
 const LS_ORDERS   = 'fs_orders_v4';
 const LS_STOCK    = 'fs_stock_v3';
 const LS_ZONES    = 'fs_zones_v1';
-
-// Stock defaults para nuevos productos (se aplican solo si no existen en Firestore)
 const STOCK_DEFAULTS = {
   'Banderas 60x90_U': 5,
   'Banderas 90x150_U': 5,
@@ -40,9 +35,10 @@ let curProducto = null, formItems = [], formEnvio = null;
 let deliveryId = null, deliveryAction = 'edit';
 let fsConectado = false, stockInitialized = false;
 let editZoneIdx = null, editZonePriceLabel = null;
-let multiProd = null, multiTalle = null;
+let multiProd = null;
 let stockAll = false;
-let expandZonas = new Set(), alertTimers = [], zoneHits = [];
+let expandZonas = new Set(), expandParts = new Set();
+let alertTimers = [], zoneHits = [];
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const $loginScreen = document.getElementById('login-screen');
@@ -62,16 +58,17 @@ const VIEWS = {
   config:  document.getElementById('view-config'),
 };
 
-// ─── ARRANQUE ─────────────────────────────────────────────────────────────────
+// ─── ARRANQUE — sesión persiste, login screen empieza oculta ─────────────────
 auth.onAuthStateChanged(user => {
   if (user) {
     entrarApp(user);
   } else {
+    // Sin sesión: mostrar pantalla de login
     $loginScreen.classList.remove('hidden');
     document.getElementById('btn-google-login').onclick = () => {
       const provider = new firebase.auth.GoogleAuthProvider();
       auth.signInWithPopup(provider)
-        .then(r => entrarApp(r.user))
+        .then(r => { $loginScreen.classList.add('hidden'); entrarApp(r.user); })
         .catch(() => {
           document.getElementById('login-error').textContent = 'Error al iniciar sesión. Intentá de nuevo.';
         });
@@ -83,7 +80,13 @@ function entrarApp(user) {
   $loginScreen.classList.add('hidden');
   $app.style.display = 'flex';
   const av = document.getElementById('user-avatar');
-  if (av && user.email) av.textContent = user.email[0].toUpperCase();
+  if (av) {
+    if (user.photoURL) {
+      av.innerHTML = `<img src="${user.photoURL}" alt="">`;
+    } else if (user.email) {
+      av.textContent = user.email[0].toUpperCase();
+    }
+  }
   loadCache();
   renderAll();
   initUI();
@@ -113,7 +116,7 @@ function connectFirestore() {
   db.collection('meta').doc('stock').onSnapshot(snap => {
     if (snap.exists) {
       stock = snap.data(); saveStock();
-      initNewProductStock(); // inicializar nuevos productos si faltan
+      initNewProductStock();
       renderStock();
     }
   }, e => console.warn('stock:', e));
@@ -123,7 +126,6 @@ function connectFirestore() {
   }, e => console.warn('zones:', e));
 }
 
-// Inicializar stock de nuevos productos la primera vez
 function initNewProductStock() {
   if (stockInitialized) return;
   stockInitialized = true;
@@ -175,6 +177,7 @@ function initUI() {
   setupFormListeners();
   setupDeliverySheet();
   setupZoneSheets();
+  setupAvatarPopup();
   requestNotificationPermission();
   navigateTo('pedidos');
   setTimeout(checkAutoArchiveEnano, 1000);
@@ -185,7 +188,7 @@ function renderAll() {
 }
 
 // ─── NAVEGACIÓN ───────────────────────────────────────────────────────────────
-const TABS = ['pedidos','corte','stock','config'];
+const TABS = ['pedidos','corte','stock'];
 
 function setupNav() {
   document.querySelectorAll('[data-nav]').forEach(btn =>
@@ -211,7 +214,7 @@ function navInternal(name) {
   const nv = VIEWS[name];
   if (nv) {
     nv.classList.add('active');
-    if (prevIdx !== nextIdx) {
+    if (prevIdx >= 0 && nextIdx >= 0 && prevIdx !== nextIdx) {
       const cls = nextIdx > prevIdx ? 'slide-right' : 'slide-left';
       nv.classList.add(cls);
       nv.addEventListener('animationend', () => nv.classList.remove(cls), { once:true });
@@ -220,7 +223,6 @@ function navInternal(name) {
   document.querySelector(`[data-nav="${name}"]`)?.classList.add('active');
   const T = { pedidos:'FullSports', corte:'Corte', stock:'Stock', config:'Zonas FLEX' };
   document.getElementById('topbar-title').textContent = T[name] || 'FullSports';
-  // Mostrar/ocultar FAB de stock
   if ($stockFab) $stockFab.classList.toggle('visible', name === 'stock');
 }
 function navigateTo(name) { navInternal(name); history.pushState({ view:name }, ''); }
@@ -241,12 +243,15 @@ function setupSwipe() {
 
 function setupSheetDrag() {
   document.querySelectorAll('.sheet').forEach(sh => {
-    ['sheet-handle','sheet-title'].forEach(cls => {
-      const el = sh.querySelector('.'+cls); if (!el) return;
-      let y0 = 0;
-      el.addEventListener('touchstart', e => { y0=e.touches[0].clientY; }, { passive:true });
-      el.addEventListener('touchend',   e => { if (e.changedTouches[0].clientY - y0 > 60) closeSheet(sh); }, { passive:true });
-    });
+    let startY = 0, isDragging = false;
+    sh.addEventListener('touchstart', e => {
+      startY = e.touches[0].clientY; isDragging = true;
+    }, { passive:true });
+    sh.addEventListener('touchend', e => {
+      if (!isDragging) return; isDragging = false;
+      const dy = e.changedTouches[0].clientY - startY;
+      if (dy > 80) closeSheet(sh);
+    }, { passive:true });
   });
 }
 
@@ -259,6 +264,54 @@ function setupOffline() {
   window.addEventListener('online',  () => { upd(); connectFirestore(); });
   window.addEventListener('offline', upd);
   upd();
+}
+
+// ─── AVATAR POPUP ─────────────────────────────────────────────────────────────
+function setupAvatarPopup() {
+  const av    = document.getElementById('user-avatar');
+  const popup = document.getElementById('avatar-popup');
+  if (!av || !popup) return;
+
+  av.addEventListener('click', e => {
+    e.stopPropagation();
+    popup.classList.toggle('open');
+  });
+
+  document.addEventListener('click', e => {
+    if (!popup.contains(e.target) && e.target !== av) {
+      popup.classList.remove('open');
+    }
+  });
+
+  document.getElementById('popup-config')?.addEventListener('click', () => {
+    popup.classList.remove('open');
+    navigateTo('config');
+  });
+
+  document.getElementById('popup-notif')?.addEventListener('click', async () => {
+    popup.classList.remove('open');
+    if (!('Notification' in window)) { toast('Notificaciones no disponibles'); return; }
+    if (Notification.permission === 'denied') {
+      toast('Notificaciones bloqueadas — activalas en configuración del sistema');
+    } else if (Notification.permission === 'granted') {
+      toast('✓ Notificaciones activas');
+    } else {
+      const p = await Notification.requestPermission().catch(() => 'default');
+      toast(p === 'granted' ? '✓ Notificaciones activadas' : 'Notificaciones no activadas');
+    }
+  });
+
+  document.getElementById('popup-auth')?.addEventListener('click', () => {
+    popup.classList.remove('open');
+    if (!confirm('¿Cerrar sesión?')) return;
+    auth.signOut().then(() => {
+      $app.style.display = 'none';
+      $loginScreen.classList.remove('hidden');
+      // Reiniciar estado
+      orders = []; stock = {}; zones = [...FLEX_ZONES];
+      fsConectado = false;
+    }).catch(() => toast('Error al cerrar sesión'));
+  });
 }
 
 async function requestNotificationPermission() {
@@ -281,17 +334,22 @@ function setupAlerts() {
   alertTimers.forEach(clearTimeout); alertTimers=[];
   const now=new Date();
   [
-    {h:12,m:30,t:'warning',msg:'⏰ 30 min para despachar FLEX'},
-    {h:12,m:50,t:'urgent', msg:'🚨 10 min para despachar FLEX'},
-    {h:13,m:30,t:'warning',msg:'⏰ 30 min para despachar PE'},
-    {h:13,m:50,t:'urgent', msg:'🚨 10 min para despachar PE'},
-  ].forEach(({h,m,t,msg}) => {
+    {h:12,m:30,t:'warning',msg:'⏰ 30 min para despachar FLEX',tipo:'FLEX'},
+    {h:12,m:50,t:'urgent', msg:'🚨 10 min para despachar FLEX',tipo:'FLEX'},
+    {h:13,m:30,t:'warning',msg:'⏰ 30 min para despachar PE',  tipo:'PE'},
+    {h:13,m:50,t:'urgent', msg:'🚨 10 min para despachar PE',  tipo:'PE'},
+  ].forEach(({h,m,t,msg,tipo}) => {
     const d=new Date(now); d.setHours(h,m,0,0);
-    const diff=d-now; if (diff>0) alertTimers.push(setTimeout(()=>showAlert(t,msg),diff));
+    const diff=d-now; if (diff>0) alertTimers.push(setTimeout(()=>showAlert(t,msg,tipo),diff));
   });
   setInterval(updateCountdowns, 30000);
 }
-function showAlert(type,msg) {
+function showAlert(type, msg, tipo) {
+  // Solo alertar si hay pedidos pendientes del tipo correspondiente
+  const hasPending = orders.some(o =>
+    (o.status==='pendiente'||o.status==='preparar') && (!tipo || o.tipoEnvio===tipo)
+  );
+  if (!hasPending) return;
   $alert.className=`alert-banner show ${type}`; $alert.textContent=msg;
   setTimeout(()=>$alert.classList.remove('show'),8000);
   if (typeof Notification !== 'undefined' && Notification.permission==='granted')
@@ -316,9 +374,7 @@ function renderPedidos() {
   const camino    = orders.filter(o=>o.status==='camino');
   const entregados= orders.filter(o=>o.status==='entregado' && Date.now()-ms(o.deliveredAt)<H24);
 
-  const nPrep=preparar.length;
-  const nDesp=pendiente.length+camino.length;
-  const nEntr=entregados.length;
+  const nPrep=preparar.length, nDesp=pendiente.length+camino.length, nEntr=entregados.length;
   const nFlex=pendiente.filter(o=>o.tipoEnvio==='FLEX').length;
   const nPE  =pendiente.filter(o=>o.tipoEnvio==='PE').length;
 
@@ -327,7 +383,7 @@ function renderPedidos() {
     const sorted=[...preparar].sort((a,b)=>(a.tipoEnvio==='FLEX'?0:10)-(b.tipoEnvio==='FLEX'?0:10));
     const bar=`<div class="home-bar">
       ${nFlex?`<button class="dispatch-btn flex-btn" onclick="despacharTodos('FLEX')">🚚 Despachar FLEX (${nFlex})</button>`:''}
-      ${nPE  ?`<button class="dispatch-btn pe-btn" onclick="despacharTodos('PE')">📦 Despachar PE (${nPE})</button>`:''}
+      ${nPE  ?`<button class="dispatch-btn pe-btn"   onclick="despacharTodos('PE')">📦 Despachar PE (${nPE})</button>`:''}
       <button class="btn-dep" id="btn-dep" onclick="toggleDep()">🏪 Depósito</button>
     </div>
     <div id="dep-box" style="display:none" class="dep-box"></div>`;
@@ -375,7 +431,7 @@ function parseLocalDate(s) {
   return new Date(p[2],p[1]-1,p[0]).getTime();
 }
 
-// Depósito inline
+// Depósito — solo muestra pedidos en estado 'preparar' (pendientes de buscar en depósito)
 function calcDep() {
   const g={};
   orders.filter(o=>o.status==='preparar').forEach(o=>(o.items||[]).forEach(item=>{
@@ -388,10 +444,11 @@ function calcDep() {
 window.toggleDep = () => {
   const box=document.getElementById('dep-box'), btn=document.getElementById('btn-dep'); if (!box) return;
   if (box.style.display!=='none') { box.style.display='none'; btn.textContent='🏪 Depósito'; return; }
-  const lines=calcDep(), nP=orders.filter(o=>o.status==='preparar').length;
+  const lines=calcDep();
+  const nP=orders.filter(o=>o.status==='preparar').length;
   box.innerHTML = !lines.length
     ? `<p class="hint-text">Sin pedidos para preparar</p>`
-    : `<div class="dep-hdr">${lines.reduce((a,l)=>a+l.qty,0)} pares · ${nP} pedido${nP!==1?'s':''}</div>
+    : `<div class="dep-hdr">A buscar: ${lines.reduce((a,l)=>a+l.qty,0)} pares · ${nP} pedido${nP!==1?'s':''}</div>
        ${lines.map(l=>`<div class="dep-row"><span class="dep-n">${l.prod} ${displayTalle(l.talle)}</span><span class="dep-q">×${l.qty}</span><span class="dep-r ${l.queda===0?'cero':l.queda<=2?'bajo':'ok'}">queda ${l.queda}</span></div>`).join('')}`;
   box.style.display='block'; btn.textContent='🏪 Ocultar';
 };
@@ -420,29 +477,43 @@ function orderCard(o) {
 
   let fechaLine='';
   if (o.status==='camino'&&o.fechaEstimada) {
-    fechaLine=`<div class="order-fecha">📅 Entrega estimada: <b>${o.fechaEstimada}</b> <button class="btn-link" onclick="openDelivery('${o.id}','edit')">✏️</button></div>`;
+    fechaLine=`<div class="order-fecha">📅 Entrega est.: <b>${o.fechaEstimada}</b> <button class="btn-link" onclick="openDelivery('${o.id}','edit')">✏️</button></div>`;
     if (o.cuenta==='enano'&&ms(o.despachadoAt)>0) {
       const elapsed=Math.min(1,(Date.now()-ms(o.despachadoAt))/H24);
       fechaLine+=`<div class="transit-bar"><div class="transit-bar-fill" style="width:${Math.round(elapsed*100)}%"></div></div>`;
     }
   }
+  // Fecha de entrega real
+  if (o.status==='entregado'&&o.fechaEntrega) {
+    fechaLine=`<div class="order-fecha">✅ Entregado el <b>${o.fechaEntrega}</b></div>`;
+  }
 
+  // Acciones — eliminar disponible en todos los estados
   let act='';
-  if (o.status==='preparar') act=`<div class="card-act">
-    <button class="btn btn-green btn-sm" onclick="acPreparado('${o.id}')">✓ Preparado</button>
-    <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️ Editar</button>
-    <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
-  </div>`;
-  else if (o.status==='pendiente') act=`<div class="card-act">
-    <button class="btn btn-primary btn-sm" onclick="acDespachado('${o.id}')">🚚 Despachar</button>
-    <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️</button>
-    <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
-  </div>`;
-  else if (o.status==='camino') act=`<div class="card-act">
-    <button class="btn btn-green btn-sm" onclick="acEntregado('${o.id}')">✓ Entregado</button>
-    <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️</button>
-  </div>`;
-  else if (o.status==='entregado') act=`<div class="card-ok">✓ Entregado${o.fechaEntrega?' el '+o.fechaEntrega:''}</div>`;
+  if (o.status==='preparar') {
+    act=`<div class="card-act">
+      <button class="btn btn-green btn-sm" onclick="acPreparado('${o.id}')">✓ Preparado</button>
+      <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️ Editar</button>
+      <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
+    </div>`;
+  } else if (o.status==='pendiente') {
+    act=`<div class="card-act">
+      <button class="btn btn-primary btn-sm" onclick="acDespachado('${o.id}')">🚚 Despachar</button>
+      <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️</button>
+      <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
+    </div>`;
+  } else if (o.status==='camino') {
+    act=`<div class="card-act">
+      <button class="btn btn-green btn-sm" onclick="acEntregado('${o.id}')">✓ Entregado</button>
+      <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️</button>
+      <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
+    </div>`;
+  } else if (o.status==='entregado') {
+    act=`<div class="card-act" style="margin-top:2px">
+      <div class="card-ok" style="flex:1">✓ Entregado</div>
+      <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
+    </div>`;
+  }
 
   return `<div class="order-card${['preparar','pendiente'].includes(o.status)&&o.tipoEnvio==='FLEX'?' flex-active':''}">
     <div class="order-header">${cb}${eb}${sc}${cd}</div>
@@ -526,7 +597,10 @@ window.acEliminar = async id => {
   try { await db.collection('orders').doc(id).delete(); } catch(e){toast('Sin red');}
 };
 
-window.acEditar = id => { const o=orders.find(o=>o.id===id); if(o) openNuevaSheet(o); };
+window.acEditar = id => {
+  const o=orders.find(o=>o.id===id);
+  if (o) openNuevaSheet(o);
+};
 
 function mutateOrder(id,patch) {
   const i=orders.findIndex(o=>o.id===id);
@@ -560,7 +634,7 @@ window.openDelivery = (id, action='edit') => {
   deliveryId=id; deliveryAction=action;
   const o=orders.find(o=>o.id===id);
   const titleEl=document.getElementById('delivery-sheet-title');
-  if (titleEl) titleEl.textContent=action==='dispatch'?'Fecha estimada de entrega (CAPI)':'Editar fecha estimada';
+  if (titleEl) titleEl.textContent=action==='dispatch'?'Fecha de entrega estimada (CAPI)':'Editar fecha estimada';
   const inp=document.getElementById('delivery-date-input');
   if (inp) inp.value=action==='edit'?(dateToInput(o?.fechaEstimada)||''):tomorrowInput();
   openSheet($shDeliv);
@@ -583,28 +657,55 @@ function tomorrowInput() {
 
 // ─── FORMULARIO NUEVA VENTA ───────────────────────────────────────────────────
 function openNuevaSheet(data=null) {
-  editingId=data?.id||null; formItems=data?.items?[...data.items]:[]; formEnvio=null; curProducto=null; stockAll=false;
-  $shNueva.querySelector('.sheet-title').textContent=editingId?'Editar pedido':'Nueva venta';
-  setCuenta(data?.cuenta||'capi');
-  setEnvio(data?.tipoEnvio||'FLEX');
-  V('f-nombre').value=data?.nombreComprador||'';
-  V('f-provincia').value=data?.provincia||'';
-  V('f-iibb').value=data?.iibb?fmtDec(data.iibb):'';
-  V('f-importe-pe').value=data?.importeAcreditado||'';
-  V('f-importe-flex').value=data?.importeVenta||'';
-  V('btn-stock-override').textContent='✏️ Manual';
-  if (data?.tipoEnvio==='FLEX'&&data.flexLocalidad) {
-    formEnvio={localidad:data.flexLocalidad,zona:data.flexZona,importe:data.flexImporte};
+  // Reset estado del formulario
+  editingId = data?.id || null;
+  formItems = data?.items ? [...data.items] : [];
+  formEnvio = null;
+  curProducto = null;
+  stockAll = false;
+
+  $shNueva.querySelector('.sheet-title').textContent = editingId ? 'Editar pedido' : 'Nueva venta';
+  setCuenta(data?.cuenta || 'capi');
+  setEnvio(data?.tipoEnvio || 'FLEX');
+
+  // Valores de inputs
+  V('f-nombre').value         = data?.nombreComprador || '';
+  V('f-provincia').value      = data?.provincia || '';
+  V('f-iibb').value           = data?.iibb ? fmtDec(data.iibb) : '';
+  V('f-importe-pe').value     = data?.importeAcreditado || '';
+  V('f-importe-flex').value   = data?.importeVenta || '';
+  V('btn-stock-override').textContent = '✏️ Manual';
+
+  // Zona seleccionada (si editando FLEX)
+  if (data?.tipoEnvio==='FLEX' && data.flexLocalidad) {
+    formEnvio = { localidad:data.flexLocalidad, zona:data.flexZona, importe:data.flexImporte };
     showZoneSelected();
-  } else clearZone();
+  } else {
+    clearZone();
+  }
+
+  // Selector de productos
   renderProdBtns();
-  V('talle-wrap').style.display='none';
-  V('btn-add-otro').style.display='none';
-  V('btn-multi').style.display='none';
-  V('multi-wrap').style.display='none';
+  V('talle-wrap').style.display = 'none';
+
+  // Multi panel
+  V('multi-wrap').style.display = 'none';
+  V('multi-talle-wrap').style.display = 'none';
+
+  // Items lista
   renderFormItems();
+
+  // Mostrar botones de agregar si ya hay items (edición)
+  const hasItems = formItems.length > 0;
+  V('btn-add-otro').style.display = hasItems ? 'flex' : 'none';
+  V('btn-multi').style.display    = hasItems ? 'flex' : 'none';
+
   openSheet($shNueva);
-  setTimeout(()=>$shNueva.querySelector('.sheet-body').scrollTop=0,50);
+  // Scroll al inicio de forma suave
+  requestAnimationFrame(() => {
+    const body = $shNueva.querySelector('.sheet-body');
+    if (body) body.scrollTop = 0;
+  });
 }
 
 function setCuenta(c) {
@@ -623,24 +724,34 @@ function setupFormListeners() {
   document.querySelectorAll('[data-cuenta]').forEach(b=>b.addEventListener('click',()=>setCuenta(b.dataset.cuenta)));
   document.querySelectorAll('[data-envio]').forEach(b=>b.addEventListener('click',()=>setEnvio(b.dataset.envio)));
   V('f-importe-flex').addEventListener('input',updateNeto);
+
   V('btn-stock-override').addEventListener('click',()=>{
     stockAll=!stockAll;
     V('btn-stock-override').textContent=stockAll?'✏️ Todo':'✏️ Manual';
-    curProducto=null; renderProdBtns(); V('talle-wrap').style.display='none';
+    curProducto=null;
+    renderProdBtns();
+    V('talle-wrap').style.display='none';
   });
+
   V('btn-add-otro').addEventListener('click',()=>{
-    renderProdBtns(); V('talle-wrap').style.display='none'; curProducto=null;
-    V('btn-add-otro').style.display='none'; V('btn-multi').style.display='none';
-    V('item-selector-wrap').scrollIntoView({behavior:'smooth',block:'start'});
+    curProducto=null;
+    renderProdBtns();
+    V('talle-wrap').style.display='none';
+    V('btn-add-otro').style.display='none';
+    V('btn-multi').style.display='none';
+    V('multi-wrap').style.display='none';
+    requestAnimationFrame(()=>V('item-selector-wrap')?.scrollIntoView({behavior:'smooth',block:'start'}));
   });
+
   V('btn-multi').addEventListener('click',()=>{
-    multiProd=null; multiTalle=null;
+    multiProd=null;
     renderMultiProd();
     V('multi-talle-wrap').style.display='none';
     V('multi-cant-wrap').style.display='none';
     V('multi-wrap').style.display='block';
-    V('multi-wrap').scrollIntoView({behavior:'smooth',block:'start'});
+    requestAnimationFrame(()=>V('multi-wrap')?.scrollIntoView({behavior:'smooth',block:'start'}));
   });
+
   V('btn-guardar-venta').addEventListener('click', guardarVenta);
 }
 
@@ -690,7 +801,9 @@ function showZoneSelected() {
       <button class="btn-link" style="color:var(--red);font-size:11px" id="btn-clear-zone">Cambiar</button>
     </div>`;
   el.classList.add('show');
-  document.getElementById('btn-clear-zone')?.addEventListener('click',clearZone);
+  // Remover listener anterior con cloneNode trick
+  const btn = document.getElementById('btn-clear-zone');
+  if (btn) { const fresh = btn.cloneNode(true); btn.replaceWith(fresh); fresh.addEventListener('click', clearZone); }
   updateNeto();
 }
 function clearZone() {
@@ -705,16 +818,13 @@ function updateNeto() {
 
 // ─── SELECTOR PRODUCTOS / TALLES ──────────────────────────────────────────────
 function getProductTalles(p) {
-  const fixed = PRODUCTOS_FIJO[p];
+  const fixed=PRODUCTOS_FIJO[p];
   if (fixed) return fixed;
-  return TALLES.filter(t => stockAll || (stock[`${p}_${t}`] ?? 0) > 0);
+  return TALLES.filter(t=>stockAll||(stock[`${p}_${t}`]??0)>0);
 }
 
 function renderProdBtns() {
-  const disp=PRODUCTOS.filter(p=>{
-    if (stockAll) return true;
-    return getProductTalles(p).length > 0;
-  });
+  const disp=PRODUCTOS.filter(p=>stockAll||getProductTalles(p).length>0);
   const c=V('producto-btns'); if (!c) return;
   c.innerHTML=disp.length
     ?disp.map(p=>`<button class="producto-btn" onclick="selProd('${p.replace(/'/g,"\\'")}')">${p}</button>`).join('')
@@ -731,14 +841,12 @@ window.selProd = p => {
     return `<button class="talle-btn${unico?' talle-unico':''}" onclick="selTalle(${js})">${displayTalle(t)}</button>`;
   }).join('');
   V('talle-wrap').style.display='flex';
-  // Auto-seleccionar si solo hay un talle posible
   if (talles.length===1) selTalle(talles[0]);
 };
 
-// Auto-agregar al tocar talle (sin botón "Agregar")
 window.selTalle = t => {
   if (!curProducto) return;
-  formItems.push({producto:curProducto, talle:t});
+  formItems.push({producto:curProducto,talle:t});
   renderFormItems();
   curProducto=null;
   V('talle-wrap').style.display='none';
@@ -793,13 +901,15 @@ window.removeGroup = kEnc => {
   if(!formItems.length) { V('btn-add-otro').style.display='none'; V('btn-multi').style.display='none'; }
 };
 
-// ─── MULTI PANEL (agregar otro modelo) ───────────────────────────────────────
+// ─── MULTI PANEL ─────────────────────────────────────────────────────────────
 function renderMultiProd() {
   const disp=PRODUCTOS.filter(p=>stockAll||getProductTalles(p).length>0);
-  V('multi-producto-btns').innerHTML=disp.map(p=>`<button class="producto-btn" onclick="mSelProd('${p.replace(/'/g,"\\'")}')">${p}</button>`).join('');
+  V('multi-producto-btns').innerHTML=disp.map(p=>
+    `<button class="producto-btn" onclick="mSelProd('${p.replace(/'/g,"\\'")}')">${p}</button>`
+  ).join('');
 }
 window.mSelProd = p => {
-  multiProd=p; multiTalle=null;
+  multiProd=p;
   document.querySelectorAll('#multi-producto-btns .producto-btn').forEach(b=>b.classList.toggle('active',b.textContent.trim()===p));
   const talles=getProductTalles(p);
   V('multi-talle-btns').innerHTML=talles.map(t=>{
@@ -807,14 +917,13 @@ window.mSelProd = p => {
     return `<button class="talle-btn" onclick="mSelTalle(${js})">${displayTalle(t)}</button>`;
   }).join('');
   V('multi-talle-wrap').style.display='flex';
-  V('multi-cant-wrap').style.display='none';
   if (talles.length===1) mSelTalle(talles[0]);
 };
 window.mSelTalle = t => {
   if (!multiProd) return;
   formItems.push({producto:multiProd,talle:t});
   renderFormItems();
-  multiProd=null; multiTalle=null;
+  multiProd=null;
   V('multi-wrap').style.display='none';
   V('multi-talle-wrap').style.display='none';
   V('btn-add-otro').style.display='flex';
@@ -827,16 +936,24 @@ async function guardarVenta() {
   const nombre=V('f-nombre').value.trim();
   if (!nombre)           { toast('Ingresá el nombre'); return; }
   if (!formItems.length) { toast('Agregá al menos un ítem'); return; }
+
+  // Detección de duplicados solo en nuevos pedidos
   if (!editingId) {
-    const dups=orders.filter(o=>o.nombreComprador.toLowerCase()===nombre.toLowerCase()&&o.status!=='entregado');
-    if (dups.length&&!confirm(`Ya hay un pedido de "${nombre}". ¿Continuar?`)) return;
+    const dups=orders.filter(o=>
+      o.nombreComprador.toLowerCase()===nombre.toLowerCase() && o.status!=='entregado'
+    );
+    if (dups.length && !confirm(`⚠️ Ya existe un pedido activo de "${nombre}".\n¿Querés cargarlo de todas formas?`)) return;
   }
+
   const base={
     cuenta:curCuenta, nombreComprador:nombre, tipoEnvio:curEnvio, items:formItems,
     status:editingId?(orders.find(o=>o.id===editingId)?.status||'preparar'):'preparar',
     corteDone:editingId?(orders.find(o=>o.id===editingId)?.corteDone||false):false,
   };
-  if (curCuenta==='enano') { base.provincia=V('f-provincia').value.trim(); base.iibb=parseNum(V('f-iibb').value)||0; }
+  if (curCuenta==='enano') {
+    base.provincia=V('f-provincia').value.trim();
+    base.iibb=parseNum(V('f-iibb').value)||0;
+  }
   if (curEnvio==='FLEX') {
     if (!formEnvio) { toast('Seleccioná la localidad'); return; }
     const v=parseNum(V('f-importe-flex').value); if (!v) { toast('Ingresá el importe'); return; }
@@ -850,7 +967,9 @@ async function guardarVenta() {
     const hoy=new Date(), man=new Date(hoy); man.setDate(hoy.getDate()+1);
     base.fechaEstimada=curEnvio==='FLEX'?hoy.toLocaleDateString('es-AR'):man.toLocaleDateString('es-AR');
   }
+
   closeSheet($shNueva);
+
   try {
     if (editingId) {
       await db.collection('orders').doc(editingId).update(base);
@@ -862,7 +981,7 @@ async function guardarVenta() {
       orders.unshift({id:ref.id,...base}); saveOrders(); renderPedidos(); renderCorte();
       toast('Venta guardada ✓');
     }
-  } catch(e){ toast('Error al guardar: '+e.message); }
+  } catch(e){ toast('Error al guardar'); console.error(e); }
 }
 
 // ─── CORTE VIEW ───────────────────────────────────────────────────────────────
@@ -873,8 +992,8 @@ function renderCorte() {
   const nP=orders.filter(o=>o.status==='preparar').length;
   v.innerHTML=`
     <div class="corte-tabs">
-      <button class="corte-tab${corteCuenta==='capi'?' active':''}" onclick="setCorte('capi')">CAPI <span class="corte-count">${nC}</span></button>
-      <button class="corte-tab${corteCuenta==='enano'?' active':''}" onclick="setCorte('enano')">ENANO <span class="corte-count">${nE}</span></button>
+      <button class="corte-tab${corteCuenta==='capi'?' active':''}"    onclick="setCorte('capi')">CAPI <span class="corte-count">${nC}</span></button>
+      <button class="corte-tab${corteCuenta==='enano'?' active':''}"   onclick="setCorte('enano')">ENANO <span class="corte-count">${nE}</span></button>
       <button class="corte-tab${corteCuenta==='deposito'?' active':''}" onclick="setCorte('deposito')">Depósito${nP?` <span class="corte-count">${nP}</span>`:''}</button>
     </div>
     ${renderCorteBody()}`;
@@ -884,7 +1003,7 @@ window.setCorte = c => { corteCuenta=c; renderCorte(); };
 function renderCorteBody() {
   if (corteCuenta==='deposito') return renderDepCorte();
   const pend=orders.filter(o=>!o.corteDone&&o.cuenta===corteCuenta);
-  if (!pend.length) return `<div class="empty-state"><span>✂️</span><p>Sin ventas pendientes de corte para ${corteCuenta.toUpperCase()}</p></div>`;
+  if (!pend.length) return `<div class="empty-state"><span>✂️</span><p>Sin ventas pendientes de corte</p></div>`;
   const tV=corteCuenta==='capi'?textoCapi(pend):textoEnano(pend);
   const tC=textoCostos(pend,corteCuenta);
   return `
@@ -924,7 +1043,7 @@ function renderDepCorte() {
         <div class="deposito-talles">${ls.map(l=>`<div class="deposito-item"><span class="deposito-talle">${displayTalle(l.talle)}</span><span class="deposito-qty">×${l.qty}</span></div>`).join('')}</div>
       </div>`).join('')}
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--sep)">
-      <div class="dep-hdr" style="margin-bottom:6px">Stock restante</div>
+      <div class="dep-hdr" style="margin-bottom:6px">Stock restante tras preparar</div>
       ${lines.map(l=>`<div class="dep-row"><span class="dep-n">${l.prod} ${displayTalle(l.talle)}</span><span class="dep-q">−${l.qty}</span><span class="dep-r ${l.queda===0?'cero':l.queda<=2?'bajo':'ok'}">queda ${l.queda}</span></div>`).join('')}
     </div>
     <button class="btn btn-primary" style="margin-top:14px;width:100%" onclick="copyTxt(${esc(txt)})">📋 Copiar lista</button>
@@ -983,32 +1102,26 @@ window.doCortado = async c=>{
 // ─── STOCK VIEW ───────────────────────────────────────────────────────────────
 function renderStock() {
   const v=VIEWS.stock; if (!v) return;
-
-  const cardsHtml = PRODUCTOS.map(p => {
-    const talles = PRODUCTOS_FIJO[p] ? PRODUCTOS_FIJO[p] : TALLES;
-    const conStock = talles.filter(t=>(stock[`${p}_${t}`]??0)>0);
-    const sinStock = talles.filter(t=>(stock[`${p}_${t}`]??0)===0);
-    const pEnc = encodeURIComponent(p);
-
-    const activeRows = conStock.map(t=>renderStockRow(p,t)).join('');
-    const zeroRows   = sinStock.map(t=>renderStockRow(p,t)).join('');
-    const zeroSection = sinStock.length ? `
-      <button class="zero-toggle btn-link" onclick="toggleZeroStock('${pEnc}')">▼ Sin stock (${sinStock.length})</button>
-      <div id="zero-${pEnc}" class="zero-section" style="display:none">${zeroRows}</div>
-    ` : '';
-
+  v.innerHTML=PRODUCTOS.map(p=>{
+    const talles=PRODUCTOS_FIJO[p]?PRODUCTOS_FIJO[p]:TALLES;
+    const conStock=talles.filter(t=>(stock[`${p}_${t}`]??0)>0);
+    const sinStock=talles.filter(t=>(stock[`${p}_${t}`]??0)===0);
+    const pEnc=encodeURIComponent(p);
     return `<div class="card stock-product-card">
       <div class="stock-product-name">${p}</div>
-      ${activeRows || `<div class="hint-text" style="padding:6px 0;color:var(--red)">Sin stock disponible</div>`}
-      ${zeroSection}
+      ${conStock.length
+        ? conStock.map(t=>renderStockRow(p,t)).join('')
+        : `<div class="hint-text" style="padding:6px 0;color:var(--red)">Sin stock disponible</div>`}
+      ${sinStock.length?`
+        <button class="zero-toggle btn-link" onclick="toggleZeroStock('${pEnc}')">▼ Sin stock (${sinStock.length})</button>
+        <div id="zero-${pEnc}" class="zero-section" style="display:none">${sinStock.map(t=>renderStockRow(p,t)).join('')}</div>
+      `:''}
     </div>`;
   }).join('');
-
-  v.innerHTML = cardsHtml;
 }
 
-function renderStockRow(p, t) {
-  const k=`${p}_${t}`, val=stock[k]??0, cls=val===0?'cero':val<=2?'bajo':'ok';
+function renderStockRow(p,t) {
+  const k=`${p}_${t}`,val=stock[k]??0,cls=val===0?'cero':val<=2?'bajo':'ok';
   return `<div class="stock-row ${cls}">
     <span class="stock-talle">${displayTalle(t)}</span>
     <div class="stock-stepper">
@@ -1020,14 +1133,13 @@ function renderStockRow(p, t) {
   </div>`;
 }
 
-window.toggleZeroStock = pEnc => {
-  const div = document.getElementById(`zero-${pEnc}`); if (!div) return;
-  const btn = div.previousElementSibling;
-  const show = div.style.display === 'none';
-  div.style.display = show ? 'block' : 'none';
-  if (btn) btn.textContent = show ? '▲ Ocultar agotados' : `▼ Sin stock (${div.querySelectorAll('.stock-row').length})`;
+window.toggleZeroStock=pEnc=>{
+  const div=document.getElementById(`zero-${pEnc}`); if(!div) return;
+  const btn=div.previousElementSibling;
+  const show=div.style.display==='none';
+  div.style.display=show?'block':'none';
+  if(btn) btn.textContent=show?'▲ Ocultar agotados':`▼ Sin stock (${div.querySelectorAll('.stock-row').length})`;
 };
-
 window.adjSt=(k,d)=>{
   stock[k]=Math.max(0,(stock[k]??0)+d);
   const el=document.getElementById(`sv-${k}`);
@@ -1041,57 +1153,104 @@ window.editSt=k=>{
   stock[k]=n; el.textContent=n; upRowCls(el,n);
 };
 function upRowCls(el,v){const r=el.closest('.stock-row');if(r)r.className=`stock-row ${v===0?'cero':v<=2?'bajo':'ok'}`;}
-window.doSaveStock = async ()=>{
+window.doSaveStock=async()=>{
   saveStock();
   try{ await db.collection('meta').doc('stock').set(stock); toast('Stock guardado ✓'); }
   catch(e){ toast('Guardado local ✓'); }
 };
 
-// ─── CONFIG / ZONAS FLEX ──────────────────────────────────────────────────────
+// ─── CONFIG / ZONAS FLEX — Zona 1 → Partido → Localidades ────────────────────
+function parseZona(zonaStr) {
+  const idx=zonaStr.indexOf(' - ');
+  return {
+    zonaNum: idx>=0 ? zonaStr.substring(0,idx) : zonaStr,
+    partido: idx>=0 ? zonaStr.substring(idx+3) : zonaStr,
+  };
+}
+
 function renderConfig() {
   const v=VIEWS.config; if (!v) return;
-  const grupos={};
+
+  // Agrupar: { "Zona 1": { importe, partidos: { "CABA": [{localidad,importe,idx}] } } }
+  const gruposZona={};
   zones.forEach((z,i)=>{
-    if(!grupos[z.zona])grupos[z.zona]=[];
-    grupos[z.zona].push({...z,idx:i});
+    const {zonaNum,partido}=parseZona(z.zona);
+    if(!gruposZona[zonaNum]) gruposZona[zonaNum]={importe:z.importe,partidos:{}};
+    if(!gruposZona[zonaNum].partidos[partido]) gruposZona[zonaNum].partidos[partido]=[];
+    gruposZona[zonaNum].partidos[partido].push({...z,idx:i});
   });
-  v.innerHTML=`
-    <div class="section-title">Zonas FLEX</div>
-    <div class="config-zona-list">
-    ${Object.entries(grupos).map(([zona,locs])=>`
-      <div class="card">
-        <div class="config-zona-header" onclick="toggleZona('${zona.replace(/'/g,"\\'")}')">
-          <div class="config-zona-info">
-            <div class="config-zona-label">${zona}</div>
-            <div class="config-zona-sub">$${fmt(locs[0].importe)} · ${locs.length} localidades</div>
+
+  // Ordenar por número de zona
+  const sortedZonas=Object.entries(gruposZona).sort(([a],[b])=>{
+    const na=parseInt(a.replace(/\D/g,'')), nb=parseInt(b.replace(/\D/g,''));
+    return na-nb;
+  });
+
+  v.innerHTML=sortedZonas.map(([zonaNum,{importe,partidos}])=>{
+    const isExpanded=expandZonas.has(zonaNum);
+    const totalLocs=Object.values(partidos).reduce((s,l)=>s+l.length,0);
+    const zEnc=encodeURIComponent(zonaNum);
+
+    let body='';
+    if (isExpanded) {
+      body=Object.entries(partidos).map(([partido,locs])=>{
+        const partKey=`${zonaNum}||${partido}`;
+        const isPExpanded=expandParts.has(partKey);
+        const pEnc=encodeURIComponent(partKey);
+        return `<div class="config-partido">
+          <div class="config-partido-hdr" onclick="togglePart('${pEnc}')">
+            <span class="config-partido-name">${partido}</span>
+            <span class="config-partido-n">${locs.length} localidades</span>
+            <span class="zona-arrow">${isPExpanded?'▲':'▼'}</span>
           </div>
-          <div class="config-zona-right">
-            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();editZonaPrice('${zona.replace(/'/g,"\\'")}',${locs[0].importe})">✏️ Precio</button>
-            <span class="zona-arrow">${expandZonas.has(zona)?'▲':'▼'}</span>
-          </div>
-        </div>
-        ${expandZonas.has(zona)?`
-        <div class="config-zona-body">
-          ${locs.map(l=>`
-            <div class="config-partido-hdr">
+          ${isPExpanded?`<div class="config-partido-locs">
+            ${locs.map(l=>`<div class="config-loc-row">
               <span>${l.localidad}</span>
               <div style="display:flex;align-items:center;gap:8px">
                 <span style="font-size:12px;color:var(--text-3)">$${fmt(l.importe)}</span>
-                <button class="btn btn-ghost btn-sm" onclick="editLoc(${l.idx})">✏️</button>
+                <button class="icon-btn" onclick="editLoc(${l.idx})">✏️</button>
               </div>
             </div>`).join('')}
-        </div>`:''}
-      </div>`).join('')}
+          </div>`:''}
+        </div>`;
+      }).join('');
+    }
+
+    return `<div class="card config-zona-card">
+      <div class="config-zona-header" onclick="toggleZona('${zEnc}')">
+        <div class="config-zona-info">
+          <div class="config-zona-label">${zonaNum}</div>
+          <div class="config-zona-sub">$${fmt(importe)} · ${Object.keys(partidos).length} partidos · ${totalLocs} localidades</div>
+        </div>
+        <div class="config-zona-right">
+          <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();editZonaPrice('${zEnc}',${importe})">✏️ Precio</button>
+          <span class="zona-arrow">${isExpanded?'▲':'▼'}</span>
+        </div>
+      </div>
+      ${isExpanded?`<div class="config-zona-body">${body}</div>`:''}
     </div>`;
+  }).join('');
 }
-window.toggleZona = z=>{expandZonas.has(z)?expandZonas.delete(z):expandZonas.add(z);renderConfig();};
-window.editZonaPrice = (zona,precio)=>{
-  editZonePriceLabel=zona;
-  V('ez-zona-label').textContent=zona;
+
+window.toggleZona = zEnc => {
+  const zonaNum=decodeURIComponent(zEnc);
+  expandZonas.has(zonaNum)?expandZonas.delete(zonaNum):expandZonas.add(zonaNum);
+  renderConfig();
+};
+window.togglePart = pEnc => {
+  const partKey=decodeURIComponent(pEnc);
+  expandParts.has(partKey)?expandParts.delete(partKey):expandParts.add(partKey);
+  renderConfig();
+};
+window.editZonaPrice = (zEnc, precio) => {
+  const zonaNum=decodeURIComponent(zEnc);
+  editZonePriceLabel=zonaNum;
+  // Label muestra zonaNum (ej: "Zona 1") y precio actual
+  V('ez-zona-label').textContent=`${zonaNum} — precio actual $${fmt(precio)}`;
   V('ez-zona-precio').value=precio;
   openSheet($shZoneP);
 };
-window.editLoc = idx=>{
+window.editLoc = idx => {
   editZoneIdx=idx; const z=zones[idx];
   V('ez-localidad').value=z.localidad; V('ez-importe').value=z.importe; V('ez-zona').value=z.zona;
   openSheet($shZone);
@@ -1101,7 +1260,11 @@ function setupZoneSheets() {
   document.getElementById('btn-save-precio-zona')?.addEventListener('click', async()=>{
     if (!editZonePriceLabel) return;
     const precio=parseInt(V('ez-zona-precio').value)||0;
-    zones=zones.map(z=>z.zona===editZonePriceLabel?{...z,importe:precio}:z);
+    // Actualizar todas las localidades de la zona (match por zonaNum prefix)
+    zones=zones.map(z=>{
+      const {zonaNum}=parseZona(z.zona);
+      return zonaNum===editZonePriceLabel ? {...z,importe:precio} : z;
+    });
     saveZones();
     try{ await db.collection('meta').doc('flexZones').set({zones}); toast(`${editZonePriceLabel} actualizada ✓`); }
     catch(e){ toast('Guardado localmente ✓'); }
@@ -1118,24 +1281,29 @@ function setupZoneSheets() {
 }
 
 // ─── SHEETS ───────────────────────────────────────────────────────────────────
-function openSheet(sh){ $overlay.classList.add('open'); sh.classList.add('open'); }
-function closeSheet(sh){
-  sh.classList.remove('open');
-  if(!document.querySelectorAll('.sheet.open').length) $overlay.classList.remove('open');
+function openSheet(sh) {
+  $overlay.classList.add('open');
+  sh.classList.add('open');
 }
-$overlay.addEventListener('click',()=>{
+function closeSheet(sh) {
+  sh.classList.remove('open');
+  if (!document.querySelectorAll('.sheet.open').length) $overlay.classList.remove('open');
+}
+$overlay.addEventListener('click', () => {
   document.querySelectorAll('.sheet.open').forEach(s=>s.classList.remove('open'));
   $overlay.classList.remove('open');
 });
 document.querySelectorAll('[data-close-sheet]').forEach(b=>
-  b.addEventListener('click',()=>{ const s=b.closest('.sheet'); if(s) closeSheet(s); })
+  b.addEventListener('click', () => { const s=b.closest('.sheet'); if(s) closeSheet(s); })
 );
 
 // ─── TOAST ────────────────────────────────────────────────────────────────────
-function toast(msg){
+let toastTimer = null;
+function toast(msg) {
   const t=document.getElementById('toast');
   t.textContent=msg; t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'),2500);
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'),2500);
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────

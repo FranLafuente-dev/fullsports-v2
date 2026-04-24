@@ -1,5 +1,5 @@
-// FullSports SW v14 — network first, sin problemas de cache
-const CACHE = 'fs-v14';
+// FullSports SW v15 — network first, sin problemas de cache
+const CACHE = 'fs-v15';
 
 self.addEventListener('install', e => { self.skipWaiting(); });
 

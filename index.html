@@ -251,6 +251,72 @@
   </div>
 </div>
 
+<!-- SHEET: AGREGAR REGISTRO FLEX MANUAL -->
+<div class="sheet" id="sheet-add-flex">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Agregar registro FLEX</div>
+  <div class="sheet-body">
+    <div class="form-group">
+      <div class="form-label">Cuenta</div>
+      <div class="toggle-group" id="af-cuenta-group">
+        <button class="toggle-btn active" data-af-cuenta="capi">CAPI</button>
+        <button class="toggle-btn" data-af-cuenta="enano">ENANO</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">Fecha de despacho</div>
+      <input class="form-input" id="af-fecha" type="date">
+    </div>
+    <div class="form-group">
+      <div class="form-label">Nombre del cliente</div>
+      <input class="form-input" id="af-nombre" type="text" placeholder="Ej: María González" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <div class="form-label">Localidad</div>
+      <input class="form-input" id="af-localidad-input" type="text" placeholder="Buscar localidad..." autocomplete="off">
+      <div class="flex-selected" id="af-selected"></div>
+    </div>
+    <div class="form-group" id="af-costo-wrap" style="display:none">
+      <div class="form-label">Costo de envío FLEX</div>
+      <div id="af-costo-display" style="font-size:22px;font-weight:800;color:var(--red);padding:6px 0"></div>
+    </div>
+    <button class="btn btn-primary" id="btn-save-add-flex">Guardar registro</button>
+    <button class="btn btn-ghost" data-close-sheet>Cancelar</button>
+    <div style="height:8px"></div>
+  </div>
+</div>
+
+<!-- SHEET: EDITAR REGISTRO FLEX -->
+<div class="sheet" id="sheet-edit-flex">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Editar registro FLEX</div>
+  <div class="sheet-body">
+    <div class="form-group">
+      <div class="form-label">Cuenta</div>
+      <div class="toggle-group" id="ef-cuenta-group">
+        <button class="toggle-btn active" data-ef-cuenta="capi">CAPI</button>
+        <button class="toggle-btn" data-ef-cuenta="enano">ENANO</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">Nombre del cliente</div>
+      <input class="form-input" id="ef-nombre" type="text" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <div class="form-label">Localidad</div>
+      <input class="form-input" id="ef-localidad" type="text" placeholder="Buscar para cambiar..." autocomplete="off">
+      <div class="flex-selected" id="ef-selected"></div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">Costo FLEX ($)</div>
+      <input class="form-input" id="ef-importe" type="number" inputmode="numeric">
+    </div>
+    <button class="btn btn-primary" id="btn-save-edit-flex">Guardar cambios</button>
+    <button class="btn btn-ghost" data-close-sheet>Cancelar</button>
+    <div style="height:8px"></div>
+  </div>
+</div>
+
 <!-- NUEVA FAB — tap corto = nueva venta · tap largo = menú radial -->
 <button id="nueva-fab" class="nueva-fab"><span class="fab-icon">+</span></button>
 

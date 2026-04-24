@@ -263,7 +263,7 @@ body {
   transition: transform 0.3s var(--spring);
   user-select: none; -webkit-user-select: none;
 }
-.nueva-fab.menu-open .fab-icon { transform: rotate(45deg); }
+.nueva-fab.menu-open .fab-icon { transform: none; }
 
 /* ── FAB RADIAL MENU ────────────────────────────────────────────────────── */
 /* Wrapper posicionado en el centro del FAB (FAB: bottom:24px, right:20px, size:62px) */
@@ -354,6 +354,9 @@ body {
 .dispatch-btn:active { transform: scale(0.95); }
 .dispatch-btn.flex-btn { background: var(--green-light); color: var(--green); border-color: rgba(52,199,89,0.3); }
 .dispatch-btn.pe-btn   { background: var(--teal-light);  color: var(--teal);  border-color: rgba(48,176,199,0.3); }
+.dispatch-btn.warn   { background: var(--orange-light) !important; color: var(--orange) !important; border-color: rgba(255,149,0,0.45) !important; }
+.dispatch-btn.urgent { background: var(--red-light)    !important; color: var(--red)    !important; border-color: rgba(255,59,48,0.45)  !important; animation: pulse 1.1s ease-in-out infinite; }
+.dispatch-btn .countdown { font-size: 11px; font-weight: 800; letter-spacing: 0.2px; margin-left: 5px; }
 .btn-dep {
   flex: 1; min-width: 100px; padding: 11px 12px;
   background: var(--card); border: 1.5px dashed var(--border);
@@ -774,6 +777,27 @@ input:-webkit-autofill:focus {
 }
 .empty-state span { font-size: 48px; }
 .empty-state p    { font-size: 15px; font-weight: 500; }
+
+/* ── CUSTOM DIALOG ───────────────────────────────────────────────────────── */
+.custom-dialog-bg {
+  position: fixed; inset: 0; z-index: 600;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  animation: fadeIn 0.15s ease;
+}
+.custom-dialog {
+  background: var(--card); border-radius: 22px;
+  padding: 26px 22px 20px; width: 100%; max-width: 320px;
+  border: 1px solid var(--border-hi);
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.22s var(--spring);
+}
+.custom-dialog-icon { font-size: 38px; text-align: center; margin-bottom: 10px; }
+.custom-dialog-msg  { font-size: 15px; font-weight: 700; text-align: center; margin-bottom: 6px; line-height: 1.35; }
+.custom-dialog-sub  { font-size: 12px; color: var(--text-2); text-align: center; margin-bottom: 14px; padding: 0 4px; }
+.custom-dialog-btns { display: flex; flex-direction: column; gap: 8px; }
 
 /* ── TOAST ───────────────────────────────────────────────────────────────── */
 #toast {

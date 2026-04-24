@@ -94,6 +94,8 @@ function entrarApp(user) {
   loadCache();
   renderAll();
   initUI();
+  updateTopbarDate();
+  setInterval(updateTopbarDate, 60000);
   connectFirestore();
 }
 
@@ -177,6 +179,40 @@ function ms(ts) {
 }
 
 // ─── UI INIT ──────────────────────────────────────────────────────────────────
+const DIAS_SEMANA  = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+
+function updateTopbarDate() {
+  const el = document.getElementById('topbar-date');
+  if (!el) return;
+  const n = new Date();
+  el.textContent = `${DIAS_SEMANA[n.getDay()]} ${n.getDate()} ${MESES[n.getMonth()]}`;
+}
+
+function updateDispatchBar() {
+  const bar = document.getElementById('dispatch-bar');
+  if (!bar) return;
+  const hasFlex = orders.some(o => (o.status==='preparar'||o.status==='pendiente') && o.tipoEnvio==='FLEX');
+  const hasPE   = orders.some(o => (o.status==='preparar'||o.status==='pendiente') && o.tipoEnvio==='PE');
+  if (!hasFlex && !hasPE) { bar.classList.remove('show'); return; }
+  const chip = (tipo, icon) => {
+    const diff = dispTarget(tipo) - new Date();
+    const min  = Math.floor(diff / 60000);
+    const cls  = min <= 15 ? 'urgent' : min <= 60 ? 'warn' : '';
+    return `<span class="dispatch-cd ${cls}">${icon} ${tipo} ${fmtDiff(diff)}</span>`;
+  };
+  bar.innerHTML = (hasFlex ? chip('FLEX','🚚') : '') + (hasPE ? chip('PE','📦') : '');
+  bar.classList.add('show');
+}
+
+function setupStockScrollFab() {
+  const view = VIEWS.stock;
+  const fab  = document.getElementById('stock-fab');
+  if (!view || !fab) return;
+  view.addEventListener('scroll', () => {
+    fab.classList.toggle('compact', view.scrollTop > 40);
+  }, { passive: true });
+}
+
 let uiOk = false;
 function initUI() {
   if (uiOk) return; uiOk = true;
@@ -191,6 +227,7 @@ function initUI() {
   setupZoneSheets();
   setupAvatarPopup();
   setupFabMenu();
+  setupStockScrollFab();
   requestNotificationPermission();
   navigateTo('pedidos');
   setTimeout(checkAutoArchiveEnano, 1000);
@@ -327,56 +364,83 @@ function setupAvatarPopup() {
   });
 }
 
-// ─── FAB LONG-PRESS MENU ─────────────────────────────────────────────────────
+// ─── FAB RADIAL MENU ─────────────────────────────────────────────────────────
 function setupFabMenu() {
-  const fab     = document.getElementById('nueva-fab');
-  const overlay = document.getElementById('fab-menu-overlay');
-  if (!fab || !overlay) return;
+  const fab  = document.getElementById('nueva-fab');
+  const wrap = document.getElementById('fab-radial-wrap');
+  if (!fab) return;
 
   let pressTimer   = null;
   let didLongPress = false;
-  let touchHandled = false;
-  let autoClose    = null;
 
-  function openMenu() {
-    didLongPress = true;
-    overlay.classList.add('open');
-    clearTimeout(autoClose);
-    autoClose = setTimeout(() => overlay.classList.remove('open'), 5000);
+  const isOpen = () => fab.classList.contains('menu-open');
+
+  function openRadial() {
+    fab.classList.add('menu-open');
+    if (!wrap) return;
+    const items = wrap.querySelectorAll('.fab-radial-item');
+    items.forEach(i => { i.classList.remove('open'); i.classList.add('animating'); });
+    requestAnimationFrame(() => items.forEach(i => i.classList.add('open')));
   }
 
+  function closeRadial() {
+    fab.classList.remove('menu-open');
+    if (!wrap) return;
+    const items = wrap.querySelectorAll('.fab-radial-item');
+    items.forEach(i => { i.classList.add('animating'); i.classList.remove('open'); });
+    setTimeout(() => items.forEach(i => i.classList.remove('animating')), 350);
+  }
+
+  fab.addEventListener('contextmenu', e => e.preventDefault());
+
   fab.addEventListener('touchstart', () => {
-    didLongPress = false; touchHandled = false;
-    pressTimer = setTimeout(openMenu, 420);
+    didLongPress = false;
+    pressTimer = setTimeout(() => {
+      didLongPress = true;
+      isOpen() ? closeRadial() : openRadial();
+    }, 420);
   }, { passive: true });
 
-  fab.addEventListener('touchmove', () => {
-    clearTimeout(pressTimer);
-  }, { passive: true });
+  fab.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
 
   fab.addEventListener('touchend', () => {
     clearTimeout(pressTimer);
-    if (!didLongPress) { touchHandled = true; openNuevaSheet(); }
-  }, { passive: true });
-
-  // Fallback para desktop (click sin touch)
-  fab.addEventListener('click', () => {
-    if (!touchHandled) openNuevaSheet();
-    touchHandled = false;
+    if (!didLongPress) {
+      if (isOpen()) closeRadial();
+      openNuevaSheet();
+    }
+    didLongPress = false;
   });
 
-  // Cerrar al tocar el fondo
-  overlay.addEventListener('click', e => {
-    if (e.target === overlay) {
-      overlay.classList.remove('open');
-      clearTimeout(autoClose);
+  // Desktop fallback
+  fab.addEventListener('click', () => {
+    if ('ontouchstart' in window) return;
+    if (isOpen()) { closeRadial(); return; }
+    openNuevaSheet();
+  });
+
+  // Cerrar al tocar fuera
+  document.addEventListener('touchstart', e => {
+    if (isOpen() && !fab.contains(e.target) && !(wrap && wrap.contains(e.target))) {
+      closeRadial();
+    }
+  }, { passive: true });
+  document.addEventListener('click', e => {
+    if (isOpen() && !fab.contains(e.target) && !(wrap && wrap.contains(e.target))) {
+      closeRadial();
     }
   });
 }
 
-window.fabMenuGo = name => {
-  const overlay = document.getElementById('fab-menu-overlay');
-  if (overlay) overlay.classList.remove('open');
+window.fabRadialGo = name => {
+  const fab  = document.getElementById('nueva-fab');
+  const wrap = document.getElementById('fab-radial-wrap');
+  fab?.classList.remove('menu-open');
+  if (wrap) {
+    const items = wrap.querySelectorAll('.fab-radial-item');
+    items.forEach(i => { i.classList.add('animating'); i.classList.remove('open'); });
+    setTimeout(() => items.forEach(i => i.classList.remove('animating')), 350);
+  }
   navigateTo(name);
 };
 
@@ -427,6 +491,7 @@ function updateCountdowns() {
     el.textContent=fmtDiff(diff);
     el.className='countdown'+(min<=15?' urgent':min<=60?' warn':'');
   });
+  updateDispatchBar();
 }
 
 // ─── PEDIDOS VIEW ─────────────────────────────────────────────────────────────
@@ -1128,13 +1193,12 @@ function renderCorte() {
   const v=VIEWS.corte; if (!v) return;
   const nC=orders.filter(o=>!o.corteDone&&o.cuenta==='capi').length;
   const nE=orders.filter(o=>!o.corteDone&&o.cuenta==='enano').length;
-  const nP=orders.filter(o=>o.status==='preparar').length;
+  if (corteCuenta==='deposito') corteCuenta='capi';
   v.innerHTML=`
     <div class="corte-tabs">
-      <button class="corte-tab${corteCuenta==='capi'?' active':''}"     onclick="setCorte('capi')">CAPI${nC?` <span class="corte-count">${nC}</span>`:''}</button>
-      <button class="corte-tab${corteCuenta==='enano'?' active':''}"    onclick="setCorte('enano')">ENANO${nE?` <span class="corte-count">${nE}</span>`:''}</button>
-      <button class="corte-tab${corteCuenta==='deposito'?' active':''}" onclick="setCorte('deposito')">Dep.${nP?` <span class="corte-count">${nP}</span>`:''}</button>
-      <button class="corte-tab${corteCuenta==='flex'?' active':''}"     onclick="setCorte('flex')">FLEX $</button>
+      <button class="corte-tab${corteCuenta==='capi'?' active':''}"  onclick="setCorte('capi')">CAPI${nC?` <span class="corte-count">${nC}</span>`:''}</button>
+      <button class="corte-tab${corteCuenta==='enano'?' active':''}" onclick="setCorte('enano')">ENANO${nE?` <span class="corte-count">${nE}</span>`:''}</button>
+      <button class="corte-tab${corteCuenta==='flex'?' active':''}"  onclick="setCorte('flex')">FLEX $</button>
     </div>
     ${renderCorteBody()}`;
 }
@@ -1306,14 +1370,18 @@ function renderCorteFlexBody() {
     </div>
     <div style="margin-top:8px;font-size:13px;color:var(--text-2)">Total: <b>$${fmt(stats.capi.total+stats.enano.total)}</b></div>
     ${allOrders.length ? `<div style="margin-top:12px">
-      ${allOrders.map(o=>`<div class="flex-order-row">
-        <div>
-          <span class="badge badge-${o.cuenta}" style="font-size:9px;padding:2px 6px">${o.cuenta.toUpperCase()}</span>
-          <span style="margin-left:6px;font-weight:600">${o.nombre}</span>
-          <div style="font-size:11px;color:var(--text-3);margin-top:1px">${o.localidad}</div>
-        </div>
-        <div style="font-size:13px;font-weight:700;color:var(--red);flex-shrink:0;margin-left:8px">−$${fmt(o.flexImporte)}</div>
-      </div>`).join('')}
+      ${allOrders.map(o=>{
+        const d=new Date(o.despachadoAt);
+        const fecha=`${d.getDate()}/${d.getMonth()+1}`;
+        return `<div class="flex-order-row">
+          <div>
+            <span class="badge badge-${o.cuenta}" style="font-size:9px;padding:2px 6px">${o.cuenta.toUpperCase()}</span>
+            <span style="margin-left:6px;font-weight:600">${o.nombre}</span>
+            <div style="font-size:11px;color:var(--text-3);margin-top:1px">${o.localidad} <span style="opacity:0.7">· ${fecha}</span></div>
+          </div>
+          <div style="font-size:13px;font-weight:700;color:var(--red);flex-shrink:0;margin-left:8px">−$${fmt(o.flexImporte)}</div>
+        </div>`;
+      }).join('')}
     </div>` : `<p class="hint-text" style="margin-top:8px">Sin envíos FLEX despachados en este período</p>`}
     <button class="btn ${alreadyClosed?'btn-ghost':'btn-primary'}" style="margin-top:14px" onclick="cerrarQuincena()">
       ${alreadyClosed ? '↻ Recalcular y guardar' : '📥 Cerrar quincena'}
@@ -1333,8 +1401,8 @@ function renderCorteFlexBody() {
       const mCapiT  = mPers.reduce((s,p)=>s+(p.capi?.total||0),0);
       const mEnanoT = mPers.reduce((s,p)=>s+(p.enano?.total||0),0);
       const expanded = expandFlexPeriods.has(mk);
-      html += `<div class="card flex-period-card" onclick="toggleFlexMonth('${mk}')">
-        <div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center">
+      html += `<div class="card flex-period-card">
+        <div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleFlexMonth('${mk}')">
           <div>
             <div style="font-weight:700;font-size:15px">${mLabel}</div>
             <div style="font-size:12px;color:var(--text-3)">${mPers.length} quincena${mPers.length>1?'s':''}</div>
@@ -1346,28 +1414,33 @@ function renderCorteFlexBody() {
           </div>
         </div>
         ${expanded ? `<div class="flex-period-body" style="padding:0 16px 12px">
-          ${mPers.sort((a,b)=>a.half-b.half).map(p=>`
+          ${mPers.sort((a,b)=>b.half-a.half).map(p=>`
             <div style="padding:8px 0;border-top:1px solid var(--sep)">
               <div style="display:flex;justify-content:space-between;align-items:center">
                 <div>
                   <div style="font-weight:600;font-size:13px">${p.label}</div>
                   <div style="font-size:11px;color:var(--text-3)">Cerrado el ${p.closedAt}</div>
                 </div>
-                <div style="text-align:right;font-size:12px">
-                  <div style="color:var(--blue)">CAPI $${fmt(p.capi?.total||0)} (${p.capi?.count||0})</div>
-                  <div style="color:var(--purple)">ENANO $${fmt(p.enano?.total||0)} (${p.enano?.count||0})</div>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="text-align:right;font-size:12px">
+                    <div style="color:var(--blue)">CAPI $${fmt(p.capi?.total||0)} (${p.capi?.count||0})</div>
+                    <div style="color:var(--purple)">ENANO $${fmt(p.enano?.total||0)} (${p.enano?.count||0})</div>
+                  </div>
+                  <button onclick="event.stopPropagation();eliminarPeriodo('${p.id}')" style="background:var(--red-light);color:var(--red);border:none;border-radius:8px;padding:5px 9px;font-size:12px;cursor:pointer;font-family:inherit;flex-shrink:0">🗑</button>
                 </div>
               </div>
-              ${(p.capi?.orders||[]).length+(p.enano?.orders||[]) .length > 0 ? `
+              ${(p.capi?.orders||[]).length+(p.enano?.orders||[]).length > 0 ? `
                 <div style="margin-top:6px">
-                  ${[...(p.capi?.orders||[]),...(p.enano?.orders||[])].map(o=>`
-                    <div class="flex-order-row">
+                  ${[...(p.capi?.orders||[]),...(p.enano?.orders||[])].sort((a,b)=>(b.despachadoAt||0)-(a.despachadoAt||0)).map(o=>{
+                    const fecha = o.despachadoAt ? `${new Date(o.despachadoAt).getDate()}/${new Date(o.despachadoAt).getMonth()+1}` : '';
+                    return `<div class="flex-order-row">
                       <div><span class="badge badge-${o.cuenta}" style="font-size:9px">${o.cuenta.toUpperCase()}</span>
                         <span style="margin-left:5px;font-size:12px">${o.nombre}</span>
-                        <span style="font-size:11px;color:var(--text-3);margin-left:4px">${o.localidad}</span>
+                        <span style="font-size:11px;color:var(--text-3);margin-left:4px">${o.localidad}${fecha?' · '+fecha:''}</span>
                       </div>
                       <div style="font-size:12px;font-weight:700;color:var(--red)">−$${fmt(o.flexImporte)}</div>
-                    </div>`).join('')}
+                    </div>`;
+                  }).join('')}
                 </div>` : ''}
             </div>`).join('')}
         </div>` : ''}
@@ -1395,8 +1468,8 @@ window.cerrarQuincena = async () => {
     month:     period.month,
     half:      period.half,
     closedAt:  new Date().toLocaleDateString('es-AR'),
-    capi:  { total:stats.capi.total,  count:stats.capi.count,  orders:stats.capi.orders.map(({nombre,localidad,flexImporte,cuenta})=>({nombre,localidad,flexImporte,cuenta})) },
-    enano: { total:stats.enano.total, count:stats.enano.count, orders:stats.enano.orders.map(({nombre,localidad,flexImporte,cuenta})=>({nombre,localidad,flexImporte,cuenta})) },
+    capi:  { total:stats.capi.total,  count:stats.capi.count,  orders:stats.capi.orders.map(({nombre,localidad,flexImporte,cuenta,despachadoAt})=>({nombre,localidad,flexImporte,cuenta,despachadoAt})) },
+    enano: { total:stats.enano.total, count:stats.enano.count, orders:stats.enano.orders.map(({nombre,localidad,flexImporte,cuenta,despachadoAt})=>({nombre,localidad,flexImporte,cuenta,despachadoAt})) },
   };
   flexPeriods = flexPeriods.filter(p => p.id !== period.id);
   flexPeriods.push(record);
@@ -1404,6 +1477,18 @@ window.cerrarQuincena = async () => {
   try {
     await db.collection('meta').doc('flexPeriods').set({ periods: flexPeriods });
     toast('Quincena cerrada ✓');
+  } catch(e) { toast('Guardado local ✓'); }
+  renderCorte();
+};
+
+window.eliminarPeriodo = async id => {
+  const p = flexPeriods.find(p => p.id === id);
+  if (!p || !confirm(`¿Eliminar quincena "${p.label}"?`)) return;
+  flexPeriods = flexPeriods.filter(p => p.id !== id);
+  saveFlexPeriods();
+  try {
+    await db.collection('meta').doc('flexPeriods').set({ periods: flexPeriods });
+    toast('Quincena eliminada ✓');
   } catch(e) { toast('Guardado local ✓'); }
   renderCorte();
 };

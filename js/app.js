@@ -80,6 +80,7 @@ auth.onAuthStateChanged(user => {
 function entrarApp(user) {
   $loginScreen.classList.add('hidden');
   $app.style.display = 'flex';
+  document.getElementById('nueva-fab')?.classList.add('visible');
   const av = document.getElementById('user-avatar');
   if (av) {
     if (user.photoURL) {
@@ -307,8 +308,8 @@ function setupAvatarPopup() {
     if (!confirm('¿Cerrar sesión?')) return;
     auth.signOut().then(() => {
       $app.style.display = 'none';
+      document.getElementById('nueva-fab')?.classList.remove('visible');
       $loginScreen.classList.remove('hidden');
-      // Reiniciar estado
       orders = []; stock = {}; zones = [...FLEX_ZONES];
       fsConectado = false;
     }).catch(() => toast('Error al cerrar sesión'));

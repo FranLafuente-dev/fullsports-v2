@@ -229,7 +229,7 @@ body {
   border-radius: 17px;
   background: linear-gradient(145deg, #FFD700, #FF8000);
   border: none; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
+  display: none; align-items: center; justify-content: center;
   box-shadow:
     0 10px 32px rgba(255,155,0,0.65),
     0 3px 10px rgba(0,0,0,0.22),
@@ -238,6 +238,7 @@ body {
   font-family: inherit;
   transition: transform 0.2s var(--spring), box-shadow 0.2s;
 }
+.nueva-fab.visible { display: flex; }
 .nueva-fab:active {
   transform: scale(0.86);
   box-shadow: 0 5px 16px rgba(255,155,0,0.4), 0 2px 6px rgba(0,0,0,0.15);

@@ -172,11 +172,13 @@ body {
 #topbar h1 {
   font-size: 22px; font-weight: 700; line-height: 1.15;
   letter-spacing: -0.6px;
-  background: linear-gradient(135deg, #ffffff 0%, rgba(255,255,255,0.82) 100%);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #ffffff;
 }
-.topbar-date { font-size: 10px; color: rgba(255,255,255,0.42); font-weight: 500; letter-spacing: 0.1px; }
+.topbar-date { font-size: 10px; color: rgba(255,255,255,0.45); font-weight: 500; letter-spacing: 0.1px; }
+@media (prefers-color-scheme: light) {
+  #topbar h1 { color: #1d1d1f; }
+  .topbar-date { color: rgba(0,0,0,0.40); }
+}
 .topbar-right { display: flex; align-items: center; gap: 8px; }
 
 /* ── DISPATCH BAR ────────────────────────────────────────────────────────── */
@@ -289,7 +291,9 @@ body {
 .nueva-fab.visible { display: flex; }
 .nueva-fab:active { transform: scale(0.88); box-shadow: 0 3px 12px rgba(255,155,0,0.30); }
 .fab-icon {
-  display: block; font-size: 36px; font-weight: 300; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%;
+  font-size: 44px; font-weight: 400; line-height: 1;
   transition: transform 0.3s var(--spring);
   user-select: none; -webkit-user-select: none;
 }
@@ -821,7 +825,7 @@ input:-webkit-autofill:focus {
   display: inline-block; max-width: 120px; overflow: hidden; white-space: nowrap;
   transition: max-width 0.3s var(--ease-out), opacity 0.2s;
 }
-.stock-fab.compact { width: 46px; height: 46px; padding: 0; border-radius: 50%; justify-content: center; }
+.stock-fab.compact { width: 52px; height: 52px; padding: 0; border-radius: 50%; justify-content: center; font-size: 22px; }
 .stock-fab.compact .stock-fab-text { max-width: 0; opacity: 0; }
 
 /* ── CONFIG ZONAS ────────────────────────────────────────────────────────── */

@@ -141,11 +141,11 @@ body {
 #topbar {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 20px 12px;
-  background: rgba(13,15,30,0.70);
-  backdrop-filter: blur(40px) saturate(220%) brightness(1.1);
-  -webkit-backdrop-filter: blur(40px) saturate(220%) brightness(1.1);
-  border-bottom: 1px solid rgba(255,255,255,0.11);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 16px rgba(0,0,0,0.28);
+  background: rgba(10,12,26,0.75);
+  backdrop-filter: blur(48px) saturate(240%) brightness(1.08);
+  -webkit-backdrop-filter: blur(48px) saturate(240%) brightness(1.08);
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.13), 0 1px 0 rgba(0,0,0,0.35);
   z-index: 10; flex-shrink: 0;
 }
 @media (prefers-color-scheme: light) {
@@ -168,9 +168,15 @@ body {
     box-shadow: inset 0 -1px 0 rgba(0,0,0,0.07), inset 0 1px 0 rgba(255,255,255,1);
   }
 }
-.topbar-title-wrap { display: flex; flex-direction: column; gap: 0px; }
-#topbar h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.2; }
-.topbar-date { font-size: 10px; color: var(--text-3); font-weight: 500; letter-spacing: 0.2px; }
+.topbar-title-wrap { display: flex; flex-direction: column; gap: 1px; }
+#topbar h1 {
+  font-size: 22px; font-weight: 700; line-height: 1.15;
+  letter-spacing: -0.6px;
+  background: linear-gradient(135deg, #ffffff 0%, rgba(255,255,255,0.82) 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.topbar-date { font-size: 10px; color: rgba(255,255,255,0.42); font-weight: 500; letter-spacing: 0.1px; }
 .topbar-right { display: flex; align-items: center; gap: 8px; }
 
 /* ── DISPATCH BAR ────────────────────────────────────────────────────────── */
@@ -668,17 +674,8 @@ input:-webkit-autofill:focus {
 .search-result-zona { font-size: 12px; color: #6C6C70; }
 .sri-precio { font-weight: 700; color: #1C1C1E; font-size: 14px; }
 
-/* Dropdown provincias — tema oscuro glass */
-.prov-results {
-  background: rgba(18,20,40,0.95) !important;
-  backdrop-filter: blur(32px) saturate(200%) !important;
-  -webkit-backdrop-filter: blur(32px) saturate(200%) !important;
-  border: 1px solid rgba(255,255,255,0.16) !important;
-  box-shadow: 0 16px 48px rgba(0,0,0,0.60) !important;
-}
-.prov-results .search-result-item { color: #f0f2ff !important; border-bottom-color: rgba(255,255,255,0.07) !important; }
-.prov-results .search-result-item:active { background: rgba(108,99,255,0.18) !important; }
-.prov-results .sri-name { color: #f0f2ff !important; font-weight: 500; }
+/* Dropdown provincias — mismo estilo que localidades (fondo claro) */
+/* Hereda .search-results directamente, sin overrides — misma apariencia */
 
 .flex-selected {
   background: var(--green-light); border: 1px solid rgba(52,199,89,0.3);
@@ -861,29 +858,35 @@ input:-webkit-autofill:focus {
 /* ── CUSTOM DIALOG — liquid glass ────────────────────────────────────────── */
 .custom-dialog-bg {
   position: fixed; inset: 0; z-index: 600;
-  background: rgba(0,0,0,0.55);
-  backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%);
+  background: rgba(0,0,0,0.52);
+  backdrop-filter: blur(28px) saturate(180%); -webkit-backdrop-filter: blur(28px) saturate(180%);
   display: flex; align-items: center; justify-content: center;
   padding: 24px;
   animation: fadeIn 0.1s ease;
 }
 .custom-dialog {
-  background: rgba(18,20,40,0.88);
-  backdrop-filter: blur(48px) saturate(220%) brightness(1.14);
-  -webkit-backdrop-filter: blur(48px) saturate(220%) brightness(1.14);
-  border-radius: 24px;
-  padding: 26px 22px 20px; width: 100%; max-width: 320px;
-  border: 1px solid rgba(255,255,255,0.20);
-  box-shadow: 0 32px 80px rgba(0,0,0,0.70), inset 0 1px 0 rgba(255,255,255,0.24);
+  background: rgba(16,18,38,0.90);
+  backdrop-filter: blur(56px) saturate(240%) brightness(1.16);
+  -webkit-backdrop-filter: blur(56px) saturate(240%) brightness(1.16);
+  border-radius: 22px;
+  padding: 28px 22px 18px; width: 100%; max-width: 308px;
+  border: 1px solid rgba(255,255,255,0.18);
+  box-shadow: 0 36px 80px rgba(0,0,0,0.72), inset 0 1px 0 rgba(255,255,255,0.22);
   animation: slideUp 0.18s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 @media (prefers-color-scheme: light) {
-  .custom-dialog { background: rgba(248,248,252,0.90); border: 1px solid rgba(0,0,0,0.12); box-shadow: 0 16px 60px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,1); }
+  .custom-dialog { background: rgba(248,248,252,0.92); border: 1px solid rgba(0,0,0,0.10); box-shadow: 0 20px 60px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,1); }
 }
-.custom-dialog-icon { font-size: 38px; text-align: center; margin-bottom: 10px; }
-.custom-dialog-msg  { font-size: 15px; font-weight: 700; text-align: center; margin-bottom: 6px; line-height: 1.35; }
-.custom-dialog-sub  { font-size: 12px; color: var(--text-2); text-align: center; margin-bottom: 14px; padding: 0 4px; }
-.custom-dialog-btns { display: flex; flex-direction: column; gap: 8px; }
+.custom-dialog-icon { font-size: 36px; text-align: center; margin-bottom: 12px; }
+.custom-dialog-msg  { font-size: 16px; font-weight: 700; text-align: center; margin-bottom: 6px; line-height: 1.3; letter-spacing: -0.2px; }
+.custom-dialog-sub  { font-size: 13px; color: var(--text-2); text-align: center; margin-bottom: 18px; padding: 0 4px; line-height: 1.45; }
+.custom-dialog-btns {
+  display: flex; flex-direction: column; gap: 8px;
+  padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.08);
+}
+.custom-dialog-btns .btn { border-radius: 14px !important; font-size: 15px; padding: 13px 18px; flex: none; width: 100%; }
+.custom-dialog-btns .btn-ghost { opacity: 0.72; font-weight: 600; }
+.custom-dialog-btns .btn-ghost:active { opacity: 1; }
 
 /* ── TOAST — liquid glass ────────────────────────────────────────────────── */
 #toast {

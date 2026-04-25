@@ -394,8 +394,14 @@ function navInternal(name) {
     }
   }
   document.querySelector(`[data-nav="${name}"]`)?.classList.add('active');
-  const T = { pedidos:'FullSports', corte:'Corte', stock:'Stock', config:'Zonas FLEX' };
-  document.getElementById('topbar-title').textContent = T[name] || 'FullSports';
+  const T = { pedidos:'Full Sports', corte:'Corte', stock:'Stock', config:'Zonas FLEX' };
+  const titleEl = document.getElementById('topbar-title');
+  const titleText = T[name] || 'Full Sports';
+  if (titleText === 'Full Sports') {
+    titleEl.innerHTML = '<span style="font-weight:300;opacity:0.85">Full</span> <span style="font-weight:800">Sports</span>';
+  } else {
+    titleEl.textContent = titleText;
+  }
   if ($stockFab) $stockFab.classList.toggle('visible', name === 'stock');
   document.getElementById('pedidos-tabbar')?.classList.toggle('show', name === 'pedidos');
   document.getElementById('corte-tabbar')?.classList.toggle('show', name === 'corte');
@@ -409,8 +415,8 @@ function setupSwipe() {
   mc.addEventListener('touchend', e => {
     const dx = e.changedTouches[0].clientX - x0;
     const dy = e.changedTouches[0].clientY - y0;
-    // 150px para secciones principales — gestos muy pronunciados
-    if (Math.abs(dx) < 150 || Math.abs(dy) > Math.abs(dx) * 0.35) return;
+    // 200px para secciones principales — gestos muy pronunciados y casi horizontales
+    if (Math.abs(dx) < 200 || Math.abs(dy) > Math.abs(dx) * 0.22) return;
     const i = TABS.indexOf(curView);
     if (dx < 0 && i < TABS.length-1) navigateTo(TABS[i+1]);
     if (dx > 0 && i > 0) navigateTo(TABS[i-1]);
@@ -419,14 +425,18 @@ function setupSwipe() {
 
 function setupSheetDrag() {
   document.querySelectorAll('.sheet').forEach(sh => {
-    let startY = 0, isDragging = false;
+    let startY = 0, startScroll = 0, isDragging = false;
     sh.addEventListener('touchstart', e => {
-      startY = e.touches[0].clientY; isDragging = true;
+      const body = sh.querySelector('.sheet-body');
+      startY = e.touches[0].clientY;
+      startScroll = body ? body.scrollTop : 0;
+      isDragging = true;
     }, { passive:true });
     sh.addEventListener('touchend', e => {
       if (!isDragging) return; isDragging = false;
       const dy = e.changedTouches[0].clientY - startY;
-      if (dy > 80) closeSheet(sh);
+      // Solo cierra si el body estaba al tope del scroll y el gesto es suficientemente largo
+      if (dy > 130 && startScroll < 8) closeSheet(sh);
     }, { passive:true });
   });
 }
@@ -615,7 +625,7 @@ function showAlert(type, msg, tipo) {
   $alert.className=`alert-banner show ${type}`; $alert.textContent=msg;
   setTimeout(()=>$alert.classList.remove('show'),8000);
   if (typeof Notification !== 'undefined' && Notification.permission==='granted')
-    new Notification('FullSports',{body:msg});
+    new Notification('Full Sports',{body:msg});
 }
 function updateCountdowns() {
   document.querySelectorAll('[data-cd]').forEach(el => {
@@ -2077,8 +2087,8 @@ function setupPedidosTabSwipe() {
   view.addEventListener('touchend',e=>{
     const dx=e.changedTouches[0].clientX-x0, dy=e.changedTouches[0].clientY-y0;
     const adx=Math.abs(dx);
-    if (adx<45||Math.abs(dy)>adx*0.75) return;
-    if (adx>=150) return; // gestos grandes pasan al swipe de sección
+    if (adx<80||Math.abs(dy)>adx*0.55) return;
+    if (adx>=200) return; // gestos grandes pasan al swipe de sección
     e.stopPropagation();
     const tabs=['preparar','despacho','entregados'], i=tabs.indexOf(pedidosTab);
     if (dx<0&&i<tabs.length-1) setTab(tabs[i+1]);
@@ -2095,8 +2105,8 @@ function setupCorteTabSwipe() {
   view.addEventListener('touchend',e=>{
     const dx=e.changedTouches[0].clientX-x0, dy=e.changedTouches[0].clientY-y0;
     const adx=Math.abs(dx);
-    if (adx<45||Math.abs(dy)>adx*0.75) return;
-    if (adx>=150) return; // gestos grandes pasan al swipe de sección
+    if (adx<80||Math.abs(dy)>adx*0.55) return;
+    if (adx>=200) return; // gestos grandes pasan al swipe de sección
     e.stopPropagation();
     const i=tabs.indexOf(corteCuenta);
     const dir = dx < 0 ? 'slide-in-right' : 'slide-in-left';

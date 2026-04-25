@@ -359,6 +359,8 @@ function navInternal(name) {
   const T = { pedidos:'FullSports', corte:'Corte', stock:'Stock', config:'Zonas FLEX' };
   document.getElementById('topbar-title').textContent = T[name] || 'FullSports';
   if ($stockFab) $stockFab.classList.toggle('visible', name === 'stock');
+  document.getElementById('pedidos-tabbar')?.classList.toggle('show', name === 'pedidos');
+  document.getElementById('corte-tabbar')?.classList.toggle('show', name === 'corte');
 }
 function navigateTo(name) { navInternal(name); history.pushState({ view:name }, ''); }
 
@@ -652,7 +654,9 @@ function renderPedidos(animDir='') {
       : `<div class="empty-state"><span>📭</span><p>Sin entregados en las últimas 24hs</p></div>`;
   }
 
-  v.innerHTML=`
+  // Tabs → fuera del scroll en #pedidos-tabbar
+  const pedTabbar = document.getElementById('pedidos-tabbar');
+  if (pedTabbar) pedTabbar.innerHTML = `
     <div class="pedidos-tabs">
       <button class="pedidos-tab${pedidosTab==='preparar'?' active':''}" onclick="setTab('preparar')">
         Preparar${nPrep?`<span class="tab-badge">${nPrep}</span>`:''}
@@ -663,8 +667,8 @@ function renderPedidos(animDir='') {
       <button class="pedidos-tab${pedidosTab==='entregados'?' active':''}" onclick="setTab('entregados')">
         Entregados${nEntr?`<span class="tab-badge">${nEntr}</span>`:''}
       </button>
-    </div>
-    <div class="ped-main-content${animDir?' '+animDir:''}">${body}</div>`;
+    </div>`;
+  v.innerHTML = `<div class="ped-main-content${animDir?' '+animDir:''}">${body}</div>`;
   updateCountdowns();
 }
 window.setTab = t => {
@@ -1373,13 +1377,15 @@ function renderCorte(animDir='') {
   const nC=orders.filter(o=>!o.corteDone&&o.cuenta==='capi').length;
   const nE=orders.filter(o=>!o.corteDone&&o.cuenta==='enano').length;
   if (corteCuenta==='deposito') corteCuenta='capi';
-  v.innerHTML=`
+  // Tabs → fuera del scroll en #corte-tabbar
+  const corteTabbar = document.getElementById('corte-tabbar');
+  if (corteTabbar) corteTabbar.innerHTML = `
     <div class="corte-tabs">
       <button class="corte-tab${corteCuenta==='capi'?' active':''}"  onclick="setCorte('capi')">CAPI${nC?` <span class="corte-count">${nC}</span>`:''}</button>
       <button class="corte-tab${corteCuenta==='enano'?' active':''}" onclick="setCorte('enano')">ENANO${nE?` <span class="corte-count">${nE}</span>`:''}</button>
       <button class="corte-tab${corteCuenta==='flex'?' active':''}"  onclick="setCorte('flex')">FLEX $</button>
-    </div>
-    <div class="ped-main-content${animDir?' '+animDir:''}">${renderCorteBody()}</div>`;
+    </div>`;
+  v.innerHTML = `<div class="ped-main-content${animDir?' '+animDir:''}">${renderCorteBody()}</div>`;
 }
 window.setCorte = (c, dir='') => { corteCuenta=c; renderCorte(dir); };
 
@@ -1577,7 +1583,7 @@ function renderCorteFlexBody() {
         <button class="btn ${alreadyClosed?'btn-ghost':'btn-primary'}" style="flex:1" onclick="cerrarQuincena()">
           ${alreadyClosed ? '↻ Recalcular' : '📥 Cerrar quincena'}
         </button>
-        <button class="btn btn-ghost" onclick="downloadFlexPDF()" title="Descargar PDF" style="padding:12px 16px">📄</button>
+        <button class="btn-circle-icon" onclick="downloadFlexPDF()" title="Descargar PDF">📄</button>
       </div>
       <button class="btn btn-ghost" style="width:100%" onclick="openAddFlexSheet()">➕ Agregar registro</button>
     </div>

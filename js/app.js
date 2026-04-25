@@ -1618,56 +1618,64 @@ function renderCorteFlexBody() {
       if (!porMes[k]) porMes[k] = { label: `${MESES[p.month-1]} ${p.year}`, periods: [] };
       porMes[k].periods.push(p);
     });
-    html += `<div class="section-title" style="margin-top:4px">Historial</div>`;
-    Object.entries(porMes).sort(([a],[b])=>b.localeCompare(a)).forEach(([mk, {label:mLabel, periods: mPers}]) => {
+    const monthKeys = Object.keys(porMes).sort((a,b)=>b.localeCompare(a));
+    // Auto-expandir el mes más reciente si no hay nada expandido aún
+    if (expandFlexPeriods.size === 0 && monthKeys.length > 0) expandFlexPeriods.add(monthKeys[0]);
+
+    html += `<div class="section-title" style="margin-top:4px">Historial de quincenas</div>`;
+    monthKeys.forEach(mk => {
+      const { label: mLabel, periods: mPers } = porMes[mk];
       const mCapiT  = mPers.reduce((s,p)=>s+(p.capi?.total||0),0);
       const mEnanoT = mPers.reduce((s,p)=>s+(p.enano?.total||0),0);
       const expanded = expandFlexPeriods.has(mk);
       html += `<div class="card flex-period-card">
-        <div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleFlexMonth('${mk}')">
-          <div>
+        <div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;gap:12px" onclick="toggleFlexMonth('${mk}')">
+          <div style="flex:1;min-width:0">
             <div style="font-weight:700;font-size:15px">${mLabel}</div>
-            <div style="font-size:12px;color:var(--text-3)">${mPers.length} quincena${mPers.length>1?'s':''}</div>
+            <div style="font-size:12px;color:var(--text-3)">${mPers.length} quincena${mPers.length>1?'s':''} · Total $${fmt(mCapiT+mEnanoT)}</div>
           </div>
-          <div style="text-align:right">
-            <div style="font-size:13px;color:var(--blue)">CAPI $${fmt(mCapiT)}</div>
-            <div style="font-size:13px;color:var(--purple)">ENANO $${fmt(mEnanoT)}</div>
-            <div style="font-size:11px;color:var(--text-3)">Total $${fmt(mCapiT+mEnanoT)}</div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
+            <div style="font-size:12px;color:var(--blue);font-weight:600">C $${fmt(mCapiT)}</div>
+            <div style="font-size:12px;color:var(--purple);font-weight:600">E $${fmt(mEnanoT)}</div>
           </div>
+          <div style="color:var(--text-3);font-size:12px;transition:transform 0.2s;transform:rotate(${expanded?180:0}deg)">▼</div>
         </div>
         ${expanded ? `<div class="flex-period-body" style="padding:0 16px 12px">
           ${mPers.sort((a,b)=>b.half-a.half).map(p=>`
-            <div style="padding:8px 0;border-top:1px solid var(--sep)">
-              <div style="display:flex;justify-content:space-between;align-items:center">
-                <div>
-                  <div style="font-weight:600;font-size:13px">${p.label}</div>
-                  <div style="font-size:11px;color:var(--text-3)">Cerrado el ${p.closedAt}</div>
+            <div style="padding:10px 0;border-top:1px solid var(--sep)">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:700;font-size:14px">${p.label}</div>
+                  <div style="font-size:11px;color:var(--text-3)">Cerrado ${p.closedAt} · C $${fmt(p.capi?.total||0)} · E $${fmt(p.enano?.total||0)}</div>
                 </div>
-                <div style="display:flex;align-items:center;gap:10px">
-                  <div style="text-align:right;font-size:12px">
-                    <div style="color:var(--blue)">CAPI $${fmt(p.capi?.total||0)} (${p.capi?.count||0})</div>
-                    <div style="color:var(--purple)">ENANO $${fmt(p.enano?.total||0)} (${p.enano?.count||0})</div>
-                  </div>
-                  <button onclick="event.stopPropagation();eliminarPeriodo('${p.id}')" style="background:var(--red-light);color:var(--red);border:none;border-radius:8px;padding:5px 9px;font-size:12px;cursor:pointer;font-family:inherit;flex-shrink:0">🗑</button>
+                <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+                  <button onclick="event.stopPropagation();downloadFlexPeriodPDF('${p.id}')" class="btn-circle-icon" title="PDF" style="width:34px;height:34px;font-size:14px">📄</button>
+                  <button onclick="event.stopPropagation();eliminarPeriodo('${p.id}')" class="btn-circle-icon" title="Eliminar" style="width:34px;height:34px;font-size:14px;background:var(--red-light);border-color:rgba(255,59,48,0.3)">🗑</button>
                 </div>
               </div>
               ${(p.capi?.orders||[]).length+(p.enano?.orders||[]).length > 0 ? `
-                <div style="margin-top:6px">
+                <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">
                   ${[...(p.capi?.orders||[]),...(p.enano?.orders||[])].sort((a,b)=>(b.despachadoAt||0)-(a.despachadoAt||0)).map(o=>{
                     const fecha = o.despachadoAt ? `${new Date(o.despachadoAt).getDate()}/${new Date(o.despachadoAt).getMonth()+1}` : '';
                     return `<div class="flex-order-row">
-                      <div><span class="badge badge-${o.cuenta}" style="font-size:9px">${o.cuenta.toUpperCase()}</span>
-                        <span style="margin-left:5px;font-size:12px">${o.nombre}</span>
-                        <span style="font-size:11px;color:var(--text-3);margin-left:4px">${o.localidad}${fecha?' · '+fecha:''}</span>
+                      <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0">
+                        <span class="badge badge-${o.cuenta}" style="font-size:9px;flex-shrink:0">${o.cuenta.toUpperCase()}</span>
+                        <span style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${o.nombre}</span>
+                        ${fecha?`<span style="font-size:11px;color:var(--text-3);flex-shrink:0">${fecha}</span>`:''}
                       </div>
-                      <div style="font-size:12px;font-weight:700;color:var(--red)">−$${fmt(o.flexImporte)}</div>
+                      <div style="font-size:12px;font-weight:700;color:var(--red);flex-shrink:0">−$${fmt(o.flexImporte)}</div>
                     </div>`;
                   }).join('')}
-                </div>` : ''}
+                </div>` : `<p class="hint-text" style="margin-top:6px">Sin detalle guardado</p>`}
             </div>`).join('')}
         </div>` : ''}
       </div>`;
     });
+  } else {
+    html += `<div class="empty-state" style="padding:32px 24px;min-height:auto">
+      <span style="font-size:32px">📋</span>
+      <p style="font-size:14px">Acá vas a ver el historial una vez que cierres tu primera quincena</p>
+    </div>`;
   }
   return html;
 }
@@ -1707,32 +1715,43 @@ window.cerrarQuincena = async () => {
   renderCorte();
 };
 
-window.downloadFlexPDF = () => {
-  const period = getCurrentPeriod();
-  const stats = calcFlexPeriod(period.fromMs, period.toMs);
-  const allOrders = [...stats.capi.orders, ...stats.enano.orders]
-    .sort((a,b) => b.despachadoAt - a.despachadoAt);
-  if (!allOrders.length) { toast('Sin envíos FLEX para exportar'); return; }
-  const rows = allOrders.map(o => {
+function buildFlexPdfHtml(label, orders, capiTotal, capiCount, enanoTotal, enanoCount) {
+  const rows = orders.map(o => {
     const d = new Date(o.despachadoAt);
     const fecha = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
     return `<tr><td>${fecha}</td><td>${o.cuenta.toUpperCase()}</td><td>${o.nombre}</td><td>${o.localidad}</td><td style="text-align:right">$${fmt(o.flexImporte)}</td></tr>`;
   }).join('');
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>FLEX ${period.label}</title>
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>FLEX ${label}</title>
 <style>body{font-family:Arial,sans-serif;font-size:12px;padding:24px;color:#111}
 h2{margin:0 0 4px;font-size:16px}.sub{color:#555;margin-bottom:16px;font-size:12px}
 table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px 10px;text-align:left}
 th{background:#f0f0f0;font-weight:bold;font-size:11px;text-transform:uppercase}
 .total{font-weight:bold;font-size:14px;margin-top:14px;text-align:right}
-@media print{body{padding:10px}button{display:none}}</style></head><body>
-<h2>Envíos FLEX — ${period.label}</h2>
-<div class="sub">CAPI: $${fmt(stats.capi.total)} (${stats.capi.count} env.)&nbsp;&nbsp;·&nbsp;&nbsp;ENANO: $${fmt(stats.enano.total)} (${stats.enano.count} env.)</div>
+@media print{body{padding:10px}}</style></head><body>
+<h2>Envíos FLEX — ${label}</h2>
+<div class="sub">CAPI: $${fmt(capiTotal)} (${capiCount} env.)&nbsp;&nbsp;·&nbsp;&nbsp;ENANO: $${fmt(enanoTotal)} (${enanoCount} env.)</div>
 <table><tr><th>Fecha</th><th>Cuenta</th><th>Cliente</th><th>Localidad</th><th>Costo</th></tr>${rows}</table>
-<div class="total">Total: $${fmt(stats.capi.total + stats.enano.total)}</div>
+<div class="total">Total: $${fmt(capiTotal + enanoTotal)}</div>
 <script>window.onload=()=>{window.print();}<\/script></body></html>`;
+}
+window.downloadFlexPDF = () => {
+  const period = getCurrentPeriod();
+  const stats = calcFlexPeriod(period.fromMs, period.toMs);
+  const allOrders = [...stats.capi.orders, ...stats.enano.orders].sort((a,b) => b.despachadoAt - a.despachadoAt);
+  if (!allOrders.length) { toast('Sin envíos FLEX para exportar'); return; }
   const w = window.open('', '_blank');
   if (!w) { toast('Habilitá pop-ups para descargar'); return; }
-  w.document.write(html);
+  w.document.write(buildFlexPdfHtml(period.label, allOrders, stats.capi.total, stats.capi.count, stats.enano.total, stats.enano.count));
+  w.document.close();
+};
+window.downloadFlexPeriodPDF = pid => {
+  const p = flexPeriods.find(x => x.id === pid);
+  if (!p) return;
+  const allOrders = [...(p.capi?.orders||[]), ...(p.enano?.orders||[])].sort((a,b) => (b.despachadoAt||0) - (a.despachadoAt||0));
+  if (!allOrders.length) { toast('Sin envíos guardados en esta quincena'); return; }
+  const w = window.open('', '_blank');
+  if (!w) { toast('Habilitá pop-ups para descargar'); return; }
+  w.document.write(buildFlexPdfHtml(p.label, allOrders, p.capi?.total||0, p.capi?.count||0, p.enano?.total||0, p.enano?.count||0));
   w.document.close();
 };
 

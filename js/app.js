@@ -627,7 +627,7 @@ function renderPedidos(animDir='') {
     <div id="dep-box" style="display:none" class="dep-box"></div>`;
     body = bar + (sorted.length
       ? `<div class="ped-body">${sorted.map(orderCard).join('')}</div>`
-      : `<div class="empty-state empty-preparar"><div class="empty-check-circle">✓</div><p>¡Estás al día!</p><span class="empty-sub">No hay pedidos pendientes</span></div>`);
+      : '');
 
   } else if (pedidosTab === 'despacho') {
     const nFlexPend=pendiente.filter(o=>o.tipoEnvio==='FLEX').length;

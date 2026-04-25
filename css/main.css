@@ -262,37 +262,37 @@ body {
 /* ── NUEVA FAB ───────────────────────────────────────────────────────────── */
 .nueva-fab {
   position: fixed;
-  bottom: calc(var(--nav-h) + 24px);
+  bottom: calc(var(--nav-h) + 22px);
   right: 20px;
   z-index: 180;
-  width: 62px; height: 62px;
+  width: 72px; height: 72px;
   border-radius: 50%;
   background: linear-gradient(145deg, #FFD700, #FF8000);
   border: none; cursor: pointer;
   display: none; align-items: center; justify-content: center;
   box-shadow:
-    0 12px 36px rgba(255,155,0,0.68),
-    0 4px 12px rgba(0,0,0,0.24),
+    0 4px 18px rgba(255,155,0,0.38),
+    0 2px 8px rgba(0,0,0,0.28),
     inset 0 1.5px 0 rgba(255,255,255,0.45);
   color: #fff; line-height: 1; font-family: inherit;
   transition: transform 0.2s var(--spring), box-shadow 0.2s;
   user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
 }
 .nueva-fab.visible { display: flex; }
-.nueva-fab:active { transform: scale(0.88); box-shadow: 0 5px 18px rgba(255,155,0,0.4); }
+.nueva-fab:active { transform: scale(0.88); box-shadow: 0 3px 12px rgba(255,155,0,0.30); }
 .fab-icon {
-  display: block; font-size: 32px; font-weight: 300; line-height: 1;
+  display: block; font-size: 36px; font-weight: 300; line-height: 1;
   transition: transform 0.3s var(--spring);
   user-select: none; -webkit-user-select: none;
 }
 .nueva-fab.menu-open .fab-icon { transform: none; }
 
 /* ── FAB RADIAL MENU ────────────────────────────────────────────────────── */
-/* Wrapper posicionado en el centro del FAB (FAB: bottom:24px, right:20px, size:62px) */
+/* Wrapper posicionado en el centro del FAB (FAB: bottom:22px, right:20px, size:72px) */
 .fab-radial-wrap {
   position: fixed;
-  bottom: calc(var(--nav-h) + 24px + 31px); /* FAB bottom + half-height */
-  right: calc(20px + 31px);                  /* FAB right + half-width */
+  bottom: calc(var(--nav-h) + 22px + 36px); /* FAB bottom + half-height */
+  right: calc(20px + 36px);                  /* FAB right + half-width */
   width: 0; height: 0;
   z-index: 179; pointer-events: none;
 }

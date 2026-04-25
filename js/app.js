@@ -21,6 +21,15 @@ const LS_ORDERS        = 'fs_orders_v4';
 const LS_STOCK         = 'fs_stock_v3';
 const LS_ZONES         = 'fs_zones_v1';
 const LS_FLEX_PERIODS  = 'fs_flexperiods_v1';
+const LS_SORTED_PRODS  = 'fs_sorted_prods_v1';
+
+const PROVINCIAS = [
+  'Buenos Aires','CABA','Catamarca','Chaco','Chubut','Córdoba',
+  'Corrientes','Entre Ríos','Formosa','Jujuy','La Pampa','La Rioja',
+  'Mendoza','Misiones','Neuquén','Río Negro','Salta','San Juan',
+  'San Luis','Santa Cruz','Santa Fe','Santiago del Estero',
+  'Tierra del Fuego','Tucumán',
+];
 const STOCK_DEFAULTS = {
   'Banderas_60x90': 5,
   'Banderas_90x150': 5,
@@ -29,7 +38,8 @@ const STOCK_DEFAULTS = {
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let orders = [], stock = {}, zones = [...FLEX_ZONES], flexPeriods = [], flexManualRecords = [];
-let curView = 'pedidos', pedidosTab = 'preparar', corteCuenta = 'capi';
+let curView = 'pedidos', pedidosTab = 'preparar', corteCuenta = 'capi', flexFilter = null;
+let _prodSortTs = 0;
 let expandFlexPeriods = new Set();
 let editingId = null, curCuenta = 'capi', curEnvio = 'FLEX';
 let curProducto = null, formItems = [], formEnvio = null;
@@ -129,6 +139,7 @@ function connectFirestore() {
     if (snap.exists) {
       stock = snap.data(); saveStock();
       initNewProductStock();
+      invalidateProdSort();
       renderStock();
     }
   }, e => console.warn('stock:', e));
@@ -228,6 +239,32 @@ function showInputDialog(label, defaultVal = 0) {
   });
 }
 
+// ─── PRODUCTOS ORDENADOS POR STOCK — caché 24h ───────────────────────────────
+function getSortedProductos() {
+  const now = Date.now();
+  // Si hay caché vigente en localStorage, usarlo
+  try {
+    const c = JSON.parse(localStorage.getItem(LS_SORTED_PRODS) || 'null');
+    if (c && now - c.ts < H24) return c.prods;
+  } catch(e) {}
+  // Calcular: no-fijos ordenados por stock total, fijos al final
+  const fixed = Object.keys(PRODUCTOS_FIJO);
+  const cats = PRODUCTOS.filter(p => !fixed.includes(p));
+  cats.sort((a, b) => {
+    const sA = TALLES.reduce((s, t) => s + (stock[`${a}_${t}`] || 0), 0);
+    const sB = TALLES.reduce((s, t) => s + (stock[`${b}_${t}`] || 0), 0);
+    return sB - sA;
+  });
+  const sorted = [...cats, ...fixed];
+  _prodSortTs = now;
+  try { localStorage.setItem(LS_SORTED_PRODS, JSON.stringify({ prods: sorted, ts: now })); } catch(e) {}
+  return sorted;
+}
+function invalidateProdSort() {
+  _prodSortTs = 0;
+  try { localStorage.removeItem(LS_SORTED_PRODS); } catch(e) {}
+}
+
 // ─── FECHA HÁBIL FLEX (Mon-Thu = hoy, Vie/Sab/Dom = lunes) ───────────────────
 function diaHabilFlex() {
   const d = new Date();
@@ -303,6 +340,7 @@ function initUI() {
   setupOffline();
   setupAlerts();
   setupLocalidadSearch();
+  setupProvinciaSearch();
   setupFormListeners();
   setupDeliverySheet();
   setupZoneSheets();
@@ -1107,7 +1145,13 @@ function setupFormListeners() {
   document.querySelectorAll('[data-cuenta]').forEach(b=>b.addEventListener('click',()=>setCuenta(b.dataset.cuenta)));
   document.querySelectorAll('[data-envio]').forEach(b=>b.addEventListener('click',()=>setEnvio(b.dataset.envio)));
   V('f-importe-flex').addEventListener('input',updateNeto);
-  // Title case al salir del campo nombre
+  // Title case en tiempo real para campos de nombre
+  function liveTitleCase(e) {
+    const el = e.target, pos = el.selectionStart, val = el.value;
+    const tc = titleCase(val);
+    if (tc !== val) { el.value = tc; el.setSelectionRange(pos, pos); }
+  }
+  V('f-nombre')?.addEventListener('input', liveTitleCase);
   V('f-nombre')?.addEventListener('blur', e => { e.target.value = titleCase(e.target.value); });
 
   V('btn-stock-override').addEventListener('click',()=>{
@@ -1138,6 +1182,43 @@ function setupFormListeners() {
   });
 
   V('btn-guardar-venta').addEventListener('click', guardarVenta);
+}
+
+// ─── BÚSQUEDA PROVINCIA ───────────────────────────────────────────────────────
+function setupProvinciaSearch() {
+  const inp = V('f-provincia'), res = V('provincia-results');
+  if (!inp || !res) return;
+
+  function positionDropdown() {
+    const r = inp.getBoundingClientRect();
+    res.style.top   = `${r.bottom + 4}px`;
+    res.style.left  = `${r.left}px`;
+    res.style.width = `${r.width}px`;
+  }
+  function buildResults() {
+    const q = inp.value.toLowerCase().trim();
+    if (!q) { res.classList.remove('show'); return; }
+    const hits = PROVINCIAS.filter(p =>
+      p.toLowerCase().startsWith(q) || p.toLowerCase().includes(q)
+    ).slice(0, 8);
+    if (!hits.length) { res.classList.remove('show'); return; }
+    res.innerHTML = hits.map(p => `<div class="search-result-item prov-item"><span class="sri-name">${p}</span></div>`).join('');
+    positionDropdown(); res.classList.add('show');
+    res.querySelectorAll('.prov-item').forEach((el, i) => {
+      const pick = e => {
+        e.preventDefault(); e.stopPropagation();
+        inp.value = hits[i]; res.classList.remove('show');
+      };
+      el.addEventListener('mousedown', pick);
+      el.addEventListener('touchstart', pick, { passive: false });
+    });
+  }
+  inp.addEventListener('input', buildResults);
+  inp.addEventListener('focus', buildResults);
+  document.addEventListener('scroll', () => { if (res.classList.contains('show')) positionDropdown(); }, true);
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.search-wrap') && !res.contains(e.target)) res.classList.remove('show');
+  });
 }
 
 // ─── BÚSQUEDA LOCALIDAD ───────────────────────────────────────────────────────
@@ -1209,11 +1290,12 @@ function getProductTalles(p) {
 }
 
 function renderProdBtns() {
-  const disp=PRODUCTOS.filter(p=>stockAll||getProductTalles(p).length>0);
-  const c=V('producto-btns'); if (!c) return;
-  c.innerHTML=disp.length
-    ?disp.map(p=>`<button class="producto-btn" onclick="selProd('${p.replace(/'/g,"\\'")}')">${p}</button>`).join('')
-    :`<p class="hint-text">Sin stock — activá ✏️ Manual</p>`;
+  const sorted = getSortedProductos();
+  const disp = sorted.filter(p => stockAll || getProductTalles(p).length > 0);
+  const c = V('producto-btns'); if (!c) return;
+  c.innerHTML = disp.length
+    ? disp.map(p => `<button class="producto-btn" onclick="selProd('${p.replace(/'/g,"\\'")}')">${p}</button>`).join('')
+    : `<p class="hint-text">Sin stock — activá ✏️ Manual</p>`;
 }
 
 window.selProd = p => {
@@ -1288,8 +1370,9 @@ window.removeGroup = kEnc => {
 
 // ─── MULTI PANEL ─────────────────────────────────────────────────────────────
 function renderMultiProd() {
-  const disp=PRODUCTOS.filter(p=>stockAll||getProductTalles(p).length>0);
-  V('multi-producto-btns').innerHTML=disp.map(p=>
+  const sorted = getSortedProductos();
+  const disp = sorted.filter(p => stockAll || getProductTalles(p).length > 0);
+  V('multi-producto-btns').innerHTML = disp.map(p =>
     `<button class="producto-btn" onclick="mSelProd('${p.replace(/'/g,"\\'")}')">${p}</button>`
   ).join('');
 }
@@ -1387,7 +1470,8 @@ function renderCorte(animDir='') {
     </div>`;
   v.innerHTML = `<div class="ped-main-content${animDir?' '+animDir:''}">${renderCorteBody()}</div>`;
 }
-window.setCorte = (c, dir='') => { corteCuenta=c; renderCorte(dir); };
+window.setCorte = (c, dir='') => { corteCuenta=c; flexFilter=null; renderCorte(dir); };
+window.setFlexFilter = cuenta => { flexFilter = (flexFilter === cuenta ? null : cuenta); renderCorte(); };
 
 function renderCorteBody() {
   if (corteCuenta==='deposito') return renderDepCorte();
@@ -1561,23 +1645,26 @@ function renderCorteFlexBody() {
   const stats  = calcFlexPeriod(period.fromMs, period.toMs);
   const allOrders = [...stats.capi.orders, ...stats.enano.orders]
     .sort((a,b) => b.despachadoAt - a.despachadoAt);
+  const filteredOrders = flexFilter ? allOrders.filter(o => o.cuenta === flexFilter) : allOrders;
   const alreadyClosed = flexPeriods.some(p => p.id === period.id);
 
   let html = `<div class="card" style="padding:16px">
     <div class="section-title">Quincena actual — ${period.label}</div>
     <div class="flex-stat-row">
-      <div class="flex-stat-box" style="background:var(--blue-light)">
+      <div class="flex-stat-box${flexFilter==='capi'?' stat-active':''}" style="background:var(--blue-light)" onclick="setFlexFilter('capi')" title="Filtrar por CAPI">
         <div class="flex-stat-label">CAPI</div>
         <div class="flex-stat-val">$${fmt(stats.capi.total)}</div>
         <div class="flex-stat-n">${stats.capi.count} envío${stats.capi.count!==1?'s':''}</div>
+        <div style="font-size:9px;color:var(--text-3);margin-top:3px">${flexFilter==='capi'?'● Filtrando':'Toca para filtrar'}</div>
       </div>
-      <div class="flex-stat-box" style="background:var(--purple-light)">
+      <div class="flex-stat-box${flexFilter==='enano'?' stat-active':''}" style="background:var(--purple-light)" onclick="setFlexFilter('enano')" title="Filtrar por ENANO">
         <div class="flex-stat-label">ENANO</div>
         <div class="flex-stat-val">$${fmt(stats.enano.total)}</div>
         <div class="flex-stat-n">${stats.enano.count} envío${stats.enano.count!==1?'s':''}</div>
+        <div style="font-size:9px;color:var(--text-3);margin-top:3px">${flexFilter==='enano'?'● Filtrando':'Toca para filtrar'}</div>
       </div>
     </div>
-    <div style="margin-top:8px;font-size:13px;color:var(--text-2)">Total: <b>$${fmt(stats.capi.total+stats.enano.total)}</b></div>
+    <div style="margin-top:8px;font-size:13px;color:var(--text-2)">Total: <b>$${fmt(stats.capi.total+stats.enano.total)}</b>${flexFilter?` &nbsp;<span style="font-size:11px;color:var(--orange);font-weight:600">· Filtro activo: ${flexFilter.toUpperCase()} <button onclick="setFlexFilter(null)" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:11px;padding:0 2px">✕</button></span>`:''}</div>
     <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
       <div style="display:flex;gap:8px">
         <button class="btn ${alreadyClosed?'btn-ghost':'btn-primary'}" style="flex:1" onclick="cerrarQuincena()">
@@ -1587,8 +1674,8 @@ function renderCorteFlexBody() {
       </div>
       <button class="btn btn-ghost" style="width:100%" onclick="openAddFlexSheet()">➕ Agregar registro</button>
     </div>
-    ${allOrders.length ? `<div style="margin-top:12px;border-top:1px solid var(--sep);padding-top:8px">
-      ${allOrders.map(o=>{
+    ${filteredOrders.length ? `<div style="margin-top:12px;border-top:1px solid var(--sep);padding-top:8px">
+      ${filteredOrders.map(o=>{
         const d=new Date(o.despachadoAt);
         const fecha=`${d.getDate()}/${d.getMonth()+1}`;
         const editBtn = `<button onclick="event.stopPropagation();openEditFlexSheet('${o.isManual?(o.recordId||o.id):o.id}')" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;color:var(--text-3)">✏️</button>`;
@@ -1607,7 +1694,7 @@ function renderCorteFlexBody() {
           </div>
         </div>`;
       }).join('')}
-    </div>` : `<p class="hint-text" style="margin-top:8px">Sin envíos FLEX despachados en este período</p>`}
+    </div>` : `<p class="hint-text" style="margin-top:8px">${flexFilter ? `Sin envíos de ${flexFilter.toUpperCase()} en este período` : 'Sin envíos FLEX despachados en este período'}</p>`}
   </div>`;
 
   // Historial agrupado por mes
@@ -1716,22 +1803,49 @@ window.cerrarQuincena = async () => {
 };
 
 function buildFlexPdfHtml(label, orders, capiTotal, capiCount, enanoTotal, enanoCount) {
-  const rows = orders.map(o => {
-    const d = new Date(o.despachadoAt);
-    const fecha = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
-    return `<tr><td>${fecha}</td><td>${o.cuenta.toUpperCase()}</td><td>${o.nombre}</td><td>${o.localidad}</td><td style="text-align:right">$${fmt(o.flexImporte)}</td></tr>`;
-  }).join('');
+  const capiOrders  = orders.filter(o => o.cuenta === 'capi') .sort((a,b) => (a.despachadoAt||0)-(b.despachadoAt||0));
+  const enanoOrders = orders.filter(o => o.cuenta === 'enano').sort((a,b) => (a.despachadoAt||0)-(b.despachadoAt||0));
+  function mkRows(list) {
+    return list.map(o => {
+      const d = new Date(o.despachadoAt);
+      const f = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+      return `<tr><td>${f}</td><td>${o.nombre}</td><td>${o.localidad}</td><td style="text-align:right;font-weight:600">$${fmt(o.flexImporte)}</td></tr>`;
+    }).join('');
+  }
+  function mkSection(titulo, list, total, count, color) {
+    if (!list.length) return '';
+    return `<div style="background:${color};color:#fff;padding:8px 12px;border-radius:6px;margin:20px 0 6px;font-size:13px;font-weight:bold">
+      ${titulo} — ${count} envío${count!==1?'s':''}</div>
+    <table><tr><th>Fecha</th><th>Cliente</th><th>Localidad</th><th>Costo FLEX</th></tr>
+    ${mkRows(list)}
+    <tr style="background:#f0f4f8"><td colspan="3" style="text-align:right;font-weight:bold;padding-right:12px">Subtotal ${titulo}</td><td style="text-align:right;font-weight:800;font-size:14px">$${fmt(total)}</td></tr>
+    </table>`;
+  }
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>FLEX ${label}</title>
-<style>body{font-family:Arial,sans-serif;font-size:12px;padding:24px;color:#111}
-h2{margin:0 0 4px;font-size:16px}.sub{color:#555;margin-bottom:16px;font-size:12px}
-table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px 10px;text-align:left}
-th{background:#f0f0f0;font-weight:bold;font-size:11px;text-transform:uppercase}
-.total{font-weight:bold;font-size:14px;margin-top:14px;text-align:right}
-@media print{body{padding:10px}}</style></head><body>
+<style>
+body{font-family:Arial,sans-serif;font-size:12px;padding:24px;color:#111}
+h2{margin:0 0 2px;font-size:18px;color:#1a1a2e}
+.gen{color:#888;font-size:11px;margin-bottom:20px}
+table{width:100%;border-collapse:collapse;margin-bottom:4px}
+th,td{border:1px solid #ddd;padding:7px 10px;text-align:left}
+th{background:#f0f0f0;font-weight:bold;font-size:11px;text-transform:uppercase;color:#555}
+.grand{margin-top:20px;text-align:right;padding:14px 16px;background:#1a1a2e;color:#fff;border-radius:8px;font-size:16px;font-weight:800}
+.resumen{display:flex;gap:16px;margin-bottom:8px}
+.res-box{flex:1;border:1px solid #ddd;border-radius:6px;padding:10px 14px}
+.res-label{font-size:10px;text-transform:uppercase;color:#888;font-weight:600}
+.res-val{font-size:20px;font-weight:800;margin-top:2px}
+.res-n{font-size:11px;color:#888}
+@media print{body{padding:10px}}
+</style></head><body>
 <h2>Envíos FLEX — ${label}</h2>
-<div class="sub">CAPI: $${fmt(capiTotal)} (${capiCount} env.)&nbsp;&nbsp;·&nbsp;&nbsp;ENANO: $${fmt(enanoTotal)} (${enanoCount} env.)</div>
-<table><tr><th>Fecha</th><th>Cuenta</th><th>Cliente</th><th>Localidad</th><th>Costo</th></tr>${rows}</table>
-<div class="total">Total: $${fmt(capiTotal + enanoTotal)}</div>
+<div class="gen">Generado el ${new Date().toLocaleDateString('es-AR')}</div>
+<div class="resumen">
+  <div class="res-box"><div class="res-label">CAPI</div><div class="res-val" style="color:#007AFF">$${fmt(capiTotal)}</div><div class="res-n">${capiCount} envío${capiCount!==1?'s':''}</div></div>
+  <div class="res-box"><div class="res-label">ENANO</div><div class="res-val" style="color:#AF52DE">$${fmt(enanoTotal)}</div><div class="res-n">${enanoCount} envío${enanoCount!==1?'s':''}</div></div>
+</div>
+${mkSection('CAPI', capiOrders, capiTotal, capiCount, '#007AFF')}
+${mkSection('ENANO', enanoOrders, enanoTotal, enanoCount, '#AF52DE')}
+<div class="grand">TOTAL FLEX: $${fmt(capiTotal + enanoTotal)}</div>
 <script>window.onload=()=>{window.print();}<\/script></body></html>`;
 }
 window.downloadFlexPDF = () => {
@@ -1859,6 +1973,7 @@ function setupAddFlexSheet() {
     });
   }
 
+  V('af-nombre')?.addEventListener('input', e => { const p=e.target.selectionStart,v=e.target.value,tc=titleCase(v); if(tc!==v){e.target.value=tc;e.target.setSelectionRange(p,p);} });
   V('af-nombre')?.addEventListener('blur', e => { e.target.value = titleCase(e.target.value); });
   V('btn-save-add-flex')?.addEventListener('click', async () => {
     const nombre=titleCase(V('af-nombre').value.trim());
@@ -1935,6 +2050,7 @@ function setupEditFlexSheet() {
     });
   }
 
+  V('ef-nombre')?.addEventListener('input', e => { const p=e.target.selectionStart,v=e.target.value,tc=titleCase(v); if(tc!==v){e.target.value=tc;e.target.setSelectionRange(p,p);} });
   V('ef-nombre')?.addEventListener('blur', e => { e.target.value = titleCase(e.target.value); });
   V('btn-save-edit-flex')?.addEventListener('click',()=>{
     if (!editFlexId) return;

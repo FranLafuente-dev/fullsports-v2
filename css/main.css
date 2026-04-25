@@ -126,10 +126,12 @@ body {
 
 /* ── CARD — liquid glass ─────────────────────────────────────────────────── */
 .card {
-  background: linear-gradient(160deg, rgba(255,255,255,0.045) 0%, rgba(255,255,255,0.008) 60%), var(--card);
-  border: 1px solid rgba(255,255,255,0.11);
+  background: linear-gradient(160deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.008) 60%), var(--card);
+  border: 1px solid rgba(255,255,255,0.12);
   border-radius: var(--radius);
-  box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.08);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.10);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 @media (prefers-color-scheme: light) {
   .card { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); }
@@ -334,8 +336,8 @@ body {
 
 /* ── SECTION TITLE ───────────────────────────────────────────────────────── */
 .section-title {
-  font-size: 11px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.8px; color: var(--text-3); padding: 0 4px; margin-top: 4px;
+  font-size: 10px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--text-3); padding: 2px 4px; margin-top: 6px;
 }
 
 /* ── PEDIDOS TABS — dentro de .global-tabbar ─────────────────────────────── */
@@ -499,7 +501,7 @@ body {
   border-radius: 22px 22px 0 0;
   border-top: 1px solid rgba(255,255,255,0.16);
   transform: translateY(100%);
-  transition: transform 0.38s var(--ease-out);
+  transition: transform 0.26s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   max-height: 92dvh; display: flex; flex-direction: column;
 }
 .sheet.open { transform: translateY(0); box-shadow: 0 -20px 60px rgba(0,0,0,0.5), var(--shadow-lg); }
@@ -599,10 +601,13 @@ input:-webkit-autofill:focus {
 
 .producto-grid { display: flex; flex-direction: column; gap: 7px; }
 .producto-btn {
-  padding: 12px 14px; border-radius: var(--radius-sm);
-  border: 1px solid var(--border); background: var(--card);
-  font-size: 15px; font-weight: 500; color: var(--text-2);
-  cursor: pointer; text-align: left; transition: all 0.18s var(--spring); font-family: inherit;
+  padding: 14px 16px; border-radius: var(--radius-sm);
+  border: 1px solid rgba(255,255,255,0.10);
+  background: linear-gradient(145deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.01) 100%), var(--card);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  font-size: 15px; font-weight: 600; color: var(--text-1);
+  cursor: pointer; text-align: left; transition: all 0.16s ease-out; font-family: inherit;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 4px rgba(0,0,0,0.12);
 }
 .producto-btn.active {
   background: var(--accent-light); color: var(--accent);
@@ -646,7 +651,8 @@ input:-webkit-autofill:focus {
 .search-results {
   position: fixed; z-index: 9999;
   background: #fff; border: 1px solid rgba(0,0,0,0.1);
-  border-radius: var(--radius-sm); box-shadow: 0 16px 48px rgba(0,0,0,0.4);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.40), 0 4px 16px rgba(0,0,0,0.18);
   max-height: 220px; overflow-y: auto; display: none; overscroll-behavior: contain;
 }
 .search-results.show { display: block; }
@@ -661,6 +667,18 @@ input:-webkit-autofill:focus {
 .sri-name   { font-size: 14px; color: #1C1C1E; font-weight: 500; }
 .search-result-zona { font-size: 12px; color: #6C6C70; }
 .sri-precio { font-weight: 700; color: #1C1C1E; font-size: 14px; }
+
+/* Dropdown provincias — tema oscuro glass */
+.prov-results {
+  background: rgba(18,20,40,0.92) !important;
+  backdrop-filter: blur(32px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(200%) !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.55) !important;
+}
+.prov-results .search-result-item { color: var(--text-1) !important; border-bottom-color: rgba(255,255,255,0.06) !important; }
+.prov-results .search-result-item:active { background: rgba(108,99,255,0.15) !important; }
+.prov-results .sri-name { color: var(--text-1) !important; }
 
 .flex-selected {
   background: var(--green-light); border: 1px solid rgba(52,199,89,0.3);
@@ -698,12 +716,23 @@ input:-webkit-autofill:focus {
 /* ── FLEX QUINCENA ───────────────────────────────────────────────────────── */
 .flex-stat-row { display: flex; gap: 10px; margin-top: 10px; }
 .flex-stat-box {
-  flex: 1; border-radius: var(--radius-sm); padding: 12px;
+  flex: 1; border-radius: var(--radius-sm); padding: 14px;
   display: flex; flex-direction: column; gap: 2px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255,255,255,0.11);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 8px rgba(0,0,0,0.14);
+  cursor: pointer;
+  transition: transform 0.14s ease-out, box-shadow 0.14s ease-out, border-color 0.14s;
+  user-select: none;
 }
-.flex-stat-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-3); }
-.flex-stat-val   { font-size: 20px; font-weight: 800; color: var(--text); }
+.flex-stat-box:active { transform: scale(0.96); }
+.flex-stat-box.stat-active {
+  border-color: rgba(255,255,255,0.30);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.24), 0 4px 18px rgba(0,0,0,0.22);
+}
+.flex-stat-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-3); }
+.flex-stat-val   { font-size: 22px; font-weight: 800; color: var(--text); }
 .flex-stat-n     { font-size: 11px; color: var(--text-3); }
 .flex-order-row {
   display: flex; justify-content: space-between; align-items: center;
@@ -832,21 +861,21 @@ input:-webkit-autofill:focus {
 /* ── CUSTOM DIALOG — liquid glass ────────────────────────────────────────── */
 .custom-dialog-bg {
   position: fixed; inset: 0; z-index: 600;
-  background: rgba(0,0,0,0.60);
-  backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%);
   display: flex; align-items: center; justify-content: center;
   padding: 24px;
-  animation: fadeIn 0.15s ease;
+  animation: fadeIn 0.1s ease;
 }
 .custom-dialog {
-  background: rgba(20,22,44,0.85);
-  backdrop-filter: blur(40px) saturate(200%) brightness(1.12);
-  -webkit-backdrop-filter: blur(40px) saturate(200%) brightness(1.12);
+  background: rgba(18,20,40,0.88);
+  backdrop-filter: blur(48px) saturate(220%) brightness(1.14);
+  -webkit-backdrop-filter: blur(48px) saturate(220%) brightness(1.14);
   border-radius: 24px;
   padding: 26px 22px 20px; width: 100%; max-width: 320px;
-  border: 1px solid rgba(255,255,255,0.18);
-  box-shadow: 0 28px 80px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.22);
-  animation: slideUp 0.26s var(--spring);
+  border: 1px solid rgba(255,255,255,0.20);
+  box-shadow: 0 32px 80px rgba(0,0,0,0.70), inset 0 1px 0 rgba(255,255,255,0.24);
+  animation: slideUp 0.18s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 @media (prefers-color-scheme: light) {
   .custom-dialog { background: rgba(248,248,252,0.90); border: 1px solid rgba(0,0,0,0.12); box-shadow: 0 16px 60px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,1); }

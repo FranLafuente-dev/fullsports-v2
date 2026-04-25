@@ -124,7 +124,9 @@
     <div id="enano-fields" style="display:none;flex-direction:column;gap:16px">
       <div class="form-group">
         <div class="form-label">Provincia</div>
-        <input class="form-input" id="f-provincia" type="text" placeholder="Provincia">
+        <div class="search-wrap">
+          <input class="form-input" id="f-provincia" type="text" placeholder="Ej: Buenos Aires..." autocomplete="off">
+        </div>
       </div>
       <div class="form-group">
         <div class="form-label">Monto IIBB</div>
@@ -198,6 +200,8 @@
 
 <!-- DROPDOWN LOCALIDAD -->
 <div class="search-results" id="localidad-results"></div>
+<!-- DROPDOWN PROVINCIA -->
+<div class="search-results prov-results" id="provincia-results"></div>
 
 <!-- SHEET: FECHA ESTIMADA -->
 <div class="sheet" id="sheet-delivery">

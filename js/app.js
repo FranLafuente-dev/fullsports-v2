@@ -199,6 +199,35 @@ function showConfirm(msg, opts = {}) {
   });
 }
 
+// ─── DIÁLOGO INPUT CUSTOM (reemplaza prompt nativo) ──────────────────────────
+function showInputDialog(label, defaultVal = 0) {
+  return new Promise(resolve => {
+    const bg = document.createElement('div');
+    bg.className = 'custom-dialog-bg';
+    bg.innerHTML = `<div class="custom-dialog">
+      <div class="custom-dialog-msg">${label}</div>
+      <div style="padding:12px 0 4px">
+        <input class="form-input" id="cd-num-input" type="number" value="${defaultVal}" min="0" max="999" inputmode="numeric"
+          style="text-align:center;font-size:28px;font-weight:700;padding:10px 4px">
+      </div>
+      <div class="custom-dialog-btns" style="margin-top:6px">
+        <button class="btn btn-primary cd-yes">Confirmar</button>
+        <button class="btn btn-ghost cd-no">Cancelar</button>
+      </div>
+    </div>`;
+    document.body.appendChild(bg);
+    const inp = bg.querySelector('#cd-num-input');
+    requestAnimationFrame(() => { inp.focus(); inp.select(); });
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { bg.remove(); resolve(inp.value); }
+      if (e.key === 'Escape') { bg.remove(); resolve(null); }
+    });
+    bg.querySelector('.cd-yes').onclick = () => { bg.remove(); resolve(inp.value); };
+    bg.querySelector('.cd-no').onclick  = () => { bg.remove(); resolve(null); };
+    bg.addEventListener('click', e => { if (e.target === bg) { bg.remove(); resolve(null); } });
+  });
+}
+
 // ─── FECHA HÁBIL FLEX (Mon-Thu = hoy, Vie/Sab/Dom = lunes) ───────────────────
 function diaHabilFlex() {
   const d = new Date();
@@ -340,8 +369,8 @@ function setupSwipe() {
   mc.addEventListener('touchend', e => {
     const dx = e.changedTouches[0].clientX - x0;
     const dy = e.changedTouches[0].clientY - y0;
-    // Umbral más alto (120px) y ángulo más estricto para swipe entre secciones
-    if (Math.abs(dx) < 120 || Math.abs(dy) > Math.abs(dx) * 0.4) return;
+    // 150px para secciones principales — gestos muy pronunciados
+    if (Math.abs(dx) < 150 || Math.abs(dy) > Math.abs(dx) * 0.35) return;
     const i = TABS.indexOf(curView);
     if (dx < 0 && i < TABS.length-1) navigateTo(TABS[i+1]);
     if (dx > 0 && i > 0) navigateTo(TABS[i-1]);
@@ -1231,12 +1260,12 @@ function renderFormItems() {
   }).join('');
 }
 
-window.editItemQty = kEnc => {
+window.editItemQty = async kEnc => {
   const k=decodeURIComponent(kEnc);
   const [producto,talleStr]=k.split('||');
   const talle=isNaN(parseInt(talleStr))?talleStr:parseInt(talleStr);
   const current=formItems.filter(i=>i.producto===producto&&String(i.talle)===talleStr).length;
-  const v=prompt(`Cantidad — ${producto} ${displayTalle(talle)}:`,current);
+  const v = await showInputDialog(`${producto} ${displayTalle(talle)}`, current);
   if (v===null) return;
   const n=parseInt(v);
   if (isNaN(n)||n<0) { toast('Número inválido'); return; }
@@ -1543,12 +1572,14 @@ function renderCorteFlexBody() {
       </div>
     </div>
     <div style="margin-top:8px;font-size:13px;color:var(--text-2)">Total: <b>$${fmt(stats.capi.total+stats.enano.total)}</b></div>
-    <div style="display:flex;gap:8px;margin-top:12px">
-      <button class="btn ${alreadyClosed?'btn-ghost':'btn-primary'}" style="flex:1" onclick="cerrarQuincena()">
-        ${alreadyClosed ? '↻ Recalcular' : '📥 Cerrar quincena'}
-      </button>
-      <button class="btn btn-ghost" onclick="downloadFlexPDF()" title="Descargar PDF">📄</button>
-      <button class="btn btn-ghost" style="flex:1" onclick="openAddFlexSheet()">➕ Agregar</button>
+    <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:8px">
+        <button class="btn ${alreadyClosed?'btn-ghost':'btn-primary'}" style="flex:1" onclick="cerrarQuincena()">
+          ${alreadyClosed ? '↻ Recalcular' : '📥 Cerrar quincena'}
+        </button>
+        <button class="btn btn-ghost" onclick="downloadFlexPDF()" title="Descargar PDF" style="padding:12px 16px">📄</button>
+      </div>
+      <button class="btn btn-ghost" style="width:100%" onclick="openAddFlexSheet()">➕ Agregar registro</button>
     </div>
     ${allOrders.length ? `<div style="margin-top:12px;border-top:1px solid var(--sep);padding-top:8px">
       ${allOrders.map(o=>{
@@ -1903,8 +1934,10 @@ function setupPedidosTabSwipe() {
   view.addEventListener('touchstart',e=>{x0=e.touches[0].clientX;y0=e.touches[0].clientY;},{passive:true});
   view.addEventListener('touchend',e=>{
     const dx=e.changedTouches[0].clientX-x0, dy=e.changedTouches[0].clientY-y0;
-    if (Math.abs(dx)<45||Math.abs(dy)>Math.abs(dx)*0.75) return;
-    e.stopPropagation(); // evita que también dispare el swipe de sección
+    const adx=Math.abs(dx);
+    if (adx<45||Math.abs(dy)>adx*0.75) return;
+    if (adx>=150) return; // gestos grandes pasan al swipe de sección
+    e.stopPropagation();
     const tabs=['preparar','despacho','entregados'], i=tabs.indexOf(pedidosTab);
     if (dx<0&&i<tabs.length-1) setTab(tabs[i+1]);
     if (dx>0&&i>0)              setTab(tabs[i-1]);
@@ -1919,7 +1952,9 @@ function setupCorteTabSwipe() {
   view.addEventListener('touchstart',e=>{x0=e.touches[0].clientX;y0=e.touches[0].clientY;},{passive:true});
   view.addEventListener('touchend',e=>{
     const dx=e.changedTouches[0].clientX-x0, dy=e.changedTouches[0].clientY-y0;
-    if (Math.abs(dx)<45||Math.abs(dy)>Math.abs(dx)*0.75) return;
+    const adx=Math.abs(dx);
+    if (adx<45||Math.abs(dy)>adx*0.75) return;
+    if (adx>=150) return; // gestos grandes pasan al swipe de sección
     e.stopPropagation();
     const i=tabs.indexOf(corteCuenta);
     const dir = dx < 0 ? 'slide-in-right' : 'slide-in-left';
@@ -1974,9 +2009,9 @@ window.adjSt=(k,d)=>{
   const el=document.getElementById(`sv-${k}`);
   if(el){el.textContent=stock[k];upRowCls(el,stock[k]);}
 };
-window.editSt=k=>{
+window.editSt=async k=>{
   const el=document.getElementById(`sv-${k}`); if(!el)return;
-  const v=prompt(`Cantidad para ${k.replace('_',' ')}:`,stock[k]??0);
+  const v = await showInputDialog(k.replace('_',' '), stock[k]??0);
   if(v===null)return; const n=parseInt(v);
   if(isNaN(n)||n<0){toast('Número inválido');return;}
   stock[k]=n; el.textContent=n; upRowCls(el,n);

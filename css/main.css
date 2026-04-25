@@ -670,15 +670,15 @@ input:-webkit-autofill:focus {
 
 /* Dropdown provincias — tema oscuro glass */
 .prov-results {
-  background: rgba(18,20,40,0.92) !important;
+  background: rgba(18,20,40,0.95) !important;
   backdrop-filter: blur(32px) saturate(200%) !important;
   -webkit-backdrop-filter: blur(32px) saturate(200%) !important;
-  border: 1px solid rgba(255,255,255,0.14) !important;
-  box-shadow: 0 16px 48px rgba(0,0,0,0.55) !important;
+  border: 1px solid rgba(255,255,255,0.16) !important;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.60) !important;
 }
-.prov-results .search-result-item { color: var(--text-1) !important; border-bottom-color: rgba(255,255,255,0.06) !important; }
-.prov-results .search-result-item:active { background: rgba(108,99,255,0.15) !important; }
-.prov-results .sri-name { color: var(--text-1) !important; }
+.prov-results .search-result-item { color: #f0f2ff !important; border-bottom-color: rgba(255,255,255,0.07) !important; }
+.prov-results .search-result-item:active { background: rgba(108,99,255,0.18) !important; }
+.prov-results .sri-name { color: #f0f2ff !important; font-weight: 500; }
 
 .flex-selected {
   background: var(--green-light); border: 1px solid rgba(52,199,89,0.3);

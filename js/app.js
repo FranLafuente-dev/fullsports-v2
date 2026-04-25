@@ -1196,10 +1196,10 @@ function setupProvinciaSearch() {
     res.style.width = `${r.width}px`;
   }
   function buildResults() {
-    const q = inp.value.toLowerCase().trim();
+    const q = normalizeStr(inp.value.trim());
     if (!q) { res.classList.remove('show'); return; }
     const hits = PROVINCIAS.filter(p =>
-      p.toLowerCase().startsWith(q) || p.toLowerCase().includes(q)
+      normalizeStr(p).startsWith(q) || normalizeStr(p).includes(q)
     ).slice(0, 8);
     if (!hits.length) { res.classList.remove('show'); return; }
     res.innerHTML = hits.map(p => `<div class="search-result-item prov-item"><span class="sri-name">${p}</span></div>`).join('');
@@ -1231,9 +1231,9 @@ function setupLocalidadSearch() {
     res.style.top=`${r.bottom+4}px`; res.style.left=`${r.left}px`; res.style.width=`${r.width}px`;
   }
   function buildResults() {
-    const q=inp.value.toLowerCase().trim();
+    const q=normalizeStr(inp.value.trim());
     if (!q) { res.classList.remove('show'); zoneHits=[]; return; }
-    zoneHits=zones.filter(z=>z.localidad.toLowerCase().includes(q)).slice(0,8);
+    zoneHits=zones.filter(z=>normalizeStr(z.localidad).includes(q)).slice(0,8);
     if (!zoneHits.length) { res.classList.remove('show'); return; }
     res.innerHTML=zoneHits.map((z,i)=>`
       <div class="search-result-item" data-zi="${i}">
@@ -1619,7 +1619,7 @@ function calcFlexPeriod(fromMs, toMs) {
     acc.total += rec.flexImporte;
     acc.count++;
     acc.orders.push({ id:rec.id, nombre:rec.nombre, cuenta:rec.cuenta,
-      localidad:rec.localidad||'', flexImporte:rec.flexImporte, despachadoAt:rec.fechaMs,
+      localidad:rec.localidad||'', zona:rec.zona||'', flexImporte:rec.flexImporte, despachadoAt:rec.fechaMs,
       isManual:true, recordId:rec.id });
   });
 
@@ -1633,7 +1633,7 @@ function calcFlexPeriod(fromMs, toMs) {
     acc.total += o.flexImporte;
     acc.count++;
     acc.orders.push({ id:o.id, nombre:o.nombreComprador, cuenta:o.cuenta,
-      localidad:o.flexLocalidad||'', flexImporte:o.flexImporte, despachadoAt:dAt,
+      localidad:o.flexLocalidad||'', zona:o.flexZona||'', flexImporte:o.flexImporte, despachadoAt:dAt,
       isManual:false, orderId:o.id });
   });
 
@@ -1789,8 +1789,8 @@ window.cerrarQuincena = async () => {
     month:     period.month,
     half:      period.half,
     closedAt:  new Date().toLocaleDateString('es-AR'),
-    capi:  { total:stats.capi.total,  count:stats.capi.count,  orders:stats.capi.orders.map(({nombre,localidad,flexImporte,cuenta,despachadoAt})=>({nombre,localidad,flexImporte,cuenta,despachadoAt})) },
-    enano: { total:stats.enano.total, count:stats.enano.count, orders:stats.enano.orders.map(({nombre,localidad,flexImporte,cuenta,despachadoAt})=>({nombre,localidad,flexImporte,cuenta,despachadoAt})) },
+    capi:  { total:stats.capi.total,  count:stats.capi.count,  orders:stats.capi.orders.map(({nombre,localidad,zona,flexImporte,cuenta,despachadoAt})=>({nombre,localidad,zona:zona||'',flexImporte,cuenta,despachadoAt})) },
+    enano: { total:stats.enano.total, count:stats.enano.count, orders:stats.enano.orders.map(({nombre,localidad,zona,flexImporte,cuenta,despachadoAt})=>({nombre,localidad,zona:zona||'',flexImporte,cuenta,despachadoAt})) },
   };
   flexPeriods = flexPeriods.filter(p => p.id !== period.id);
   flexPeriods.push(record);
@@ -1809,14 +1809,15 @@ function buildFlexPdfHtml(label, orders, capiTotal, capiCount, enanoTotal, enano
     return list.map(o => {
       const d = new Date(o.despachadoAt);
       const f = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
-      return `<tr><td>${f}</td><td>${o.nombre}</td><td>${o.localidad}</td><td style="text-align:right;font-weight:600">$${fmt(o.flexImporte)}</td></tr>`;
+      const zonaLabel = o.zona ? `<span style="background:#e8eaf0;color:#555;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:bold">${o.zona}</span>` : '';
+      return `<tr><td>${f}</td><td>${o.nombre}</td><td>${o.localidad}${o.zona?` ${zonaLabel}`:''}</td><td style="text-align:right;font-weight:600">$${fmt(o.flexImporte)}</td></tr>`;
     }).join('');
   }
   function mkSection(titulo, list, total, count, color) {
     if (!list.length) return '';
     return `<div style="background:${color};color:#fff;padding:8px 12px;border-radius:6px;margin:20px 0 6px;font-size:13px;font-weight:bold">
       ${titulo} — ${count} envío${count!==1?'s':''}</div>
-    <table><tr><th>Fecha</th><th>Cliente</th><th>Localidad</th><th>Costo FLEX</th></tr>
+    <table><tr><th>Fecha</th><th>Cliente</th><th>Localidad / Zona</th><th>Costo FLEX</th></tr>
     ${mkRows(list)}
     <tr style="background:#f0f4f8"><td colspan="3" style="text-align:right;font-weight:bold;padding-right:12px">Subtotal ${titulo}</td><td style="text-align:right;font-weight:800;font-size:14px">$${fmt(total)}</td></tr>
     </table>`;
@@ -1960,9 +1961,9 @@ function setupAddFlexSheet() {
   if (inp) {
     let hits=[];
     inp.addEventListener('input',()=>{
-      const q=inp.value.toLowerCase().trim();
+      const q=normalizeStr(inp.value.trim());
       if (!q) { sel.classList.remove('show'); return; }
-      hits=zones.filter(z=>z.localidad.toLowerCase().includes(q)).slice(0,6);
+      hits=zones.filter(z=>normalizeStr(z.localidad).includes(q)).slice(0,6);
       if (!hits.length) { sel.classList.remove('show'); return; }
       sel.innerHTML=hits.map((z,i)=>`<div class="search-result-item" data-zi="${i}"><div class="sri-name">${z.localidad}</div><div class="sri-precio">$${fmt(z.importe)}</div></div>`).join('');
       sel.classList.add('show');
@@ -2031,9 +2032,9 @@ function setupEditFlexSheet() {
   if (inp) {
     let hits=[];
     inp.addEventListener('input',()=>{
-      const q=inp.value.toLowerCase().trim();
+      const q=normalizeStr(inp.value.trim());
       if (!q) return;
-      hits=zones.filter(z=>z.localidad.toLowerCase().includes(q)).slice(0,6);
+      hits=zones.filter(z=>normalizeStr(z.localidad).includes(q)).slice(0,6);
       if (!hits.length) return;
       sel.innerHTML=hits.map((z,i)=>`<div class="search-result-item" data-zi="${i}"><div class="sri-name">${z.localidad}</div><div class="sri-precio">$${fmt(z.importe)}</div></div>`).join('');
       sel.classList.add('show');
@@ -2324,3 +2325,4 @@ function fmt(n){ return Math.round(n||0).toLocaleString('es-AR'); }
 function fmtDec(n){ return (n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function parseNum(s){ return parseFloat(String(s).replace(/\./g,'').replace(',','.'))||0; }
 function titleCase(s){ return s.replace(/\b\w/g, c => c.toUpperCase()); }
+function normalizeStr(s){ return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }

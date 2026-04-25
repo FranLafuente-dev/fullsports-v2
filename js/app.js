@@ -627,7 +627,7 @@ function renderPedidos(animDir='') {
     <div id="dep-box" style="display:none" class="dep-box"></div>`;
     body = bar + (sorted.length
       ? `<div class="ped-body">${sorted.map(orderCard).join('')}</div>`
-      : '');
+      : `<div class="empty-state empty-preparar"><div class="empty-check-circle">✓</div><p>¡Estás al día!</p></div>`);
 
   } else if (pedidosTab === 'despacho') {
     const nFlexPend=pendiente.filter(o=>o.tipoEnvio==='FLEX').length;
@@ -2004,17 +2004,23 @@ window.toggleZeroStock=pEnc=>{
   div.style.display=show?'block':'none';
   if(btn) btn.textContent=show?'▲ Ocultar agotados':`▼ Sin stock (${div.querySelectorAll('.stock-row').length})`;
 };
+function animNumPop(el) {
+  if (!el) return;
+  el.classList.remove('num-pop');
+  void el.offsetWidth; // reflow para reiniciar animación
+  el.classList.add('num-pop');
+}
 window.adjSt=(k,d)=>{
   stock[k]=Math.max(0,(stock[k]??0)+d);
   const el=document.getElementById(`sv-${k}`);
-  if(el){el.textContent=stock[k];upRowCls(el,stock[k]);}
+  if(el){el.textContent=stock[k];upRowCls(el,stock[k]);animNumPop(el);}
 };
 window.editSt=async k=>{
   const el=document.getElementById(`sv-${k}`); if(!el)return;
   const v = await showInputDialog(k.replace('_',' '), stock[k]??0);
   if(v===null)return; const n=parseInt(v);
   if(isNaN(n)||n<0){toast('Número inválido');return;}
-  stock[k]=n; el.textContent=n; upRowCls(el,n);
+  stock[k]=n; el.textContent=n; upRowCls(el,n); animNumPop(el);
 };
 function upRowCls(el,v){const r=el.closest('.stock-row');if(r)r.className=`stock-row ${v===0?'cero':v<=2?'bajo':'ok'}`;}
 window.doSaveStock=async()=>{

@@ -94,11 +94,11 @@ body {
 #main-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; position: relative; }
 .view {
   display: none; flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
-  padding: 12px 14px calc(var(--nav-h) + 110px);
+  padding: 12px 14px 90px;
   scrollbar-width: none; overscroll-behavior: contain;
 }
 .view.active { display: flex; flex-direction: column; gap: 10px; }
-#view-stock { padding-bottom: calc(var(--nav-h) + 200px); }
+#view-stock { padding-bottom: 160px; }
 .view::-webkit-scrollbar { display: none; }
 
 /* ── LOGIN SCREEN ────────────────────────────────────────────────────────── */
@@ -938,11 +938,11 @@ input:-webkit-autofill:focus {
 
 /* ── SLIDE TRANSITIONS ───────────────────────────────────────────────────── */
 @keyframes slideFromRight {
-  from { opacity: 0; transform: translateX(44px) scale(0.98); }
+  from { opacity: 0; transform: translateX(22px); }
   to   { opacity: 1; transform: none; }
 }
 @keyframes slideFromLeft {
-  from { opacity: 0; transform: translateX(-44px) scale(0.98); }
+  from { opacity: 0; transform: translateX(-22px); }
   to   { opacity: 1; transform: none; }
 }
 @keyframes fadeIn {
@@ -950,38 +950,38 @@ input:-webkit-autofill:focus {
   to   { opacity: 1; }
 }
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(18px) scale(0.97); }
-  to   { opacity: 1; transform: none; }
-}
-@keyframes slideInFromRight {
-  from { opacity: 0; transform: translateX(30px); }
-  to   { opacity: 1; transform: none; }
-}
-@keyframes slideInFromLeft {
-  from { opacity: 0; transform: translateX(-30px); }
-  to   { opacity: 1; transform: none; }
-}
-.view.slide-right { animation: slideFromRight 0.25s var(--ease-out) both; }
-.view.slide-left  { animation: slideFromLeft  0.25s var(--ease-out) both; }
-
-/* ── PEDIDOS / CORTE TAB CONTENT TRANSITIONS ─────────────────────────────── */
-.ped-main-content { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
-.ped-main-content.slide-in-right { animation: slideInFromRight 0.18s var(--ease-out); }
-.ped-main-content.slide-in-left  { animation: slideInFromLeft  0.18s var(--ease-out); }
-
-/* ── ANIMACIONES DINÁMICAS ───────────────────────────────────────────────── */
-@keyframes popIn {
-  0%   { opacity: 0; transform: scale(0.52); }
-  68%  { opacity: 1; transform: scale(1.07); }
-  100% { opacity: 1; transform: scale(1); }
-}
-@keyframes cardIn {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: none; }
 }
+@keyframes slideInFromRight {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes slideInFromLeft {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: none; }
+}
+.view.slide-right { animation: slideFromRight 0.22s ease-out both; }
+.view.slide-left  { animation: slideFromLeft  0.22s ease-out both; }
+
+/* ── PEDIDOS / CORTE TAB CONTENT TRANSITIONS ─────────────────────────────── */
+.ped-main-content { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
+.ped-main-content.slide-in-right { animation: slideInFromRight 0.15s ease-out; }
+.ped-main-content.slide-in-left  { animation: slideInFromLeft  0.15s ease-out; }
+
+/* ── ANIMACIONES DINÁMICAS ───────────────────────────────────────────────── */
+@keyframes popIn {
+  0%   { opacity: 0; transform: scale(0.6); }
+  70%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes cardIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 @keyframes numPop {
-  0%   { transform: scale(0.82); opacity: 0.5; }
-  58%  { transform: scale(1.08); opacity: 1; }
+  0%   { opacity: 0.5; transform: scale(0.88); }
+  60%  { opacity: 1; transform: scale(1.05); }
   100% { transform: scale(1); }
 }
 @keyframes glowPulse {
@@ -989,33 +989,30 @@ input:-webkit-autofill:focus {
   50%     { box-shadow: 0 10px 48px rgba(52,199,89,0.68); }
 }
 
-/* Stagger de entrada — pedidos (4 items máx, delays cortos) */
-.ped-body .order-card { animation: cardIn 0.20s ease-out both; }
-.ped-body .order-card:nth-child(2) { animation-delay: 22ms; }
-.ped-body .order-card:nth-child(3) { animation-delay: 44ms; }
-.ped-body .order-card:nth-child(4) { animation-delay: 66ms; }
+/* Cards — fade simple, sin movimiento */
+.ped-body .order-card { animation: cardIn 0.16s ease-out both; }
 
-/* Filas FLEX — solo fade, sin translate para evitar saltos en historial */
-.flex-order-row { animation: fadeIn 0.18s ease both; }
-.flex-period-body .flex-order-row { animation: none; } /* historial: sin re-animación */
+/* Filas FLEX — fade rápido */
+.flex-order-row { animation: fadeIn 0.14s ease-out both; }
+.flex-period-body .flex-order-row { animation: none; }
 
 /* Animación de número al cambiar */
-.num-pop { animation: numPop 0.32s var(--spring) both; }
+.num-pop { animation: numPop 0.28s ease-out both; }
 
-/* Input focus — levantamiento sutil */
+/* Input focus */
 .form-input:focus {
   transform: translateY(-1px);
   box-shadow: 0 0 0 3px rgba(108,99,255,0.18), 0 4px 14px rgba(108,99,255,0.10);
   border-color: var(--accent);
 }
 
-/* Stepper más pop */
-.stepper-btn:active { background: var(--accent-light); transform: scale(0.80); }
+/* Stepper */
+.stepper-btn:active { background: var(--accent-light); transform: scale(0.82); }
 
-/* Corte-tab activo con pop */
-.corte-tab { transition: all 0.18s var(--spring); }
+/* Corte-tab */
+.corte-tab { transition: all 0.16s ease-out; }
 
-/* Respetar preferencia de movimiento reducido */
+/* Reducir movimiento */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0ms !important; transition-duration: 0.01ms !important; }
 }

@@ -793,19 +793,19 @@ function orderCard(o) {
   let act='';
   if (o.status==='preparar') {
     act=`<div class="card-act">
-      <button class="btn btn-green btn-sm" onclick="acPreparado('${o.id}')">✓ Preparado</button>
+      <button class="btn btn-green btn-sm" onclick="acPreparado('${o.id}',this)">✓ Preparado</button>
       <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️ Editar</button>
       <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
     </div>`;
   } else if (o.status==='pendiente') {
     act=`<div class="card-act">
-      <button class="btn btn-primary btn-sm" onclick="acDespachado('${o.id}')">🚚 Despachar</button>
+      <button class="btn btn-primary btn-sm" onclick="acDespachado('${o.id}',this)">🚚 Despachar</button>
       <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️</button>
       <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
     </div>`;
   } else if (o.status==='camino') {
     act=`<div class="card-act">
-      <button class="btn btn-green btn-sm" onclick="acEntregado('${o.id}')">✓ Entregado</button>
+      <button class="btn btn-green btn-sm" onclick="acEntregado('${o.id}',this)">✓ Entregado</button>
       <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️</button>
       <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
     </div>`;
@@ -816,7 +816,7 @@ function orderCard(o) {
     </div>`;
   }
 
-  return `<div class="order-card${['preparar','pendiente'].includes(o.status)&&o.tipoEnvio==='FLEX'?' flex-active':''}">
+  return `<div class="order-card${['preparar','pendiente'].includes(o.status)&&o.tipoEnvio==='FLEX'?' flex-active':''}" data-oid="${o.id}">
     <div class="order-header">${cb}${eb}${sc}${cd}</div>
     <div class="order-name">${o.nombreComprador}</div>
     <div class="order-items">${fmtItemsShort(o.items)}</div>
@@ -847,33 +847,43 @@ function displayTalle(t) {
 }
 
 // ─── ACCIONES ─────────────────────────────────────────────────────────────────
-window.acPreparado = async id => {
+window.acPreparado = async (id, btn) => {
   const o=orders.find(o=>o.id===id); if (!o) return;
-  pushUndo({type:'patch', id, prev:{status:o.status}, next:{status:'pendiente'}});
-  mutateOrder(id,{status:'pendiente'});
-  renderPedidos(); renderCorte();
-  try {
-    await db.collection('orders').doc(id).update({status:'pendiente'});
-    if (o.items) {
-      const ns={...stock};
-      o.items.forEach(i=>{const k=`${i.producto}_${i.talle}`;ns[k]=Math.max(0,(ns[k]||0)-1);});
-      stock=ns; saveStock();
-      await db.collection('meta').doc('stock').set(ns);
-    }
-  } catch(e){toast('Sin red — se sincronizará');}
+  haptic([28]);
+  animCard(id, 'card-state-ok', btn, async () => {
+    pushUndo({type:'patch', id, prev:{status:o.status}, next:{status:'pendiente'}});
+    mutateOrder(id,{status:'pendiente'});
+    renderPedidos(); renderCorte();
+    try {
+      await db.collection('orders').doc(id).update({status:'pendiente'});
+      if (o.items) {
+        const ns={...stock};
+        o.items.forEach(i=>{const k=`${i.producto}_${i.talle}`;ns[k]=Math.max(0,(ns[k]||0)-1);});
+        stock=ns; saveStock();
+        await db.collection('meta').doc('stock').set(ns);
+      }
+    } catch(e){toast('Sin red — se sincronizará');}
+  });
 };
 
-window.acDespachado = async id => {
+window.acDespachado = async (id, btn) => {
   const o=orders.find(o=>o.id===id); if (!o) return;
-  if (o.cuenta==='capi') { openDelivery(id,'dispatch'); return; }
+  if (o.cuenta==='capi') {
+    haptic([18, 55, 25]);
+    if (btn) btn.classList.add('btn-pop');
+    openDelivery(id,'dispatch'); return;
+  }
+  haptic([18, 55, 25]);
   const fecha = o.tipoEnvio==='FLEX' ? diaHabilFlex() : proximoDia();
   const now = Date.now();
-  pushUndo({type:'patch', id, prev:{status:o.status,fechaEstimada:o.fechaEstimada||null,despachadoAt:o.despachadoAt||null}, next:{status:'camino',fechaEstimada:fecha,despachadoAt:now}});
-  mutateOrder(id,{status:'camino',fechaEstimada:fecha,despachadoAt:now});
-  if (o.tipoEnvio==='FLEX' && o.flexImporte) _addFlexRecord(o, now);
-  renderPedidos();
-  try { await db.collection('orders').doc(id).update({status:'camino',despachadoAt:TS(),fechaEstimada:fecha}); }
-  catch(e){toast('Sin red');}
+  animCard(id, 'card-state-dispatch', btn, async () => {
+    pushUndo({type:'patch', id, prev:{status:o.status,fechaEstimada:o.fechaEstimada||null,despachadoAt:o.despachadoAt||null}, next:{status:'camino',fechaEstimada:fecha,despachadoAt:now}});
+    mutateOrder(id,{status:'camino',fechaEstimada:fecha,despachadoAt:now});
+    if (o.tipoEnvio==='FLEX' && o.flexImporte) _addFlexRecord(o, now);
+    renderPedidos();
+    try { await db.collection('orders').doc(id).update({status:'camino',despachadoAt:TS(),fechaEstimada:fecha}); }
+    catch(e){toast('Sin red');}
+  });
 };
 
 window.despacharTodos = async tipo => {
@@ -903,14 +913,17 @@ window.despacharTodos = async tipo => {
   } catch(e){toast('Sin red');}
 };
 
-window.acEntregado = async id => {
+window.acEntregado = async (id, btn) => {
   const o=orders.find(o=>o.id===id);
+  haptic([15, 35, 70]);
   const f=new Date().toLocaleDateString('es-AR');
-  pushUndo({type:'patch', id, prev:{status:o?.status||'camino',fechaEntrega:o?.fechaEntrega||null,deliveredAt:o?.deliveredAt||null}, next:{status:'entregado',fechaEntrega:f,deliveredAt:Date.now()}});
-  mutateOrder(id,{status:'entregado',fechaEntrega:f,deliveredAt:Date.now()});
-  renderPedidos(); renderCorte();
-  try { await db.collection('orders').doc(id).update({status:'entregado',deliveredAt:TS(),fechaEntrega:f}); }
-  catch(e){toast('Sin red');}
+  animCard(id, 'card-state-entregado', btn, async () => {
+    pushUndo({type:'patch', id, prev:{status:o?.status||'camino',fechaEntrega:o?.fechaEntrega||null,deliveredAt:o?.deliveredAt||null}, next:{status:'entregado',fechaEntrega:f,deliveredAt:Date.now()}});
+    mutateOrder(id,{status:'entregado',fechaEntrega:f,deliveredAt:Date.now()});
+    renderPedidos(); renderCorte();
+    try { await db.collection('orders').doc(id).update({status:'entregado',deliveredAt:TS(),fechaEntrega:f}); }
+    catch(e){toast('Sin red');}
+  });
 };
 
 window.acEliminar = async id => {
@@ -2336,3 +2349,18 @@ function fmtDec(n){ return (n||0).toLocaleString('es-AR',{minimumFractionDigits:
 function parseNum(s){ return parseFloat(String(s).replace(/\./g,'').replace(',','.'))||0; }
 function titleCase(s){ return s.replace(/\b\w/g, c => c.toUpperCase()); }
 function normalizeStr(s){ return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
+
+function haptic(pattern) {
+  try { if (navigator.vibrate) navigator.vibrate(pattern); } catch(e) {}
+}
+
+function animCard(id, cls, btn, cb) {
+  if (btn) { btn.classList.add('btn-pop'); }
+  const card = document.querySelector(`.order-card[data-oid="${id}"]`);
+  if (card) {
+    card.classList.add(cls);
+    setTimeout(cb, 270);
+  } else {
+    cb();
+  }
+}

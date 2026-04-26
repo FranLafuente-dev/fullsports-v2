@@ -46,7 +46,6 @@ let curProducto = null, formItems = [], formEnvio = null;
 let deliveryId = null, deliveryAction = 'edit';
 let fsConectado = false, stockInitialized = false;
 let editZoneIdx = null, editZonePriceLabel = null;
-let multiProd = null;
 let stockAll = false;
 let expandZonas = new Set(), expandParts = new Set();
 let alertTimers = [], zoneHits = [];
@@ -1129,20 +1128,12 @@ function openNuevaSheet(data=null) {
   }
 
   // Selector de productos
+  curProducto = null;
   renderProdBtns();
   V('talle-wrap').style.display = 'none';
 
-  // Multi panel
-  V('multi-wrap').style.display = 'none';
-  V('multi-talle-wrap').style.display = 'none';
-
-  // Items lista
+  // Items / chips
   renderFormItems();
-
-  // Mostrar botones de agregar si ya hay items (edición)
-  const hasItems = formItems.length > 0;
-  V('btn-add-otro').style.display = hasItems ? 'flex' : 'none';
-  V('btn-multi').style.display    = hasItems ? 'flex' : 'none';
 
   openSheet($shNueva);
   // Scroll al inicio de forma suave
@@ -1183,25 +1174,6 @@ function setupFormListeners() {
     curProducto=null;
     renderProdBtns();
     V('talle-wrap').style.display='none';
-  });
-
-  V('btn-add-otro').addEventListener('click',()=>{
-    curProducto=null;
-    renderProdBtns();
-    V('talle-wrap').style.display='none';
-    V('btn-add-otro').style.display='none';
-    V('btn-multi').style.display='none';
-    V('multi-wrap').style.display='none';
-    requestAnimationFrame(()=>V('item-selector-wrap')?.scrollIntoView({behavior:'smooth',block:'start'}));
-  });
-
-  V('btn-multi').addEventListener('click',()=>{
-    multiProd=null;
-    renderMultiProd();
-    V('multi-talle-wrap').style.display='none';
-    V('multi-cant-wrap').style.display='none';
-    V('multi-wrap').style.display='block';
-    requestAnimationFrame(()=>V('multi-wrap')?.scrollIntoView({behavior:'smooth',block:'start'}));
   });
 
   V('btn-guardar-venta').addEventListener('click', guardarVenta);
@@ -1321,50 +1293,48 @@ function renderProdBtns() {
     : `<p class="hint-text">Sin stock — activá ✏️ Manual</p>`;
 }
 
-window.selProd = p => {
-  curProducto=p;
-  document.querySelectorAll('#producto-btns .producto-btn').forEach(b=>b.classList.toggle('active',b.textContent.trim()===p));
-  const talles=getProductTalles(p);
-  V('talle-btns').innerHTML=talles.map(t=>{
-    const js=typeof t==='string'?`'${t}'`:t;
-    const unico=PRODUCTOS_FIJO[p]&&talles.length===1;
-    return `<button class="talle-btn${unico?' talle-unico':''}" onclick="selTalle(${js})">${displayTalle(t)}</button>`;
+window.selProd = (p, skipAuto = false) => {
+  curProducto = p;
+  document.querySelectorAll('#producto-btns .producto-btn').forEach(b => b.classList.toggle('active', b.textContent.trim() === p));
+  const talles = getProductTalles(p);
+  V('talle-btns').innerHTML = talles.map(t => {
+    const js = typeof t === 'string' ? `'${t}'` : t;
+    const qty = formItems.filter(i => i.producto === p && String(i.talle) === String(t)).length;
+    const badge = qty > 0 ? `<span class="tq">${qty}</span>` : '';
+    const unico = PRODUCTOS_FIJO[p] && talles.length === 1;
+    const inCart = qty > 0 ? ' in-cart' : '';
+    return `<button class="talle-btn${unico ? ' talle-unico' : ''}${inCart}" onclick="selTalle(${js})">${displayTalle(t)}${badge}</button>`;
   }).join('');
-  V('talle-wrap').style.display='flex';
-  if (talles.length===1) selTalle(talles[0]);
+  V('talle-wrap').style.display = 'flex';
+  if (!skipAuto && talles.length === 1) selTalle(talles[0]);
 };
 
 window.selTalle = t => {
   if (!curProducto) return;
-  formItems.push({producto:curProducto,talle:t});
+  formItems.push({producto: curProducto, talle: t});
+  haptic([18]);
   renderFormItems();
-  curProducto=null;
-  V('talle-wrap').style.display='none';
-  document.querySelectorAll('#producto-btns .producto-btn').forEach(b=>b.classList.remove('active'));
-  V('btn-add-otro').style.display='flex';
-  V('btn-multi').style.display='flex';
-  toast('Par agregado ✓');
+  selProd(curProducto, true);
 };
 
 // ─── ITEMS LISTA ──────────────────────────────────────────────────────────────
 function renderFormItems() {
-  const list=V('items-list'); if (!list) return;
-  if (!formItems.length) { list.innerHTML=''; return; }
-  const g={};
-  formItems.forEach(item=>{
-    const k=`${item.producto}||${item.talle}`;
-    if(!g[k]) g[k]={...item,count:0};
+  const c = V('cart-chips'); if (!c) return;
+  if (!formItems.length) { c.innerHTML = ''; return; }
+  const g = {};
+  formItems.forEach(item => {
+    const k = `${item.producto}||${item.talle}`;
+    if (!g[k]) g[k] = {...item, count: 0};
     g[k].count++;
   });
-  list.innerHTML=Object.entries(g).map(([k,{producto,talle,count}])=>{
-    const kEnc=encodeURIComponent(k);
-    return `<div class="item-row">
-      <span class="item-row-text">${producto} ${displayTalle(talle)}</span>
-      <div class="item-row-right">
-        ${count>1?`<span class="item-qty-badge">×${count}</span>`:''}
-        <button class="btn-pencil item-pencil" onclick="editItemQty('${kEnc}')">✏️</button>
-        <button class="item-remove" onclick="removeGroup('${kEnc}')">×</button>
-      </div>
+  c.innerHTML = Object.entries(g).map(([k, {producto, talle, count}]) => {
+    const kEnc = encodeURIComponent(k);
+    return `<div class="cart-chip">
+      <span class="chip-label">${producto} ${displayTalle(talle)}</span>
+      <button class="chip-btn" onclick="changeQty('${kEnc}',-1)">−</button>
+      <span class="chip-qty">${count}</span>
+      <button class="chip-btn" onclick="changeQty('${kEnc}',1)">+</button>
+      <button class="chip-rm" onclick="removeGroup('${kEnc}')">×</button>
     </div>`;
   }).join('');
 }
@@ -1383,44 +1353,28 @@ window.editItemQty = async kEnc => {
   renderFormItems();
 };
 
-window.removeGroup = kEnc => {
-  const k=decodeURIComponent(kEnc);
-  const [producto,talleStr]=k.split('||');
-  formItems=formItems.filter(i=>!(i.producto===producto&&String(i.talle)===talleStr));
+window.changeQty = (kEnc, delta) => {
+  const k = decodeURIComponent(kEnc);
+  const [producto, talleStr] = k.split('||');
+  const talle = isNaN(parseInt(talleStr)) ? talleStr : parseInt(talleStr);
+  const current = formItems.filter(i => i.producto===producto && String(i.talle)===talleStr).length;
+  const newQty = Math.max(0, current + delta);
+  formItems = formItems.filter(i => !(i.producto===producto && String(i.talle)===talleStr));
+  for (let i = 0; i < newQty; i++) formItems.push({producto, talle});
+  haptic([12]);
   renderFormItems();
-  if(!formItems.length) { V('btn-add-otro').style.display='none'; V('btn-multi').style.display='none'; }
+  if (curProducto === producto) selProd(producto, true);
 };
 
-// ─── MULTI PANEL ─────────────────────────────────────────────────────────────
-function renderMultiProd() {
-  const sorted = getSortedProductos();
-  const disp = sorted.filter(p => stockAll || getProductTalles(p).length > 0);
-  V('multi-producto-btns').innerHTML = disp.map(p =>
-    `<button class="producto-btn" onclick="mSelProd('${p.replace(/'/g,"\\'")}')">${p}</button>`
-  ).join('');
-}
-window.mSelProd = p => {
-  multiProd=p;
-  document.querySelectorAll('#multi-producto-btns .producto-btn').forEach(b=>b.classList.toggle('active',b.textContent.trim()===p));
-  const talles=getProductTalles(p);
-  V('multi-talle-btns').innerHTML=talles.map(t=>{
-    const js=typeof t==='string'?`'${t}'`:t;
-    return `<button class="talle-btn" onclick="mSelTalle(${js})">${displayTalle(t)}</button>`;
-  }).join('');
-  V('multi-talle-wrap').style.display='flex';
-  if (talles.length===1) mSelTalle(talles[0]);
-};
-window.mSelTalle = t => {
-  if (!multiProd) return;
-  formItems.push({producto:multiProd,talle:t});
+window.removeGroup = kEnc => {
+  const k = decodeURIComponent(kEnc);
+  const [producto, talleStr] = k.split('||');
+  formItems = formItems.filter(i => !(i.producto===producto && String(i.talle)===talleStr));
+  haptic([15]);
   renderFormItems();
-  multiProd=null;
-  V('multi-wrap').style.display='none';
-  V('multi-talle-wrap').style.display='none';
-  V('btn-add-otro').style.display='flex';
-  V('btn-multi').style.display='flex';
-  toast('Ítem agregado ✓');
+  if (curProducto === producto) selProd(producto, true);
 };
+
 
 // ─── GUARDAR VENTA ────────────────────────────────────────────────────────────
 async function guardarVenta() {

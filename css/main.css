@@ -565,53 +565,6 @@ body {
   text-transform: uppercase; letter-spacing: 0.5px;
 }
 
-/* ── MELI SUGGESTIONS ────────────────────────────────────────────────────── */
-.meli-sugg-chip {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px;
-  background: rgba(255,230,0,0.10);
-  border: 1px solid rgba(230,168,23,0.22);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  margin-bottom: 8px;
-  transition: background 0.15s;
-}
-.meli-sugg-chip:active { background: rgba(255,230,0,0.22); }
-.meli-sugg-body  { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.meli-sugg-name  { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.meli-sugg-meta  { font-size: 12px; color: var(--text-3); }
-
-#meli-linked-tag {
-  align-items: center; justify-content: space-between;
-  padding: 8px 12px;
-  background: rgba(255,230,0,0.10);
-  border: 1px solid rgba(230,168,23,0.22);
-  border-radius: var(--radius-sm);
-}
-.meli-linked-info  { font-size: 13px; color: var(--text-2); }
-.meli-unlink-btn   {
-  background: none; border: none; font-size: 18px; color: var(--gray);
-  cursor: pointer; padding: 0 4px; line-height: 1; font-family: inherit;
-}
-.form-input.meli-readonly {
-  background: var(--bg); color: var(--text-2);
-  border-color: rgba(230,168,23,0.30);
-}
-
-/* ── COMPACT SEARCH (camino / entregados) ───────────────────────────────── */
-.pedidos-search-input {
-  width: 100%;
-  background: rgba(142,142,147,0.10);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px 8px 32px;
-  font-size: 13px; color: var(--text);
-  outline: none; font-family: inherit;
-  transition: border-color 0.2s;
-}
-.pedidos-search-input:focus { border-color: var(--blue); }
-.pedidos-search-input::placeholder { color: var(--text-3); }
-
 /* ── SLIDE ANIMATIONS ────────────────────────────────────────────────────── */
 @keyframes slideFromRight { from { opacity: 0.4; transform: translateX(60px);  } to { opacity: 1; transform: translateX(0); } }
 @keyframes slideFromLeft  { from { opacity: 0.4; transform: translateX(-60px); } to { opacity: 1; transform: translateX(0); } }

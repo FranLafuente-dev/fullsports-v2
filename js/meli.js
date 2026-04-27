@@ -57,8 +57,9 @@ async function _meliLoadFirestore() {
       const d = s.data();
       if (d.appId)  { meliAppId  = d.appId;  localStorage.setItem(LS_MELI_APPID,  d.appId);  }
       if (d.secret) { meliSecret = d.secret; localStorage.setItem(LS_MELI_SECRET, d.secret); }
-      if (d.capi)  meliTokens.capi  = d.capi;
-      if (d.enano) meliTokens.enano = d.enano;
+      // Cargar siempre (incluso null) para que Firebase sea la fuente de verdad
+      if ('capi'  in d) meliTokens.capi  = d.capi  || null;
+      if ('enano' in d) meliTokens.enano = d.enano || null;
       _meliSaveTokensLocal();
     }
   } catch(e) {}
@@ -75,14 +76,23 @@ function _meliSaveTokensLocal() {
   try { localStorage.setItem(LS_MELI_TOKENS, JSON.stringify(meliTokens)); } catch(e) {}
 }
 
-function _meliSaveConfig() {
+// Guarda UN SOLO token de cuenta — merge:true para no pisar el token de la otra cuenta
+function _meliSaveToken(acct) {
   _meliSaveTokensLocal();
+  db.collection('meta').doc('meliConfig').set(
+    { [acct]: meliTokens[acct] || null },
+    { merge: true }
+  ).catch(() => {});
+}
+
+// Guarda solo App ID y Secret — merge:true para no tocar los tokens
+function _meliSaveMeta() {
   try { localStorage.setItem(LS_MELI_APPID,  meliAppId);  } catch(e) {}
   try { localStorage.setItem(LS_MELI_SECRET, meliSecret); } catch(e) {}
-  db.collection('meta').doc('meliConfig').set({
-    appId: meliAppId, secret: meliSecret || null,
-    capi: meliTokens.capi || null, enano: meliTokens.enano || null,
-  }).catch(() => {});
+  db.collection('meta').doc('meliConfig').set(
+    { appId: meliAppId, secret: meliSecret || null },
+    { merge: true }
+  ).catch(() => {});
 }
 
 function _meliSaveIgnored() {
@@ -192,7 +202,8 @@ async function _meliExchangeCode(account, code, verifier, redirectUri) {
       userId:       String(data._user?.id || data.user_id),
       expiresAt:    Date.now() + (data.expires_in * 1000) - 120000,
     };
-    _meliSaveConfig();
+    _meliSaveToken(account);
+    _meliSaveMeta();
     localStorage.removeItem('meli_pkce_verifier');
     localStorage.removeItem('meli_pkce_account');
     updateMeliSettingsUI();
@@ -231,7 +242,7 @@ async function _meliRefreshToken(account) {
       refreshToken: data.refresh_token || ac.refreshToken,
       expiresAt:    Date.now() + (data.expires_in * 1000) - 120000,
     };
-    _meliSaveConfig();
+    _meliSaveToken(account);
     updateMeliSettingsUI();
     return true;
   } catch(e) { return false; } // error de red → no borrar tokens
@@ -247,7 +258,7 @@ async function _meliGetToken(account) {
   if (result === 'invalid') {
     // Refresh token definitivamente muerto — requiere reconexión manual
     meliTokens[account] = null;
-    _meliSaveConfig();
+    _meliSaveToken(account);
     updateMeliSettingsUI();
     toast(`Sesión MELI ${account.toUpperCase()} expirada — reconectá`);
   }
@@ -738,11 +749,11 @@ window.meliSaveAppId = function() {
   const inp = document.getElementById('meli-app-id-input');
   const val = inp?.value?.trim();
   if (!val) { toast('Ingresá el App ID'); return; }
-  meliAppId = val; _meliSaveConfig(); toast('App ID guardado ✓');
+  meliAppId = val; _meliSaveMeta(); toast('App ID guardado ✓');
 };
 window.meliSaveSecret = function() {
   const inp = document.getElementById('meli-secret-input');
   const val = inp?.value?.trim();
   if (!val) { toast('Ingresá el Secret Key'); return; }
-  meliSecret = val; _meliSaveConfig(); toast('Secret Key guardado ✓');
+  meliSecret = val; _meliSaveMeta(); toast('Secret Key guardado ✓');
 };

@@ -148,10 +148,6 @@ window.meliOpenAuth = async (account) => {
     + `&code_challenge_method=S256`
     + `&scope=offline_access`;
 
-  console.log('[MELI] App ID:', appId);
-  console.log('[MELI] Redirect URI:', redirectUri);
-  console.log('[MELI] Auth URL:', url);
-
   if (meliAuthPopup && !meliAuthPopup.closed) meliAuthPopup.close();
   meliAuthPopup = window.open(url, 'meli_auth', 'width=620,height=740,left=100,top=60');
   if (!meliAuthPopup) { toast('Habilitá pop-ups para conectar MELI'); return; }
@@ -191,7 +187,6 @@ async function _meliExchangeCode(account, code, verifier, redirectUri) {
       body: new URLSearchParams(params),
     });
     const data = await res.json();
-    console.log('[MELI] exchange response:', res.status, JSON.stringify(data));
     if (!res.ok || !data.access_token) {
       toast(`Error MELI: ${data.message || data.error || res.status}`);
       return;
@@ -282,15 +277,6 @@ async function _fetchTodayOrders(account) {
   const ac = meliTokens[account];
   if (!ac?.userId) { console.warn(`[MELI] ${account}: sin userId`); return []; }
 
-  console.log(`[MELI] ${account}: seller ${ac.userId} — verificando token...`);
-  try {
-    const me = await _meliGet('/users/me', token);
-    console.log(`[MELI] ${account}: token OK — user ${me.id} (${me.nickname})`);
-  } catch(e) {
-    console.warn(`[MELI] ${account}: token inválido —`, e.message);
-    return [];
-  }
-
   // Probar dos variantes del endpoint
   const endpoints = [
     `/orders/search?seller=${ac.userId}&limit=50&sort=date_desc`,
@@ -299,22 +285,17 @@ async function _fetchTodayOrders(account) {
   let results = null;
   for (const ep of endpoints) {
     try {
-      console.log(`[MELI] ${account}: probando ${ep}`);
       const data = await _meliGet(ep, token);
-      console.log(`[MELI] ${account}: ${ep} → ${(data.results||[]).length} órdenes`);
       results = data.results || [];
       break;
-    } catch(e) {
-      console.warn(`[MELI] ${account}: ${ep} falló — ${e.message}`);
-    }
+    } catch(e) { /* siguiente endpoint */ }
   }
   if (!results) return [];
 
-  const cutoff = Date.now() - 48 * 3600 * 1000;
+  const cutoff = Date.now() - 72 * 3600 * 1000;
   const filtered = results.filter(o =>
     o.status === 'paid' && new Date(o.date_created).getTime() >= cutoff
   );
-  console.log(`[MELI] ${account}: ${filtered.length} órdenes pagadas en últimas 48h`);
   return filtered.map(o => ({ ...o, _account: account }));
 }
 
@@ -341,7 +322,6 @@ async function syncMeli(showToast = true) {
       const ignored   = meliIgnoredIds.has(id);
       const loaded    = _isMeliOrderLoaded(id);
       const dispatched= _isMeliDispatched(o);
-      console.log(`[MELI] orden ${id} (${o._account}) status=${o.status} shipping=${o.shipping?.status} → ignored=${ignored} loaded=${loaded} dispatched=${dispatched}`);
       if (ignored || loaded || dispatched) continue;
       candidates.push(o);
     }
@@ -427,7 +407,6 @@ function _detectShipping(order) {
   if (flexLogistics.includes(logistic)) return 'FLEX';
   if (mode === 'me2') return 'FLEX';
   if (allTags.some(t => flexTagWords.some(w => t.includes(w)))) return 'FLEX';
-  console.log(`[MELI] shipping detect — logistic=${logistic} mode=${mode} tags=${JSON.stringify([...tags,...shipTags])}`);
   return 'PE';
 }
 function _getBuyerName(order) {
@@ -707,11 +686,36 @@ async function _updateTracking(freshMeliOrders) {
   let changed = false;
   for (const order of inTransit) {
     const mo = freshMeliOrders.find(m => String(m.id) === String(order.meliOrderId));
-    if (mo?.shipping?.status === 'delivered') {
+    if (!mo) continue;
+
+    if (mo.shipping?.status === 'delivered') {
       const f = new Date().toLocaleDateString('es-AR');
       mutateOrder(order.id, { status: 'entregado', fechaEntrega: f, deliveredAt: Date.now() });
       try { await db.collection('orders').doc(order.id).update({ status: 'entregado', deliveredAt: TS(), fechaEntrega: f }); } catch(e) {}
       changed = true;
+      continue;
+    }
+
+    // Actualizar fecha estimada de entrega desde MELI en tiempo real
+    if (mo.shipping?.id) {
+      try {
+        const acct = mo._account || order.cuenta;
+        const token = await _meliGetToken(acct);
+        if (token) {
+          const s = await _meliGet(`/shipments/${mo.shipping.id}`, token);
+          const etaRaw = s.shipping_option?.estimated_delivery_time?.date
+            || s.estimated_delivery_limit?.date
+            || null;
+          if (etaRaw) {
+            const etaDate = new Date(etaRaw).toLocaleDateString('es-AR');
+            if (etaDate !== order.fechaEstimada) {
+              mutateOrder(order.id, { fechaEstimada: etaDate });
+              try { await db.collection('orders').doc(order.id).update({ fechaEstimada: etaDate }); } catch(e) {}
+              changed = true;
+            }
+          }
+        }
+      } catch(e) {}
     }
   }
   if (changed) renderPedidos();

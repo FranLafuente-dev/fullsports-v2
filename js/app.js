@@ -10,6 +10,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { FIREBASE_CONFIG, AUTHORIZED_EMAIL } from './config.js';
 import { FLEX_ZONES } from './flex-zones.js';
+import { meliInit, meliRenderConfig } from './meli.js';
 
 const fbApp = initializeApp(FIREBASE_CONFIG);
 const auth  = getAuth(fbApp);
@@ -98,6 +99,7 @@ function initApp() {
   setupHistory();
   setupDispatchAlerts();
   setupOfflineDetection();
+  meliInit(db, () => orders, window.marcarEntregado, renderConfig);
   requestNotificationPermission();
   navigateTo('pedidos');
 }
@@ -260,6 +262,7 @@ function updateCountdowns() {
 
 // ── PEDIDOS VIEW ──────────────────────────────────────────────────────────────
 let pedidosFilter = 'todos';
+let pedidosSearch = '';
 const STATUS_PRI  = { preparar: 0, pendiente: 1, camino: 2, entregado: 3 };
 
 function renderPedidos() {
@@ -294,6 +297,23 @@ function renderPedidos() {
       ${pendientePE   > 0 ? `<button class="dispatch-btn pe-btn"   onclick="despacharTodos('PE')">🚚 Despachar todos PE (${pendientePE})</button>`   : ''}
     </div>` : '';
 
+  const showSearch = pedidosFilter === 'camino' || pedidosFilter === 'entregado';
+  const searchBar  = showSearch ? `
+    <div style="padding:0 2px">
+      <input class="form-input" style="width:100%" placeholder="Buscar nombre, usuario MELI o nro. de orden..."
+        value="${pedidosSearch.replace(/"/g,'&quot;')}" oninput="setPedidosSearch(this.value)" autocomplete="off">
+    </div>` : '';
+
+  let displayed = filtered;
+  if (showSearch && pedidosSearch.trim()) {
+    const q = pedidosSearch.trim().toLowerCase();
+    displayed = filtered.filter(o =>
+      (o.nombreComprador  || '').toLowerCase().includes(q) ||
+      (o.meliOrderId      || '').includes(q) ||
+      (o.meliNickname     || '').toLowerCase().includes(q)
+    );
+  }
+
   view.innerHTML = `
     <div class="filter-pills">
       ${['todos','preparar','pendiente','camino','entregado'].map(f => `
@@ -303,14 +323,16 @@ function renderPedidos() {
         </button>`).join('')}
     </div>
     ${dispatchStrip}
-    ${filtered.length === 0
-      ? `<div class="empty-state"><span>📦</span><p>No hay pedidos</p></div>`
-      : filtered.map(o => renderOrderCard(o)).join('')}
+    ${searchBar}
+    ${displayed.length === 0
+      ? `<div class="empty-state"><span>📦</span><p>${showSearch && pedidosSearch ? 'Sin resultados' : 'No hay pedidos'}</p></div>`
+      : displayed.map(o => renderOrderCard(o)).join('')}
   `;
   updateCountdowns();
 }
 
-window.setFilter = (f) => { pedidosFilter = f; renderPedidos(); };
+window.setFilter = (f) => { pedidosFilter = f; pedidosSearch = ''; renderPedidos(); };
+window.setPedidosSearch = (v) => { pedidosSearch = v; renderPedidos(); };
 
 function renderOrderCard(o) {
   const sinCorte   = !o.corteDone ? '<span class="badge badge-sin-corte">Sin corte</span>' : '';
@@ -455,6 +477,7 @@ function openNuevaSheet(orderData = null) {
   setCuenta(orderData?.cuenta || 'capi');
   setTipoEnvio(orderData?.tipoEnvio || 'FLEX');
   document.getElementById('f-nombre').value       = orderData?.nombreComprador || '';
+  document.getElementById('f-meli-order').value   = orderData?.meliOrderId || '';
   document.getElementById('f-provincia').value    = orderData?.provincia || '';
   document.getElementById('f-iibb').value         = orderData?.iibb ? fmtDec(orderData.iibb) : '';
   document.getElementById('f-importe-pe').value   = orderData?.importeAcreditado || '';
@@ -701,9 +724,11 @@ document.getElementById('btn-guardar-venta').addEventListener('click', async () 
     }
   }
 
+  const meliOrd = document.getElementById('f-meli-order').value.trim();
   const base = {
     cuenta:          currentCuenta,
     nombreComprador: nombre,
+    meliOrderId:     meliOrd || null,
     tipoEnvio:       currentTipoEnvio,
     items:           formItems,
     status:          editingOrderId ? (orders.find(o => o.id === editingOrderId)?.status || 'preparar') : 'preparar',
@@ -987,6 +1012,7 @@ function renderConfig() {
     ? flexZones.filter(z => z.localidad.toLowerCase().includes(configSearch.toLowerCase()))
     : flexZones;
   view.innerHTML = `
+    ${meliRenderConfig()}
     <div class="section-title">Tabla de zonas FLEX</div>
     <input class="form-input config-search" placeholder="Buscar localidad..."
       value="${configSearch}" oninput="filterConfig(this.value)">

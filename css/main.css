@@ -1259,15 +1259,11 @@ input:-webkit-autofill:focus {
 .btn-tag-ok:active { background: rgba(48,176,199,0.25); }
 
 /* ── SORT TOGGLE ─────────────────────────────────────────────────────────── */
-.prep-sort-bar { display: flex; align-items: center; gap: 8px; }
-.prep-sort-btn {
-  font-size: 11px; font-weight: 600; padding: 0 14px; height: 36px;
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); color: var(--text-2); cursor: pointer;
-  white-space: nowrap; transition: background 0.15s, border-color 0.15s, color 0.15s;
-  flex-shrink: 0;
+.prep-sort-link {
+  background: none; border: none;
+  color: var(--text-3); font-size: 11px; font-weight: 500;
+  cursor: pointer; padding: 0; text-align: center; font-family: inherit;
+  transition: color 0.15s; width: 100%;
 }
-.prep-sort-btn.active {
-  background: rgba(48,176,199,0.12); border-color: var(--teal); color: var(--teal);
-}
-.prep-sort-btn:active { opacity: 0.75; }
+.prep-sort-link:active { color: var(--text-2); }
+.prep-sort-link.active { color: var(--teal); }

@@ -721,9 +721,10 @@ function _setStatusEl(elId, ac, label) {
   const el = document.getElementById(elId);
   if (!el) return;
   if (ac && Date.now() < ac.expiresAt) {
-    const mins = Math.round((ac.expiresAt - Date.now()) / 60000);
-    const resta = mins < 60 ? `${mins} min` : `${Math.round(mins/60)}h`;
-    el.textContent = `✓ Conectado — renueva en ${resta}`;
+    el.textContent = ac.refreshToken ? '✓ Conectado — permanente' : (() => {
+      const mins = Math.round((ac.expiresAt - Date.now()) / 60000);
+      return `✓ Conectado — expira en ${mins < 60 ? mins + ' min' : Math.round(mins/60) + 'h'}`;
+    })();
     el.className = 'meli-conn-status connected';
   } else if (ac?.refreshToken) {
     el.textContent = '↻ Renovando token...';

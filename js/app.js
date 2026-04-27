@@ -692,12 +692,8 @@ function renderPedidos(animDir='') {
         ${mkDispBtn('FLEX','🚚',nFlex)}
         ${mkDispBtn('PE',  '📦',nPE)}
       </div>
-      <div class="prep-sort-bar">
-        <button class="btn-dep" id="btn-dep" onclick="toggleDep()" style="flex:1">🏪 Depósito</button>
-        <button class="prep-sort-btn${prepSort==='modelo'?' active':''}" onclick="togglePrepSort()">
-          ${prepSort==='modelo'?'📦 Modelo/Talle':'⏱ Tiempo'}
-        </button>
-      </div>
+      <button class="btn-dep" id="btn-dep" onclick="toggleDep()">🏪 Depósito</button>
+      <button class="prep-sort-link${prepSort==='modelo'?' active':''}" onclick="togglePrepSort()">Orden: ${prepSort==='modelo'?'Modelo/Talle ✓':'Tiempo · FLEX→PE'}</button>
     </div>
     <div id="dep-box" style="display:none" class="dep-box"></div>`;
     body = bar + (sorted.length

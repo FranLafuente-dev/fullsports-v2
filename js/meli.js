@@ -540,18 +540,18 @@ function startMeliPolling() {
   _meliStartTokenKeepAlive();
 }
 
-// Refresca tokens proactivamente antes de que expiren (evita corte cada 6hs)
+// Refresca tokens proactivamente antes de que expiren
 function _meliStartTokenKeepAlive() {
   setInterval(async () => {
     for (const acct of ['capi', 'enano']) {
       const ac = meliTokens[acct];
       if (!ac?.refreshToken) continue;
-      // Refresh si quedan menos de 90 minutos
-      if (ac.expiresAt - Date.now() < 90 * 60 * 1000) {
+      // Refresh si quedan menos de 3 horas
+      if (ac.expiresAt - Date.now() < 3 * 60 * 60 * 1000) {
         await _meliRefreshToken(acct);
       }
     }
-  }, 60 * 60 * 1000); // revisar cada 1 hora
+  }, 30 * 60 * 1000); // revisar cada 30 minutos
 }
 
 // ─── SUGERENCIAS EN FORMULARIO ────────────────────────────────────────────────
@@ -731,14 +731,8 @@ function updateMeliSettingsUI() {
 function _setStatusEl(elId, ac, label) {
   const el = document.getElementById(elId);
   if (!el) return;
-  if (ac && Date.now() < ac.expiresAt) {
-    el.textContent = ac.refreshToken ? '✓ Conectado — permanente' : (() => {
-      const mins = Math.round((ac.expiresAt - Date.now()) / 60000);
-      return `✓ Conectado — expira en ${mins < 60 ? mins + ' min' : Math.round(mins/60) + 'h'}`;
-    })();
-    el.className = 'meli-conn-status connected';
-  } else if (ac?.refreshToken) {
-    el.textContent = '↻ Renovando token...';
+  if (ac && (ac.token || ac.refreshToken)) {
+    el.textContent = '✓ Conectado';
     el.className = 'meli-conn-status connected';
   } else {
     el.textContent = 'No conectado';

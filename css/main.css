@@ -1131,3 +1131,121 @@ input:-webkit-autofill:focus {
 .empty-preparar { gap: 14px; padding: 56px 24px; }
 .empty-preparar p { font-size: 18px; font-weight: 800; color: var(--text); animation: fadeIn 0.4s ease 0.35s both; }
 .empty-sub { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+
+/* ── SYNC MELI BUTTON ────────────────────────────────────────────────────── */
+.sync-btn {
+  width: 34px; height: 34px; border-radius: 10px;
+  background: rgba(48,176,199,0.12); border: 1px solid rgba(48,176,199,0.25);
+  color: var(--teal); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, transform 0.12s var(--spring), box-shadow 0.15s;
+  flex-shrink: 0;
+}
+.sync-btn:active { background: rgba(48,176,199,0.25); transform: scale(0.88); }
+.sync-btn.syncing svg { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-color-scheme: light) {
+  .sync-btn { background: rgba(48,176,199,0.10); border-color: rgba(48,176,199,0.20); }
+}
+
+/* ── MELI BADGE EN FAB ───────────────────────────────────────────────────── */
+.meli-badge {
+  display: none;
+  position: absolute; top: -6px; left: 50%; transform: translateX(-50%);
+  min-width: 20px; height: 20px; padding: 0 5px;
+  background: var(--red); color: #fff;
+  font-size: 11px; font-weight: 700; line-height: 20px;
+  border-radius: 10px; border: 2px solid var(--bg);
+  text-align: center; pointer-events: none;
+  z-index: 2;
+}
+.meli-badge.show { display: block; }
+
+/* ── MELI ORDER TAG ─────────────────────────────────────────────────────── */
+.meli-order-tag {
+  display: flex; align-items: center; gap: 5px;
+  margin-top: 7px;
+  font-size: 11px; color: var(--teal); font-weight: 500;
+}
+.meli-order-tag.hidden { display: none; }
+.meli-order-tag span { font-weight: 700; font-family: monospace; letter-spacing: 0.3px; }
+
+/* ── MELI CHIP ──────────────────────────────────────────────────────────── */
+.meli-chip-wrap { margin-top: 8px; }
+.meli-chip-wrap.hidden { display: none; }
+.meli-chip {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 7px 12px;
+  background: rgba(48,176,199,0.08); border: 1px solid rgba(48,176,199,0.25);
+  border-radius: 20px; cursor: pointer;
+  color: var(--teal); font-size: 12px; font-weight: 600;
+  transition: background 0.15s;
+}
+.meli-chip:active { background: rgba(48,176,199,0.16); }
+.meli-chip-wrap[data-cuenta="enano"] .meli-chip {
+  background: rgba(139,92,246,0.08); border-color: rgba(139,92,246,0.25); color: var(--purple);
+}
+.meli-chip-badge {
+  background: var(--teal); color: #fff;
+  border-radius: 10px; padding: 1px 7px;
+  font-size: 11px; font-weight: 700; flex-shrink: 0;
+}
+.meli-chip-wrap[data-cuenta="enano"] .meli-chip-badge { background: var(--purple); }
+.meli-chip-arrow { margin-left: auto; font-size: 13px; transition: transform 0.2s; }
+.meli-chip.open .meli-chip-arrow { transform: rotate(180deg); }
+
+.meli-suggestions-panel {
+  background: rgba(48,176,199,0.04);
+  border: 1px solid rgba(48,176,199,0.18);
+  border-top: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  overflow: hidden;
+}
+.meli-chip-wrap[data-cuenta="enano"] .meli-suggestions-panel {
+  background: rgba(139,92,246,0.04); border-color: rgba(139,92,246,0.18);
+}
+.meli-suggestions-panel.collapsed .meli-suggestions-list { display: none; }
+.meli-suggestions-list { padding: 0 8px 8px; display: flex; flex-direction: column; gap: 6px; }
+.meli-sug-item {
+  display: flex; align-items: stretch; gap: 6px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); overflow: hidden;
+}
+.meli-sug-body {
+  flex: 1; padding: 10px 12px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 4px;
+  transition: background 0.15s;
+}
+.meli-sug-body:active { background: var(--gray-light); }
+.meli-sug-row1 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.meli-sug-account {
+  font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 6px;
+  text-transform: uppercase; letter-spacing: 0.3px;
+}
+.meli-sug-account.capi  { background: var(--blue-light);   color: var(--blue);   }
+.meli-sug-account.enano { background: var(--purple-light);  color: var(--purple); }
+.meli-sug-name { font-size: 14px; font-weight: 600; color: var(--text); flex: 1; }
+.meli-sug-tag {
+  font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px;
+  text-transform: uppercase;
+}
+.meli-sug-tag.flex { background: var(--orange-light); color: var(--orange); }
+.meli-sug-tag.pe   { background: var(--green-light);  color: var(--green);  }
+.meli-sug-row2 { display: flex; gap: 10px; font-size: 12px; color: var(--text-2); flex-wrap: wrap; }
+.meli-sug-items { font-size: 11px; color: var(--text-3); padding-top: 2px; }
+.meli-sug-dismiss {
+  width: 38px; flex-shrink: 0; background: none; border: none; border-left: 1px solid var(--border);
+  color: var(--text-3); font-size: 13px; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.meli-sug-dismiss:active { background: var(--red-light); color: var(--red); }
+
+/* ── MELI SETTINGS SHEET ─────────────────────────────────────────────────── */
+.meli-accounts-grid { display: flex; gap: 10px; }
+.meli-account-card {
+  flex: 1; background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 14px; display: flex; flex-direction: column; gap: 8px;
+}
+.meli-account-label { font-size: 13px; font-weight: 700; color: var(--text-2); text-transform: uppercase; }
+.meli-conn-status { font-size: 11px; color: var(--text-3); }
+.meli-conn-status.connected { color: var(--green); }

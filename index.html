@@ -39,6 +39,12 @@
     <div class="topbar-right">
       <button class="undo-btn" id="btn-undo" onclick="doUndo()" disabled title="Deshacer">↩</button>
       <button class="undo-btn" id="btn-redo" onclick="doRedo()" disabled title="Rehacer">↪</button>
+      <button class="sync-btn" id="btn-sync" onclick="syncMeli(true)" title="Sincronizar con MELI">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+        </svg>
+      </button>
       <span class="status-pill" id="status-pill"></span>
       <!-- Avatar — toca para abrir menú de perfil -->
       <div class="avatar" id="user-avatar">FS</div>
@@ -58,6 +64,12 @@
         <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/>
       </svg>
       Notificaciones
+    </button>
+    <button class="avatar-popup-btn" id="popup-meli">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6L18 2H6z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 01-8 0"/>
+      </svg>
+      MercadoLibre
     </button>
     <button class="avatar-popup-btn avatar-popup-danger" id="popup-auth">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -120,6 +132,22 @@
     <div class="form-group">
       <div class="form-label">Nombre comprador</div>
       <input class="form-input" id="f-nombre" type="text" placeholder="Nombre del comprador" autocomplete="off">
+      <div id="meli-order-tag" class="meli-order-tag hidden">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6L18 2H6z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+        <span id="meli-order-num"></span>
+        <span class="meli-tag-sep" id="meli-order-sep" style="display:none">·</span>
+        <span id="meli-order-user" style="color:var(--text-3);font-size:10px"></span>
+      </div>
+      <div id="meli-chip-wrap" class="meli-chip-wrap hidden">
+        <button class="meli-chip" id="meli-chip-btn" onclick="toggleMeliPanel()">
+          <span class="meli-chip-badge" id="meli-chip-count">0</span>
+          <span id="meli-chip-label">pedidos pendientes de carga</span>
+          <span class="meli-chip-arrow">▾</span>
+        </button>
+        <div id="meli-suggestions-panel" class="meli-suggestions-panel collapsed">
+          <div id="meli-suggestions-list" class="meli-suggestions-list"></div>
+        </div>
+      </div>
     </div>
     <div id="enano-fields" style="display:none;flex-direction:column;gap:16px">
       <div class="form-group">
@@ -304,7 +332,10 @@
 </div>
 
 <!-- NUEVA FAB — tap corto = nueva venta · tap largo = menú radial -->
-<button id="nueva-fab" class="nueva-fab"><span class="fab-icon">+</span></button>
+<button id="nueva-fab" class="nueva-fab">
+  <span class="fab-icon">+</span>
+  <span class="meli-badge" id="meli-badge"></span>
+</button>
 
 <!-- FAB RADIAL MENU — 3 botones circulares alrededor del FAB -->
 <div class="fab-radial-wrap" id="fab-radial-wrap">
@@ -326,6 +357,47 @@
     </svg>
     <span>Stock</span>
   </button>
+</div>
+
+<!-- SHEET: CONFIGURACIÓN MELI -->
+<div class="sheet" id="sheet-meli">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Configuración MercadoLibre</div>
+  <div class="sheet-body">
+    <div class="form-group">
+      <div class="form-label">App ID (Client ID)</div>
+      <input class="form-input" id="meli-app-id-input" type="text" placeholder="Ej: 8662000739611265" autocomplete="off" inputmode="numeric">
+    </div>
+    <button class="btn btn-ghost btn-sm" style="margin-bottom:12px" onclick="meliSaveAppId()">Guardar App ID</button>
+
+    <div class="form-group">
+      <div class="form-label">Secret Key (Clave secreta)</div>
+      <input class="form-input" id="meli-secret-input" type="password" placeholder="Secret Key de tu app MELI" autocomplete="off">
+      <div class="hint-text" style="margin-top:6px">Lo encontrás en developers.mercadolibre.com.ar junto al App ID</div>
+    </div>
+    <button class="btn btn-ghost btn-sm" style="margin-bottom:16px" onclick="meliSaveSecret()">Guardar Secret Key</button>
+
+    <div class="meli-accounts-grid">
+      <div class="meli-account-card">
+        <div class="meli-account-label">CAPI</div>
+        <div class="meli-conn-status" id="meli-capi-status">No conectado</div>
+        <button class="btn btn-primary btn-sm" onclick="meliOpenAuth('capi')">Conectar CAPI</button>
+      </div>
+      <div class="meli-account-card">
+        <div class="meli-account-label">ENANO</div>
+        <div class="meli-conn-status" id="meli-enano-status">No conectado</div>
+        <button class="btn btn-primary btn-sm" onclick="meliOpenAuth('enano')">Conectar ENANO</button>
+      </div>
+    </div>
+
+    <div class="hint-text" style="margin-top:16px;line-height:1.5">
+      El token expira cada 6hs. Al expirar reconectá con el mismo botón.<br>
+      La URL de redirección a configurar en MELI es:<br>
+      <span id="meli-redirect-uri" style="color:var(--teal);font-size:11px;word-break:break-all"></span>
+    </div>
+    <button class="btn btn-ghost" data-close-sheet style="margin-top:16px">Cerrar</button>
+    <div style="height:8px"></div>
+  </div>
 </div>
 
 <!-- STOCK FAB — solo visible en la vista Stock -->
@@ -352,6 +424,7 @@ const FIREBASE_CONFIG = {
 
 <script src="js/flex-zones.js"></script>
 <script src="js/app.js"></script>
+<script src="js/meli.js?v=2"></script>
 
 <script>
 if ('serviceWorker' in navigator) {

@@ -108,6 +108,7 @@ function entrarApp(user) {
   updateTopbarDate();
   setInterval(updateTopbarDate, 60000);
   connectFirestore();
+  if (typeof meliInit === 'function') meliInit();
 }
 
 // ─── CACHE LOCAL ──────────────────────────────────────────────────────────────
@@ -484,6 +485,12 @@ function setupAvatarPopup() {
       const p = await Notification.requestPermission().catch(() => 'default');
       toast(p === 'granted' ? '✓ Notificaciones activadas' : 'Notificaciones no activadas');
     }
+  });
+
+  document.getElementById('popup-meli')?.addEventListener('click', () => {
+    popup.classList.remove('open');
+    const sh = document.getElementById('sheet-meli');
+    if (sh) openSheet(sh);
   });
 
   document.getElementById('popup-auth')?.addEventListener('click', async () => {
@@ -905,6 +912,7 @@ window.despacharTodos = async tipo => {
     if (tipo==='FLEX' && o.flexImporte) _addFlexRecord(o, now);
   });
   pedidosTab='despacho'; renderPedidos(); renderCorte();
+  if (typeof meliCheckDispatch === 'function') setTimeout(() => meliCheckDispatch(pend), 1500);
   try {
     for(const o of pend)
       await db.collection('orders').doc(o.id).update({status:'camino',despachadoAt:TS(),fechaEstimada:fecha});
@@ -1135,6 +1143,8 @@ function openNuevaSheet(data=null) {
   // Items / chips
   renderFormItems();
 
+  if (typeof meliResetSelected === 'function') meliResetSelected();
+  if (typeof renderMeliSuggestions === 'function') renderMeliSuggestions();
   openSheet($shNueva);
   // Scroll al inicio de forma suave
   requestAnimationFrame(() => {
@@ -1147,6 +1157,7 @@ function setCuenta(c) {
   curCuenta=c;
   document.querySelectorAll('[data-cuenta]').forEach(b=>b.classList.toggle('active',b.dataset.cuenta===c));
   V('enano-fields').style.display=c==='enano'?'flex':'none';
+  if (typeof renderMeliSuggestions === 'function') renderMeliSuggestions();
 }
 function setEnvio(t) {
   curEnvio=t;
@@ -1392,10 +1403,13 @@ async function guardarVenta() {
     })) return;
   }
 
+  const _meliId = (!editingId && typeof meliGetSelectedId === 'function') ? meliGetSelectedId() : null;
+
   const base={
     cuenta:curCuenta, nombreComprador:nombre, tipoEnvio:curEnvio, items:formItems,
     status:editingId?(orders.find(o=>o.id===editingId)?.status||'preparar'):'preparar',
     corteDone:editingId?(orders.find(o=>o.id===editingId)?.corteDone||false):false,
+    ...(_meliId ? { meliOrderId: _meliId } : {}),
   };
   if (curCuenta==='enano') {
     base.provincia=V('f-provincia').value.trim();
@@ -1426,6 +1440,7 @@ async function guardarVenta() {
       base.createdAt=TS();
       const ref=await db.collection('orders').add(base);
       orders.unshift({id:ref.id,...base}); saveOrders(); renderPedidos(); renderCorte();
+      if (typeof meliMarkLoaded === 'function') meliMarkLoaded(_meliId);
       toast('Venta guardada ✓');
     }
   } catch(e){ toast('Error al guardar'); console.error(e); }

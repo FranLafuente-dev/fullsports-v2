@@ -8,7 +8,8 @@ const POLL_MS          = 15 * 60 * 1000;
 const REFRESH_MARGIN   = 3 * 3600 * 1000; // renovar si quedan < 3h
 
 let _db, _getOrders, _marcarEntregado, _onConfigUpdate;
-let _config = {};
+let _config    = {};
+let _meliOrders = []; // pedidos MELI recientes sin vincular aún
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 
@@ -31,9 +32,9 @@ export async function meliInit(db, getOrders, marcarEntregadoFn, onConfigUpdate)
     if (_onConfigUpdate) _onConfigUpdate();
   });
 
-  // Primer poll a los 8s, luego cada 15 min
-  setTimeout(_poll, 8000);
-  setInterval(_poll, POLL_MS);
+  // Primer tick a los 8s, luego cada 15 min
+  setTimeout(_tick, 8000);
+  setInterval(_tick, POLL_MS);
 }
 
 // ── TOKEN MANAGEMENT ──────────────────────────────────────────────────────────
@@ -157,9 +158,13 @@ async function _handleOAuthCallback() {
   }
 }
 
-// ── POLLING DE ENTREGAS ───────────────────────────────────────────────────────
+// ── TICK: polling de entregas + fetch de sugerencias ─────────────────────────
 
-async function _poll() {
+async function _tick() {
+  await Promise.all([_pollDeliveries(), _fetchSuggestions()]);
+}
+
+async function _pollDeliveries() {
   const orders   = _getOrders();
   const enCamino = orders.filter(o => o.status === 'camino' && o.meliOrderId);
   if (!enCamino.length) return;
@@ -173,13 +178,58 @@ async function _poll() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) continue;
-
       const data = await res.json();
       if (data.shipping?.status === 'delivered') {
         await _marcarEntregado(o.id);
       }
     } catch {}
   }
+}
+
+async function _fetchSuggestions() {
+  const cuentas = ['capi', 'enano'].filter(c => _config[c]?.userId);
+  if (!cuentas.length) return;
+
+  const cutoff   = new Date(Date.now() - 7 * 86400 * 1000).toISOString();
+  const nuevos   = [];
+
+  for (const cuenta of cuentas) {
+    const token = await _getToken(cuenta);
+    if (!token) continue;
+    const userId = _config[cuenta].userId;
+
+    try {
+      const res = await fetch(
+        `${WORKER}/api/meli/orders/search?seller=${userId}&order.status=paid&sort=date_desc&limit=30`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) continue;
+      const data = await res.json();
+
+      for (const o of (data.results || [])) {
+        if ((o.date_created || '') < cutoff) continue;
+        nuevos.push({
+          id:       String(o.id),
+          cuenta,
+          name:     `${o.buyer?.first_name || ''} ${o.buyer?.last_name || ''}`.trim(),
+          nickname: o.buyer?.nickname || '',
+          itemsText: (o.order_items || []).map(i => i.item?.title || '').join(', '),
+        });
+      }
+    } catch {}
+  }
+
+  _meliOrders = nuevos;
+  // Notificar para que el form refresque si está abierto
+  if (typeof window._onMeliSuggestionsUpdate === 'function') {
+    window._onMeliSuggestionsUpdate();
+  }
+}
+
+export function getMeliSuggestions() {
+  if (!_getOrders) return [];
+  const linkedIds = new Set(_getOrders().map(o => o.meliOrderId).filter(Boolean));
+  return _meliOrders.filter(mo => !linkedIds.has(mo.id));
 }
 
 // ── CONFIG HTML ───────────────────────────────────────────────────────────────

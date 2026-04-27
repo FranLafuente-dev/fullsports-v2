@@ -10,7 +10,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { FIREBASE_CONFIG, AUTHORIZED_EMAIL } from './config.js';
 import { FLEX_ZONES } from './flex-zones.js';
-import { meliInit, meliRenderConfig } from './meli.js';
+import { meliInit, meliRenderConfig, getMeliSuggestions } from './meli.js';
 
 const fbApp = initializeApp(FIREBASE_CONFIG);
 const auth  = getAuth(fbApp);
@@ -299,8 +299,12 @@ function renderPedidos() {
 
   const showSearch = pedidosFilter === 'camino' || pedidosFilter === 'entregado';
   const searchBar  = showSearch ? `
-    <div style="padding:0 2px">
-      <input class="form-input" style="width:100%" placeholder="Buscar nombre, usuario MELI o nro. de orden..."
+    <div style="position:relative">
+      <svg style="position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;opacity:.4;pointer-events:none"
+        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>
+      </svg>
+      <input class="pedidos-search-input" placeholder="Buscar nombre, usuario o nro. orden..."
         value="${pedidosSearch.replace(/"/g,'&quot;')}" oninput="setPedidosSearch(this.value)" autocomplete="off">
     </div>` : '';
 
@@ -466,12 +470,81 @@ document.getElementById('btn-save-delivery').addEventListener('click', async () 
 });
 
 // ── NUEVA VENTA FORM ──────────────────────────────────────────────────────────
-let editingOrderId = null;
+let editingOrderId   = null;
+let _meliLinked      = false; // true cuando se seleccionó una sugerencia MELI
+
+function _renderMeliSugg() {
+  const section = document.getElementById('meli-sugg-section');
+  const list    = document.getElementById('meli-sugg-list');
+  if (!section || !list) return;
+
+  if (editingOrderId || _meliLinked) { section.style.display = 'none'; return; }
+
+  const sugg = getMeliSuggestions();
+  if (!sugg.length) { section.style.display = 'none'; return; }
+
+  section.style.display = 'block';
+  list.innerHTML = sugg.map((s, i) => `
+    <div class="meli-sugg-chip" onclick="selectMeliOrder(${i})">
+      <span class="badge badge-${s.cuenta}">${s.cuenta.toUpperCase()}</span>
+      <div class="meli-sugg-body">
+        <div class="meli-sugg-name">${s.name || 'Sin nombre'}</div>
+        <div class="meli-sugg-meta">@${s.nickname} · #${s.id.slice(-8)}</div>
+      </div>
+    </div>`).join('');
+}
+
+window._onMeliSuggestionsUpdate = _renderMeliSugg;
+
+window.selectMeliOrder = (idx) => {
+  const s = getMeliSuggestions()[idx];
+  if (!s) return;
+
+  _meliLinked = true;
+  setCuenta(s.cuenta);
+
+  // Llenar nombre y bloquearlo
+  const inp = document.getElementById('f-nombre');
+  inp.value    = s.name;
+  inp.readOnly = true;
+  inp.classList.add('meli-readonly');
+
+  // Guardar referencia oculta
+  document.getElementById('f-meli-order').value = s.id;
+
+  // Mostrar tag de vinculación
+  const tag = document.getElementById('meli-linked-tag');
+  tag.style.display = 'flex';
+  tag.innerHTML = `
+    <span class="meli-linked-info">🟡 #${s.id.slice(-8)} · @${s.nickname}</span>
+    <button class="meli-unlink-btn" onclick="clearMeliLink()">×</button>`;
+
+  // Ocultar sugerencias
+  document.getElementById('meli-sugg-section').style.display = 'none';
+};
+
+window.clearMeliLink = () => {
+  _meliLinked = false;
+  const inp = document.getElementById('f-nombre');
+  inp.readOnly = false;
+  inp.classList.remove('meli-readonly');
+  document.getElementById('f-meli-order').value = '';
+  document.getElementById('meli-linked-tag').style.display = 'none';
+  _renderMeliSugg();
+};
 
 function openNuevaSheet(orderData = null) {
   editingOrderId = orderData?.id || null;
   formItems  = orderData?.items ? [...orderData.items] : [];
   formEnvio  = null;
+  _meliLinked = false;
+
+  // Reset estado MELI
+  const nombreInp = document.getElementById('f-nombre');
+  nombreInp.readOnly = false;
+  nombreInp.classList.remove('meli-readonly');
+  document.getElementById('meli-linked-tag').style.display = 'none';
+  document.getElementById('meli-sugg-section').style.display = 'none';
 
   sheetNueva.querySelector('.sheet-title').textContent = editingOrderId ? 'Editar pedido' : 'Nueva venta';
   setCuenta(orderData?.cuenta || 'capi');
@@ -493,7 +566,10 @@ function openNuevaSheet(orderData = null) {
   initItemSelector();
   renderFormItems();
   openSheet(sheetNueva);
-  setTimeout(() => { sheetNueva.querySelector('.sheet-body').scrollTop = 0; }, 50);
+  setTimeout(() => {
+    sheetNueva.querySelector('.sheet-body').scrollTop = 0;
+    _renderMeliSugg();
+  }, 50);
 }
 
 window.editOrder = (id) => {

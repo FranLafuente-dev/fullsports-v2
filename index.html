@@ -115,17 +115,23 @@
       </div>
     </div>
 
+    <!-- Sugerencias MELI (pedidos pendientes de vincular) -->
+    <div id="meli-sugg-section" style="display:none">
+      <div class="form-label" style="margin-bottom:8px">Pedidos MELI sin cargar</div>
+      <div id="meli-sugg-list"></div>
+    </div>
+
     <!-- Nombre -->
     <div class="form-group">
       <div class="form-label">Nombre comprador</div>
       <input class="form-input" id="f-nombre" type="text" placeholder="Ej: María González" autocomplete="off">
     </div>
 
-    <!-- Orden MELI -->
-    <div class="form-group">
-      <div class="form-label">Nro. de orden MELI <span style="font-weight:400;color:var(--text-3)">(opcional)</span></div>
-      <input class="form-input" id="f-meli-order" type="text" placeholder="Ej: 2000012687472267" inputmode="numeric" autocomplete="off">
-    </div>
+    <!-- Tag de vinculación MELI (solo lectura, aparece al seleccionar sugerencia) -->
+    <div id="meli-linked-tag" style="display:none"></div>
+
+    <!-- Referencia oculta de la orden MELI -->
+    <input type="hidden" id="f-meli-order">
 
     <!-- ENANO fields -->
     <div id="enano-fields" style="display:none;flex-direction:column;gap:16px">

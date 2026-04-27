@@ -25,6 +25,13 @@ let meliAuthPopup   = null;
 async function meliInit() {
   _meliLoadLocal();
   await _meliLoadFirestore();
+  // Refresh inmediato si el access_token ya expiró (antes del primer sync)
+  await Promise.all(['capi', 'enano'].map(async acct => {
+    const ac = meliTokens[acct];
+    if (ac && ac.refreshToken && Date.now() >= ac.expiresAt) {
+      await _meliRefreshToken(acct);
+    }
+  }));
   updateMeliSettingsUI();
   startMeliPolling();
   if (meliTokens.capi || meliTokens.enano) syncMeli(false);
@@ -213,7 +220,11 @@ async function _meliRefreshToken(account) {
       body: new URLSearchParams(params),
     });
     const data = await res.json();
-    if (!res.ok || !data.access_token) return false;
+    if (!res.ok || !data.access_token) {
+      // 'invalid_grant' = refresh_token muerto. Otros errores son transitorios.
+      if (data.error === 'invalid_grant' || (data.message || '').toLowerCase().includes('invalid')) return 'invalid';
+      return false;
+    }
     meliTokens[account] = {
       ...ac,
       token:        data.access_token,
@@ -223,7 +234,7 @@ async function _meliRefreshToken(account) {
     _meliSaveConfig();
     updateMeliSettingsUI();
     return true;
-  } catch(e) { return false; }
+  } catch(e) { return false; } // error de red → no borrar tokens
 }
 
 // Obtener token válido (renueva automáticamente con refresh_token)
@@ -231,14 +242,16 @@ async function _meliGetToken(account) {
   const ac = meliTokens[account];
   if (!ac) return null;
   if (Date.now() < ac.expiresAt) return ac.token;
-  // Intentar renovar
-  const ok = await _meliRefreshToken(account);
-  if (ok) return meliTokens[account].token;
-  // Sin refresh_token o falló: pedir reconexión
-  meliTokens[account] = null;
-  _meliSaveConfig();
-  updateMeliSettingsUI();
-  toast(`Sesión MELI ${account.toUpperCase()} expirada — reconectá`);
+  const result = await _meliRefreshToken(account);
+  if (result === true) return meliTokens[account].token;
+  if (result === 'invalid') {
+    // Refresh token definitivamente muerto — requiere reconexión manual
+    meliTokens[account] = null;
+    _meliSaveConfig();
+    updateMeliSettingsUI();
+    toast(`Sesión MELI ${account.toUpperCase()} expirada — reconectá`);
+  }
+  // false = error transitorio → no borrar tokens, reintentará en próximo ciclo
   return null;
 }
 
@@ -513,6 +526,21 @@ function _notifyNewOrders(count) {
 function startMeliPolling() {
   if (meliPollTimer) clearInterval(meliPollTimer);
   meliPollTimer = setInterval(() => syncMeli(false), MELI_POLL_MS);
+  _meliStartTokenKeepAlive();
+}
+
+// Refresca tokens proactivamente antes de que expiren (evita corte cada 6hs)
+function _meliStartTokenKeepAlive() {
+  setInterval(async () => {
+    for (const acct of ['capi', 'enano']) {
+      const ac = meliTokens[acct];
+      if (!ac?.refreshToken) continue;
+      // Refresh si quedan menos de 90 minutos
+      if (ac.expiresAt - Date.now() < 90 * 60 * 1000) {
+        await _meliRefreshToken(acct);
+      }
+    }
+  }, 60 * 60 * 1000); // revisar cada 1 hora
 }
 
 // ─── SUGERENCIAS EN FORMULARIO ────────────────────────────────────────────────

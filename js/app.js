@@ -53,6 +53,7 @@ const UNDO_STACK = [], REDO_STACK = [];
 let editFlexId = null, addFlexCuenta = 'capi', addFlexZone = null;
 let editFlexCuenta = 'capi', editFlexZone = null;
 const LS_FLEX_MANUAL = 'fs_flexmanual_v1';
+let prepSort = 'default'; // 'default' = FLEX→PE más nuevo primero | 'modelo' = por modelo+talle
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const $loginScreen = document.getElementById('login-screen');
@@ -672,13 +673,31 @@ function renderPedidos(animDir='') {
 
   let body='';
   if (pedidosTab==='preparar') {
-    const sorted=[...preparar].sort((a,b)=>(a.tipoEnvio==='FLEX'?0:10)-(b.tipoEnvio==='FLEX'?0:10));
+    let sorted;
+    if (prepSort === 'modelo') {
+      const prodOrder = _prodSalesOrder();
+      sorted = [...preparar].sort((a, b) => {
+        const aP = a.items?.[0]?.producto || '', bP = b.items?.[0]?.producto || '';
+        const pi = prodOrder.indexOf(aP) - prodOrder.indexOf(bP);
+        if (pi !== 0) return pi;
+        const aT = parseInt(a.items?.[0]?.talle), bT = parseInt(b.items?.[0]?.talle);
+        if (!isNaN(aT) && !isNaN(bT)) return aT - bT;
+        return 0;
+      });
+    } else {
+      sorted = [...preparar].sort((a,b)=>(a.tipoEnvio==='FLEX'?0:10)-(b.tipoEnvio==='FLEX'?0:10));
+    }
     const bar=`<div style="display:flex;flex-direction:column;gap:8px">
       <div class="home-bar">
         ${mkDispBtn('FLEX','🚚',nFlex)}
         ${mkDispBtn('PE',  '📦',nPE)}
       </div>
-      <button class="btn-dep" id="btn-dep" onclick="toggleDep()" style="width:100%">🏪 Depósito</button>
+      <div class="prep-sort-bar">
+        <button class="btn-dep" id="btn-dep" onclick="toggleDep()" style="flex:1">🏪 Depósito</button>
+        <button class="prep-sort-btn${prepSort==='modelo'?' active':''}" onclick="togglePrepSort()">
+          ${prepSort==='modelo'?'📦 Modelo/Talle':'⏱ Tiempo'}
+        </button>
+      </div>
     </div>
     <div id="dep-box" style="display:none" class="dep-box"></div>`;
     body = bar + (sorted.length
@@ -736,6 +755,18 @@ function parseLocalDate(s) {
   if (!s) return Infinity;
   const p=s.split('/'); if (p.length!==3) return Infinity;
   return new Date(p[2],p[1]-1,p[0]).getTime();
+}
+
+window.togglePrepSort = () => {
+  prepSort = prepSort === 'default' ? 'modelo' : 'default';
+  renderPedidos();
+};
+function _prodSalesOrder() {
+  const counts = {};
+  orders.forEach(o => (o.items || []).forEach(i => {
+    counts[i.producto] = (counts[i.producto] || 0) + 1;
+  }));
+  return PRODUCTOS.slice().sort((a, b) => (counts[b] || 0) - (counts[a] || 0));
 }
 
 // Depósito — solo muestra pedidos en estado 'preparar' (pendientes de buscar en depósito)
@@ -800,7 +831,8 @@ function orderCard(o) {
   if (o.status==='preparar') {
     act=`<div class="card-act">
       <button class="btn btn-green btn-sm" onclick="acPreparado('${o.id}',this)">✓ Preparado</button>
-      <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️ Editar</button>
+      <button class="btn ${o.etiqueta?'btn-tag-ok':'btn-ghost'} btn-sm" onclick="acEtiqueta('${o.id}')">${o.etiqueta?'✓ Etiqueta':'🏷 Etiqueta'}</button>
+      <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️</button>
       <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
     </div>`;
   } else if (o.status==='pendiente') {
@@ -870,6 +902,15 @@ window.acPreparado = async (id, btn) => {
       }
     } catch(e){toast('Sin red — se sincronizará');}
   });
+};
+
+window.acEtiqueta = async id => {
+  const o = orders.find(o => o.id === id); if (!o) return;
+  const val = !o.etiqueta;
+  mutateOrder(id, { etiqueta: val });
+  renderPedidos();
+  try { await db.collection('orders').doc(id).update({ etiqueta: val }); }
+  catch(e) { toast('Sin red — se sincronizará'); }
 };
 
 window.acDespachado = async (id, btn) => {

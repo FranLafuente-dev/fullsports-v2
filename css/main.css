@@ -1262,8 +1262,8 @@ input:-webkit-autofill:focus {
 .prep-sort-link {
   background: none; border: none;
   color: var(--text-3); font-size: 11px; font-weight: 500;
-  cursor: pointer; padding: 0; text-align: center; font-family: inherit;
-  transition: color 0.15s; width: 100%;
+  cursor: pointer; padding: 0; text-align: left; font-family: inherit;
+  transition: color 0.15s; width: auto;
 }
 .prep-sort-link:active { color: var(--text-2); }
 .prep-sort-link.active { color: var(--teal); }

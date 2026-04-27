@@ -685,7 +685,17 @@ async function _updateTracking(freshMeliOrders) {
   if (!inTransit.length) return;
   let changed = false;
   for (const order of inTransit) {
-    const mo = freshMeliOrders.find(m => String(m.id) === String(order.meliOrderId));
+    let mo = freshMeliOrders.find(m => String(m.id) === String(order.meliOrderId));
+    // Si el pedido es más viejo que la ventana del fetch, consultarlo directamente
+    if (!mo && order.cuenta) {
+      try {
+        const token = await _meliGetToken(order.cuenta);
+        if (token) {
+          const fetched = await _meliGet(`/orders/${order.meliOrderId}`, token);
+          mo = { ...fetched, _account: order.cuenta };
+        }
+      } catch(e) {}
+    }
     if (!mo) continue;
 
     if (mo.shipping?.status === 'delivered') {

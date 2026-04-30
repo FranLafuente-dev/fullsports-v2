@@ -12,6 +12,16 @@ let _config     = {};
 let _meliOrders = [];
 let _tickTimer  = null;
 
+// Estado de sincronización — exportado para que app.js lo muestre
+const _syncState = {
+  fetching:    false,
+  lastAttempt: null,   // timestamp del último intento
+  lastSuccess: null,   // timestamp del último éxito
+  failCount:   0,      // fallos consecutivos
+  errorMsg:    null,   // mensaje del último error
+  accounts:    {},     // { capi: 'ok'|'error'|'no-token', enano: ... }
+};
+
 // ── INIT ──────────────────────────────────────────────────────────────────────
 
 export async function meliInit(db, getOrders, marcarEntregadoFn, onConfigUpdate) {
@@ -282,22 +292,40 @@ async function _pollDeliveries() {
 
 async function _fetchSuggestions() {
   const cuentas = ['capi', 'enano'].filter(c => _config[c]?.userId);
-  if (!cuentas.length) return;
+  if (!cuentas.length) {
+    _syncState.accounts = {};
+    _notifySyncUpdate();
+    return;
+  }
+
+  _syncState.fetching    = true;
+  _syncState.lastAttempt = Date.now();
+  _notifySyncUpdate();
 
   const cutoff = new Date(Date.now() - 7 * 86400 * 1000).toISOString();
   const nuevos = [];
+  let   anyError = false;
 
   for (const cuenta of cuentas) {
     const token = await _getToken(cuenta);
-    if (!token) continue;
+    if (!token) {
+      _syncState.accounts[cuenta] = 'no-token';
+      anyError = true;
+      continue;
+    }
     const userId = _config[cuenta].userId;
     try {
       const res = await fetch(
         `${WORKER}/api/meli/orders/search?seller=${userId}&order.status=paid&sort=date_desc&limit=30`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (!res.ok) continue;
+      if (!res.ok) {
+        _syncState.accounts[cuenta] = 'error';
+        anyError = true;
+        continue;
+      }
       const data = await res.json();
+      _syncState.accounts[cuenta] = 'ok';
       for (const o of (data.results || [])) {
         if ((o.date_created || '') < cutoff) continue;
         nuevos.push({
@@ -308,19 +336,48 @@ async function _fetchSuggestions() {
           itemsText: (o.order_items || []).map(i => i.item?.title || '').join(', '),
         });
       }
-    } catch {}
+    } catch (e) {
+      _syncState.accounts[cuenta] = 'error';
+      _syncState.errorMsg = e.message || 'Sin conexión';
+      anyError = true;
+    }
   }
 
-  _meliOrders = nuevos;
+  _meliOrders            = nuevos;
+  _syncState.fetching    = false;
+
+  if (!anyError) {
+    _syncState.lastSuccess = Date.now();
+    _syncState.failCount   = 0;
+    _syncState.errorMsg    = null;
+  } else {
+    _syncState.failCount++;
+    if (!_syncState.errorMsg) _syncState.errorMsg = 'Error al conectar con MELI';
+  }
+
+  _notifySyncUpdate();
   if (typeof window._onMeliSuggestionsUpdate === 'function') {
     window._onMeliSuggestionsUpdate();
   }
+}
+
+function _notifySyncUpdate() {
+  if (typeof window._onMeliSyncUpdate === 'function') window._onMeliSyncUpdate();
 }
 
 export function getMeliSuggestions() {
   if (!_getOrders) return [];
   const linkedIds = new Set(_getOrders().map(o => o.meliOrderId).filter(Boolean));
   return _meliOrders.filter(mo => !linkedIds.has(mo.id));
+}
+
+export function getMeliSyncStatus() {
+  const hasAnyToken = ['capi','enano'].some(c => _config[c]?.accessToken);
+  return { ..._syncState, hasAnyToken };
+}
+
+export async function meliForceSync() {
+  await _tick();
 }
 
 // ── CONFIG HTML ───────────────────────────────────────────────────────────────

@@ -11,7 +11,8 @@ import {
 import { FIREBASE_CONFIG, AUTHORIZED_EMAIL } from './config.js';
 import { FLEX_ZONES } from './flex-zones.js';
 import {
-  meliInit, meliRenderConfig, getMeliSuggestions
+  meliInit, meliRenderConfig, getMeliSuggestions,
+  getMeliSyncStatus, meliForceSync
 } from './meli.js';
 
 const fbApp = initializeApp(FIREBASE_CONFIG);
@@ -106,6 +107,8 @@ function initApp() {
   setupOfflineDetection();
   requestNotificationPermission();
   meliInit(db, () => orders, window.marcarEntregado, renderConfig);
+  // Rerenderizar pedidos cuando cambia el estado de sync MELI
+  window._onMeliSyncUpdate = () => renderPedidos();
   navigateTo('pedidos');
 }
 
@@ -276,6 +279,70 @@ function updateCountdowns() {
 let pedidosFilter = 'todos';
 const STATUS_PRI  = { preparar: 0, pendiente: 1, camino: 2, entregado: 3 };
 
+function _renderMeliSyncStrip(sync) {
+  if (!sync.hasAnyToken) return '';
+
+  if (sync.fetching) {
+    return `<div class="meli-sync-strip syncing">⟳ Actualizando pedidos MELI...</div>`;
+  }
+
+  const anyError = Object.values(sync.accounts).some(s => s === 'error' || s === 'no-token');
+
+  if (anyError) {
+    const agoMs  = sync.lastAttempt ? Date.now() - sync.lastAttempt : null;
+    const agoTxt = agoMs ? _fmtAgo(agoMs) : 'recién';
+    const lastOk = sync.lastSuccess
+      ? `Último sync exitoso: ${_fmtAgo(Date.now() - sync.lastSuccess)}`
+      : 'Sin sync exitoso desde que abriste la app';
+    return `
+      <div class="meli-sync-strip error">
+        <div>
+          <div>⚠️ Falló la conexión con MELI — ${agoTxt}</div>
+          <div style="font-size:11px;opacity:0.75;margin-top:2px">${lastOk} · ${sync.errorMsg || 'Error desconocido'}</div>
+        </div>
+        <button class="meli-retry-btn" onclick="window._meliRetry()">Reintentar</button>
+      </div>`;
+  }
+
+  if (sync.lastSuccess) {
+    const ago = _fmtAgo(Date.now() - sync.lastSuccess);
+    return `<div class="meli-sync-strip ok">● MELI sincronizado — hace ${ago}</div>`;
+  }
+
+  return '';
+}
+
+function _renderEmptyState(sync) {
+  if (sync.hasAnyToken) {
+    const anyError = Object.values(sync.accounts).some(s => s === 'error' || s === 'no-token');
+    if (anyError) {
+      return `
+        <div class="empty-state">
+          <span>⚠️</span>
+          <p>No se pudieron cargar los pedidos<br>
+          <span style="font-size:13px;color:var(--orange)">MELI no está respondiendo — puede haber pedidos sin mostrar</span></p>
+          <button class="btn btn-ghost btn-sm" style="margin-top:4px" onclick="window._meliRetry()">Reintentar ahora</button>
+        </div>`;
+    }
+    if (sync.fetching) {
+      return `<div class="empty-state"><span>⟳</span><p>Cargando pedidos MELI...</p></div>`;
+    }
+  }
+  return `<div class="empty-state"><span>📦</span><p>No hay pedidos</p></div>`;
+}
+
+function _fmtAgo(ms) {
+  const min = Math.floor(ms / 60000);
+  if (min < 1)  return 'hace un momento';
+  if (min < 60) return `hace ${min} min`;
+  return `hace ${Math.floor(min / 60)}h`;
+}
+
+window._meliRetry = async () => {
+  renderPedidos();
+  await meliForceSync();
+};
+
 function renderPedidos() {
   const view = views.pedidos;
   const activeOrders = orders.filter(o => o.status !== 'entregado');
@@ -308,6 +375,9 @@ function renderPedidos() {
       ${pendientePE   > 0 ? `<button class="dispatch-btn pe-btn"   onclick="despacharTodos('PE')">🚚 Despachar todos PE (${pendientePE})</button>`   : ''}
     </div>` : '';
 
+  const meliSync  = getMeliSyncStatus();
+  const meliStrip = _renderMeliSyncStrip(meliSync);
+
   view.innerHTML = `
     <div class="filter-pills">
       ${['todos','preparar','pendiente','camino','entregado'].map(f => `
@@ -316,9 +386,10 @@ function renderPedidos() {
           ${f!=='todos'&&counts[f]?`<span style="opacity:.7"> ${counts[f]}</span>`:''}
         </button>`).join('')}
     </div>
+    ${meliStrip}
     ${dispatchStrip}
     ${filtered.length === 0
-      ? `<div class="empty-state"><span>📦</span><p>No hay pedidos</p></div>`
+      ? _renderEmptyState(meliSync)
       : filtered.map(o => renderOrderCard(o)).join('')}
   `;
   updateCountdowns();

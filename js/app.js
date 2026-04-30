@@ -10,6 +10,9 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { FIREBASE_CONFIG, AUTHORIZED_EMAIL } from './config.js';
 import { FLEX_ZONES } from './flex-zones.js';
+import {
+  meliInit, meliRenderConfig, getMeliSuggestions
+} from './meli.js';
 
 const fbApp = initializeApp(FIREBASE_CONFIG);
 const auth  = getAuth(fbApp);
@@ -102,6 +105,7 @@ function initApp() {
   setupDispatchAlerts();
   setupOfflineDetection();
   requestNotificationPermission();
+  meliInit(db, () => orders, window.marcarEntregado, renderConfig);
   navigateTo('pedidos');
 }
 
@@ -1033,11 +1037,12 @@ function renderConfig() {
     ? flexZones.filter(z => z.localidad.toLowerCase().includes(configSearch.toLowerCase()))
     : flexZones;
   view.innerHTML = `
-    <div class="section-title">Tabla de zonas FLEX</div>
+    ${meliRenderConfig()}
+    <div class="section-title" style="margin-top:4px">Tabla de zonas FLEX</div>
     <input class="form-input config-search" placeholder="Buscar localidad..."
       value="${configSearch}" oninput="filterConfig(this.value)">
     <div class="config-list">
-      ${filtered.map((z, idx) => `
+      ${filtered.map((z) => `
         <div class="config-row">
           <div class="config-localidad">
             <div class="config-localidad-name">${z.localidad}</div>

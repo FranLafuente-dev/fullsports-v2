@@ -125,6 +125,31 @@ body {
   font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 20px; display: none;
 }
 .offline-pill.show { display: block; }
+
+.meli-pill {
+  font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 20px;
+  display: inline-flex; align-items: center; gap: 4px;
+  transition: background 0.3s, color 0.3s;
+}
+.meli-pill.ok      { background: var(--green-light); color: var(--green); }
+.meli-pill.syncing { background: var(--blue-light);  color: var(--blue); }
+.meli-pill.error   { background: var(--orange-light);color: var(--orange); }
+
+.meli-reconnect-banner {
+  margin: 6px 16px 0; padding: 10px 14px; border-radius: var(--radius-sm);
+  background: var(--red-light); color: var(--red);
+  font-size: 13px; font-weight: 600;
+  display: none; align-items: center; justify-content: space-between; gap: 10px;
+  flex-shrink: 0;
+}
+.meli-reconnect-banner.show { display: flex; }
+.meli-reconnect-btn {
+  background: var(--red); color: #fff; border: none; border-radius: 8px;
+  padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+  font-family: inherit; white-space: nowrap; flex-shrink: 0;
+  transition: transform 0.15s var(--spring);
+}
+.meli-reconnect-btn:active { transform: scale(0.94); }
 .avatar {
   width: 32px; height: 32px; border-radius: 50%;
   background: linear-gradient(135deg, var(--blue), var(--purple));

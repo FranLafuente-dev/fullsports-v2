@@ -25,6 +25,8 @@ let formItems   = [];
 let formEnvio   = null;
 let currentUser = null;
 let alertTimers = [];
+let stockDirty  = false;
+let ordersLoaded = false;
 
 const PRODUCTOS        = ['Mostaza', 'Total Black', 'Media caña', 'Borcegos', 'Caramelo'];
 const TALLES           = [38, 39, 40, 41, 42, 43, 44, 45];
@@ -63,7 +65,7 @@ if (localStorage.getItem(LS_AUTH)) {
 
 document.getElementById('btn-google').addEventListener('click', async () => {
   try { await signInWithPopup(auth, new GoogleAuthProvider()); }
-  catch (e) { alert('Error al iniciar sesión: ' + e.message); }
+  catch (e) { await showAlertModal('Error al iniciar sesión: ' + e.message); }
 });
 
 onAuthStateChanged(auth, user => {
@@ -90,6 +92,7 @@ onAuthStateChanged(auth, user => {
 });
 
 function initApp() {
+  document.getElementById('loading-overlay').classList.add('show');
   listenOrders();
   listenStock();
   loadFlexZones();
@@ -114,25 +117,32 @@ function listenOrders() {
   const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
   onSnapshot(q, snap => {
     orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!ordersLoaded) {
+      ordersLoaded = true;
+      document.getElementById('loading-overlay').classList.remove('show');
+    }
     renderPedidos();
     renderCorte();
   });
 }
 
 function listenStock() {
-  // Carga desde localStorage de inmediato para evitar stock en blanco
   const cached = localStorage.getItem(LS_STOCK);
   if (cached) {
     try { stock = JSON.parse(cached); renderStock(); } catch(e) {}
   }
   onSnapshot(doc(db, 'meta', 'stock'), snap => {
     if (snap.exists()) {
-      stock = snap.data();
-      localStorage.setItem(LS_STOCK, JSON.stringify(stock));
-    } else if (!cached) {
+      const fsData = snap.data();
+      localStorage.setItem(LS_STOCK, JSON.stringify(fsData));
+      if (!stockDirty) {
+        stock = fsData;
+        renderStock();
+      }
+    } else if (!cached && !stockDirty) {
       stock = {};
+      renderStock();
     }
-    renderStock();
   });
 }
 
@@ -236,7 +246,7 @@ function setupDispatchAlerts() {
     const diff = target - now;
     if (diff > 0) alertTimers.push(setTimeout(() => showAlert(type, msg), diff));
   });
-  setInterval(updateCountdowns, 30000);
+  setInterval(updateCountdowns, 10000);
 }
 
 function showAlert(type, msg) {
@@ -392,6 +402,7 @@ function formatItemsShort(items) {
 window.marcarPreparado = async (id) => {
   const order = orders.find(o => o.id === id);
   await updateDoc(doc(db, 'orders', id), { status: 'pendiente' });
+  vibrate([50, 20, 50]);
   if (order?.items) {
     const newStock = { ...stock };
     order.items.forEach(item => {
@@ -399,6 +410,7 @@ window.marcarPreparado = async (id) => {
       newStock[key] = Math.max(0, (newStock[key] || 0) - 1);
     });
     stock = newStock;
+    stockDirty = false;
     localStorage.setItem(LS_STOCK, JSON.stringify(stock));
     try { await setDoc(doc(db, 'meta', 'stock'), newStock); } catch(e) {}
   }
@@ -406,27 +418,51 @@ window.marcarPreparado = async (id) => {
 
 window.marcarDespachado = async (id) => {
   await updateDoc(doc(db, 'orders', id), { status: 'camino', despachadoAt: serverTimestamp() });
+  vibrate([60]);
 };
 
 window.despacharTodos = async (tipoEnvio) => {
   const pendientes = orders.filter(o => o.status === 'pendiente' && o.tipoEnvio === tipoEnvio);
   if (!pendientes.length) return;
-  if (!confirm(`¿Despachar ${pendientes.length} pedido${pendientes.length>1?'s':''} ${tipoEnvio}?`)) return;
+  const ok = await showConfirm(
+    `¿Despachar ${pendientes.length} pedido${pendientes.length>1?'s':''} ${tipoEnvio}?`,
+    'Despachar todos'
+  );
+  if (!ok) return;
   for (const o of pendientes)
     await updateDoc(doc(db, 'orders', o.id), { status: 'camino', despachadoAt: serverTimestamp() });
-  showToast(`${pendientes.length} pedidos ${tipoEnvio} despachados`);
+  vibrate([80, 30, 80, 30, 80]);
+  showToast(`${pendientes.length} pedido${pendientes.length>1?'s':''} ${tipoEnvio} despachados ✓`);
 };
 
 window.marcarEntregado = async (id) => {
   await updateDoc(doc(db, 'orders', id), {
     status: 'entregado', deliveredAt: serverTimestamp(),
-    fechaEntrega: new Date().toLocaleDateString('es-AR')
+    fechaEntrega: new Date().toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })
   });
+  vibrate([60, 20, 60]);
 };
 
 window.deleteOrder = async (id) => {
-  if (!confirm('¿Eliminar este pedido?')) return;
+  const order = orders.find(o => o.id === id);
+  const nombre = order?.nombreComprador || 'este pedido';
+  const stockFue = order && ['pendiente', 'camino'].includes(order.status);
+  const aviso = stockFue ? `\n\n⚠️ El stock de ${order.items?.length || 0} par/es será repuesto.` : '';
+  const ok = await showConfirm(`¿Eliminar el pedido de ${nombre}?${aviso}`, 'Eliminar pedido');
+  if (!ok) return;
+  if (stockFue && order.items) {
+    const newStock = { ...stock };
+    order.items.forEach(item => {
+      const key = `${item.producto}_${item.talle}`;
+      newStock[key] = (newStock[key] || 0) + 1;
+    });
+    stock = newStock;
+    stockDirty = false;
+    localStorage.setItem(LS_STOCK, JSON.stringify(newStock));
+    try { await setDoc(doc(db, 'meta', 'stock'), newStock); } catch(e) {}
+  }
   await deleteDoc(doc(db, 'orders', id));
+  showToast('Pedido eliminado');
 };
 
 let deliveryOrderId = null;
@@ -497,7 +533,7 @@ document.querySelectorAll('[data-envio]').forEach(b => b.addEventListener('click
 
 const localidadInput = document.getElementById('f-localidad');
 const searchResults  = document.getElementById('localidad-results');
-localidadInput.addEventListener('input', () => {
+localidadInput.addEventListener('input', debounce(() => {
   const q = localidadInput.value.toLowerCase().trim();
   if (!q) { searchResults.classList.remove('show'); return; }
   const matches = flexZones.filter(z => z.localidad.toLowerCase().includes(q)).slice(0, 8);
@@ -508,7 +544,7 @@ localidadInput.addEventListener('input', () => {
       <div style="font-weight:700">$${fmt(z.importe)}</div>
     </div>`).join('');
   searchResults.classList.add('show');
-});
+}, 150));
 document.addEventListener('click', e => {
   if (!e.target.closest('.search-wrap')) searchResults.classList.remove('show');
 });
@@ -688,8 +724,8 @@ window.removeItem = (i) => { formItems.splice(i, 1); renderFormItems(); };
 // ── SUBMIT ────────────────────────────────────────────────────────────────────
 document.getElementById('btn-guardar-venta').addEventListener('click', async () => {
   const nombre = document.getElementById('f-nombre').value.trim();
-  if (!nombre)       { alert('Ingresá el nombre del comprador.'); return; }
-  if (!formItems.length) { alert('Agregá al menos un ítem.'); return; }
+  if (!nombre)           { await showAlertModal('Ingresá el nombre del comprador.'); return; }
+  if (!formItems.length) { await showAlertModal('Agregá al menos un ítem.'); return; }
 
   if (!editingOrderId) {
     const dups = orders.filter(o =>
@@ -697,7 +733,8 @@ document.getElementById('btn-guardar-venta').addEventListener('click', async () 
     );
     if (dups.length > 0) {
       const det = dups.map(o => `• ${o.nombreComprador} — ${formatItemsShort(o.items)} (${o.status})`).join('\n');
-      if (!confirm(`Ya existe un pedido activo a nombre de "${nombre}":\n\n${det}\n\n¿Cargar de todas formas?`)) return;
+      const ok = await showConfirm(`Ya existe un pedido activo:\n\n${det}\n\n¿Cargar de todas formas?`, `Pedido duplicado`);
+      if (!ok) return;
     }
   }
 
@@ -716,9 +753,9 @@ document.getElementById('btn-guardar-venta').addEventListener('click', async () 
   }
 
   if (currentTipoEnvio === 'FLEX') {
-    if (!formEnvio) { alert('Seleccioná la localidad FLEX.'); return; }
+    if (!formEnvio) { await showAlertModal('Seleccioná la localidad FLEX.'); return; }
     const venta = parseNum(document.getElementById('f-importe-flex').value);
-    if (!venta)  { alert('Ingresá el importe de venta.'); return; }
+    if (!venta || venta <= 0) { await showAlertModal('Ingresá el importe de venta.'); return; }
     base.importeVenta    = venta;
     base.flexLocalidad   = formEnvio.localidad;
     base.flexZona        = formEnvio.zona;
@@ -727,15 +764,16 @@ document.getElementById('btn-guardar-venta').addEventListener('click', async () 
     base.importeAcreditado = base.importeNeto;
   } else {
     const monto = parseNum(document.getElementById('f-importe-pe').value);
-    if (!monto) { alert('Ingresá el importe acreditado.'); return; }
+    if (!monto || monto <= 0) { await showAlertModal('Ingresá el importe acreditado.'); return; }
     base.importeAcreditado = monto;
   }
 
   if (!editingOrderId) {
-    const hoy    = new Date();
-    const manana = new Date(hoy); manana.setDate(hoy.getDate() + 1);
-    const fmtF   = d => d.toLocaleDateString('es-AR');
-    base.fechaEstimada = currentTipoEnvio === 'FLEX' ? fmtF(hoy) : fmtF(manana);
+    const tz   = { timeZone: 'America/Argentina/Buenos_Aires' };
+    const hoy  = new Date();
+    const mana = new Date(hoy); mana.setDate(hoy.getDate() + 1);
+    const fmtF = d => d.toLocaleDateString('es-AR', tz);
+    base.fechaEstimada = currentTipoEnvio === 'FLEX' ? fmtF(hoy) : fmtF(mana);
   }
 
   if (editingOrderId) {
@@ -744,6 +782,7 @@ document.getElementById('btn-guardar-venta').addEventListener('click', async () 
     base.createdAt = serverTimestamp();
     await addDoc(collection(db, 'orders'), base);
   }
+  vibrate([50, 20, 100]);
   closeSheet(sheetNueva);
 });
 
@@ -922,7 +961,7 @@ function renderWAText(text) {
 }
 
 window.copyText = (text) => {
-  navigator.clipboard.writeText(text).then(() => showToast('¡Copiado!'));
+  navigator.clipboard.writeText(text).then(() => { showToast('¡Copiado!'); vibrate([30]); });
 };
 
 window.marcarCortado = async (cuenta) => {
@@ -959,6 +998,7 @@ function renderStock() {
 
 window.adjustStock = (key, delta) => {
   stock[key] = Math.max(0, (stock[key] ?? 0) + delta);
+  stockDirty = true;
   const el = document.querySelector(`.stepper-val[data-key="${key}"]`);
   if (el) {
     el.textContent = stock[key];
@@ -968,13 +1008,19 @@ window.adjustStock = (key, delta) => {
 };
 
 window.saveStock = async () => {
-  if (!Object.keys(stock).length) { showToast('Sin stock cargado aún'); return; }
+  if (!Object.keys(stock).length) { await showAlertModal('Sin stock cargado aún.'); return; }
+  const btn = document.querySelector('[onclick="saveStock()"]');
+  if (btn) { btn.textContent = 'Guardando...'; btn.disabled = true; }
   localStorage.setItem(LS_STOCK, JSON.stringify(stock));
   try {
     await setDoc(doc(db, 'meta', 'stock'), stock);
+    stockDirty = false;
+    vibrate([40, 20, 40]);
     showToast('Stock guardado ✓');
   } catch(e) {
-    showToast('Guardado localmente ✓');
+    showToast('Guardado solo localmente ✓');
+  } finally {
+    if (btn) { btn.textContent = 'Guardar stock'; btn.disabled = false; }
   }
 };
 
@@ -1017,14 +1063,21 @@ window.openEditZone = (idx) => {
 };
 document.getElementById('btn-save-zone').addEventListener('click', async () => {
   if (editingZoneIdx === null) return;
-  flexZones[editingZoneIdx] = {
+  const prevZone = { ...flexZones[editingZoneIdx] };
+  const newZone  = {
     localidad: document.getElementById('ez-localidad').value.trim(),
     zona:      document.getElementById('ez-zona').value.trim(),
     importe:   parseInt(document.getElementById('ez-importe').value) || 0,
   };
-  await updateDoc(doc(db, 'meta', 'flexZones'), { zones: flexZones });
-  closeSheet(sheetEditZone);
-  renderConfig();
+  flexZones[editingZoneIdx] = newZone;
+  try {
+    await updateDoc(doc(db, 'meta', 'flexZones'), { zones: flexZones });
+    closeSheet(sheetEditZone);
+    renderConfig();
+  } catch(e) {
+    flexZones[editingZoneIdx] = prevZone;
+    showToast('Error al guardar zona');
+  }
 });
 
 // ── SHEETS ────────────────────────────────────────────────────────────────────
@@ -1051,3 +1104,44 @@ function showToast(msg) {
 function fmt(n)    { return Math.round(n || 0).toLocaleString('es-AR'); }
 function fmtDec(n) { return (n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function parseNum(str) { return parseFloat(String(str).replace(/\./g, '').replace(',', '.')) || 0; }
+
+function vibrate(pattern = [60]) { navigator.vibrate?.(pattern); }
+
+function debounce(fn, delay) {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); };
+}
+
+// ── MODAL (reemplaza alert / confirm del browser) ─────────────────────────────
+let _modalResolve = null;
+
+document.getElementById('modal-cancel').addEventListener('click', () => {
+  document.getElementById('modal-overlay').classList.remove('open');
+  _modalResolve?.(false);
+  _modalResolve = null;
+});
+document.getElementById('modal-ok').addEventListener('click', () => {
+  document.getElementById('modal-overlay').classList.remove('open');
+  _modalResolve?.(true);
+  _modalResolve = null;
+});
+
+function showConfirm(msg, title = '') {
+  const overlay = document.getElementById('modal-overlay');
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-msg').textContent   = msg;
+  document.getElementById('modal-cancel').style.display = '';
+  document.getElementById('modal-ok').textContent = 'Confirmar';
+  overlay.classList.add('open');
+  return new Promise(resolve => { _modalResolve = resolve; });
+}
+
+function showAlertModal(msg) {
+  const overlay = document.getElementById('modal-overlay');
+  document.getElementById('modal-title').textContent = '';
+  document.getElementById('modal-msg').textContent   = msg;
+  document.getElementById('modal-cancel').style.display = 'none';
+  document.getElementById('modal-ok').textContent = 'Aceptar';
+  overlay.classList.add('open');
+  return new Promise(resolve => { _modalResolve = resolve; });
+}

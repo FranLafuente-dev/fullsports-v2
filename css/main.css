@@ -806,6 +806,27 @@ input:-webkit-autofill:focus {
   background: rgba(255,255,255,0.22); border-radius: 10px; padding: 1px 6px; font-size: 11px;
 }
 
+/* ── CORTE CHECKBOXES + CONFIRM BANNER ──────────────────────────────────── */
+.corte-order-card {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 14px; cursor: pointer; user-select: none;
+  transition: opacity 0.15s;
+}
+.corte-order-card.deselected { opacity: 0.38; }
+.corte-check-icon {
+  font-size: 20px; line-height: 1.4; flex-shrink: 0; color: var(--blue);
+}
+.corte-order-card.deselected .corte-check-icon { color: var(--text-3); }
+.corte-order-info { flex: 1; min-width: 0; }
+.corte-confirm-banner {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: var(--card); border: 1.5px solid var(--blue);
+  border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px;
+  font-size: 14px; font-weight: 600; color: var(--blue);
+  box-shadow: 0 4px 14px rgba(56,189,248,0.18);
+}
+.corte-confirm-banner span { flex: 1; }
+
 /* ── FLEX QUINCENA ───────────────────────────────────────────────────────── */
 .flex-stat-row { display: flex; gap: 10px; margin-top: 10px; }
 .flex-stat-box {

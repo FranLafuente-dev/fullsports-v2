@@ -42,6 +42,8 @@ const STOCK_DEFAULTS = {
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let orders = [], stock = {}, zones = [...FLEX_ZONES], flexPeriods = [], flexManualRecords = [];
 let curView = 'pedidos', pedidosTab = 'preparar', corteCuenta = 'capi', flexFilter = null;
+let _corteSelectedIds = null; // null = todos seleccionados (lazy init)
+let _corteConfirmTimer = null;
 let pedidosSearch = '';
 let _prodSortTs = 0;
 let expandFlexPeriods = new Set();
@@ -1728,7 +1730,7 @@ function renderCorte(animDir='') {
     </div>`;
   v.innerHTML = `<div class="ped-main-content${animDir?' '+animDir:''}">${renderCorteBody()}</div>`;
 }
-window.setCorte = (c, dir='') => { corteCuenta=c; flexFilter=null; renderCorte(dir); };
+window.setCorte = (c, dir='') => { corteCuenta=c; flexFilter=null; _corteSelectedIds=null; document.getElementById('corte-confirm-banner')?.remove(); renderCorte(dir); };
 window.setFlexFilter = cuenta => { flexFilter = (flexFilter === cuenta ? null : cuenta); renderCorte(); };
 
 function renderCorteBody() {
@@ -1736,30 +1738,50 @@ function renderCorteBody() {
   if (corteCuenta==='flex')     return renderCorteFlexBody();
   const pend=orders.filter(o=>!o.corteDone&&o.cuenta===corteCuenta);
   if (!pend.length) return `<div class="empty-state"><span>✂️</span><p>Sin ventas pendientes de corte</p></div>`;
-  const tV=corteCuenta==='capi'?textoCapi(pend):textoEnano(pend);
-  const tC=textoCostos(pend,corteCuenta);
+  // Inicializar selección con todos los pedidos si es null
+  if (_corteSelectedIds===null) _corteSelectedIds=new Set(pend.map(o=>o.id));
+  // Limpiar IDs que ya no existen
+  _corteSelectedIds=new Set([..._corteSelectedIds].filter(id=>pend.some(o=>o.id===id)));
+  const sel=pend.filter(o=>_corteSelectedIds.has(o.id));
+  const allSel=sel.length===pend.length;
+  const noneSel=sel.length===0;
+  const tV=sel.length?(corteCuenta==='capi'?textoCapi(sel):textoEnano(sel)):'';
+  const tC=sel.length?textoCostos(sel,corteCuenta):'';
   return `
     <div class="card" style="padding:16px">
       <div class="section-title">Ventas ${corteCuenta.toUpperCase()}</div>
-      <div class="text-output" style="margin-top:8px">${renderWA(tV)}</div>
+      <div class="text-output" style="margin-top:8px">${noneSel?'<span style="color:var(--text-3)">Ningún pedido seleccionado</span>':renderWA(tV)}</div>
       <div class="card-act" style="margin-top:10px">
-        <button class="btn btn-ghost btn-sm" onclick="copyTxt(${esc(tV)})">📋 Copiar</button>
-        <button class="btn btn-primary btn-sm" onclick="doCortado('${corteCuenta}')">✓ Marcar cortado</button>
+        ${noneSel?'':
+          `<button class="btn btn-ghost btn-sm" onclick="copyAndConfirmCorte(${esc(tV)},'${corteCuenta}')">📋 Copiar</button>
+           <button class="btn btn-primary btn-sm" onclick="doCortadoSelected('${corteCuenta}')">✓ Marcar cortado</button>`}
       </div>
     </div>
     <div class="card" style="padding:16px">
       <div class="section-title">Costos ${corteCuenta.toUpperCase()}</div>
-      <div class="text-output" style="margin-top:8px">${renderWA(tC)}</div>
+      <div class="text-output" style="margin-top:8px">${noneSel?'<span style="color:var(--text-3)">—</span>':renderWA(tC)}</div>
       <div class="card-act" style="margin-top:10px">
-        <button class="btn btn-ghost btn-sm" onclick="copyTxt(${esc(tC)})">📋 Copiar</button>
+        ${noneSel?'':
+          `<button class="btn btn-ghost btn-sm" onclick="copyTxt(${esc(tC)})">📋 Copiar</button>`}
       </div>
     </div>
-    <div class="section-title">Incluidos (${pend.length})</div>
-    ${pend.map(o=>`<div class="card" style="padding:12px 14px">
-      <b>${o.nombreComprador}</b>
-      <div style="font-size:13px;color:var(--text-2)">${fmtItemsShort(o.items)}</div>
-      <div style="font-size:12px;color:var(--text-3)">$${fmt(o.importeAcreditado)}</div>
-    </div>`).join('')}`;
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <span>Pedidos (${sel.length}/${pend.length})</span>
+      <button class="btn-link" style="font-size:13px" onclick="${allSel?'deselectAllCorte()':'selectAllCorte()'}">
+        ${allSel?'Quitar todos':'Seleccionar todos'}
+      </button>
+    </div>
+    ${pend.map(o=>{
+      const isSel=_corteSelectedIds.has(o.id);
+      return `<div class="card corte-order-card${isSel?'':' deselected'}" onclick="toggleCorteOrder('${o.id}')">
+        <span class="corte-check-icon">${isSel?'☑':'☐'}</span>
+        <div class="corte-order-info">
+          <b>${o.nombreComprador}</b>
+          <div style="font-size:13px;color:var(--text-2)">${fmtItemsShort(o.items)}</div>
+          <div style="font-size:12px;color:var(--text-3)">$${fmt(o.importeAcreditado)}</div>
+        </div>
+      </div>`;
+    }).join('')}`;
 }
 
 function renderDepCorte() {
@@ -1846,9 +1868,55 @@ function fmtItemsCorte(items) {
 function renderWA(t){return t.replace(/\*(.*?)\*/g,'<b>$1</b>').replace(/\n/g,'<br>');}
 function esc(t){return JSON.stringify(t).replace(/"/g,'&quot;');}
 window.copyTxt = t=>navigator.clipboard.writeText(t).then(()=>toast('¡Copiado!')).catch(()=>toast('Error al copiar'));
+
+window.toggleCorteOrder = id => {
+  if (_corteSelectedIds===null) {
+    const pend=orders.filter(o=>!o.corteDone&&o.cuenta===corteCuenta);
+    _corteSelectedIds=new Set(pend.map(o=>o.id));
+  }
+  if (_corteSelectedIds.has(id)) _corteSelectedIds.delete(id);
+  else _corteSelectedIds.add(id);
+  renderCorte();
+};
+window.selectAllCorte = () => {
+  _corteSelectedIds=new Set(orders.filter(o=>!o.corteDone&&o.cuenta===corteCuenta).map(o=>o.id));
+  renderCorte();
+};
+window.deselectAllCorte = () => { _corteSelectedIds=new Set(); renderCorte(); };
+
+window.doCortadoSelected = async c => {
+  const ids=[...(_corteSelectedIds||[])];
+  if (!ids.length) { toast('Ningún pedido seleccionado'); return; }
+  const toCorte=orders.filter(o=>ids.includes(o.id));
+  toCorte.forEach(o=>mutateOrder(o.id,{corteDone:true}));
+  _corteSelectedIds=null;
+  document.getElementById('corte-confirm-banner')?.remove();
+  renderCorte();
+  try { for(const o of toCorte) await db.collection('orders').doc(o.id).update({corteDone:true}); toast('Cortado ✓'); }
+  catch(e) { toast('📶 Sin red — se sincronizará'); }
+};
+
+window.copyAndConfirmCorte = async (text, cuenta) => {
+  await navigator.clipboard.writeText(text).catch(()=>{});
+  toast('¡Copiado!');
+  const n=_corteSelectedIds?.size||0;
+  if (!n) return;
+  clearTimeout(_corteConfirmTimer);
+  let banner=document.getElementById('corte-confirm-banner');
+  if (!banner) { banner=document.createElement('div'); banner.id='corte-confirm-banner'; VIEWS.corte.prepend(banner); }
+  banner.className='corte-confirm-banner';
+  banner.innerHTML=`<span>¿Hacer corte de ${n} pedido${n>1?'s':''}?</span>
+    <button class="btn btn-primary btn-sm" onclick="doCortadoSelected('${cuenta}')">✓ Hacer corte</button>
+    <button class="btn btn-ghost btn-sm" onclick="this.closest('#corte-confirm-banner').remove()">Después</button>`;
+  _corteConfirmTimer=setTimeout(()=>document.getElementById('corte-confirm-banner')?.remove(), 20000);
+};
+
 window.doCortado = async c=>{
   const pend=orders.filter(o=>!o.corteDone&&o.cuenta===c);
-  pend.forEach(o=>mutateOrder(o.id,{corteDone:true})); renderCorte();
+  pend.forEach(o=>mutateOrder(o.id,{corteDone:true}));
+  _corteSelectedIds=null;
+  document.getElementById('corte-confirm-banner')?.remove();
+  renderCorte();
   try{for(const o of pend) await db.collection('orders').doc(o.id).update({corteDone:true}); toast('Cortado ✓');}
   catch(e){toast('📶 Sin red — se sincronizará');}
 };

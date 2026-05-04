@@ -569,11 +569,9 @@ async function syncMeli(showToast = true) {
     meliSuggestions = suggestions;
     updateMeliBadge();
 
-    // Notificar solo pedidos genuinamente nuevos (no los que ya estaban antes)
-    if (document.hidden) {
-      const newCount = suggestions.filter(s => !_lastNotifiedSugIds.has(s.meliOrderId)).length;
-      if (newCount > 0) _notifyNewOrders(newCount);
-    }
+    // Notificar pedidos genuinamente nuevos — siempre, incluso con la app abierta
+    const newCount = suggestions.filter(s => !_lastNotifiedSugIds.has(s.meliOrderId)).length;
+    if (newCount > 0) _notifyNewOrders(newCount);
     _lastNotifiedSugIds = new Set(suggestions.map(s => s.meliOrderId));
 
     await _updateTracking(all);

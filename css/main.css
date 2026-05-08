@@ -1211,6 +1211,30 @@ input:-webkit-autofill:focus {
 /* Animación de número al cambiar */
 .num-pop { animation: numPop 0.28s ease-out both; }
 
+/* ── LANDSCAPE (teléfono girado) ─────────────────────────────────────────── */
+@media (orientation: landscape) and (max-height: 500px) {
+  #topbar { padding: 5px 20px 4px; }
+  #topbar h1 { font-size: 18px; }
+  .topbar-date { display: none; }
+
+  .global-tabbar .pedidos-tabs .pedidos-tab { padding: 7px 4px 6px; }
+  .global-tabbar .corte-tabs { padding: 5px 14px; }
+  .corte-tab { padding: 7px; }
+
+  .view { padding: 8px 14px 72px; }
+  #view-stock { padding-bottom: 120px; }
+
+  .sheet { max-height: 96dvh; }
+  .sheet-handle { margin: 6px auto 0; }
+  .sheet-title { padding: 8px 20px 0; font-size: 16px; }
+  .sheet-body { padding: 10px 20px 14px; gap: 10px; }
+
+  .nueva-fab { bottom: 12px; }
+  .fab-radial-wrap { bottom: calc(12px + 36px); }
+  .stock-fab { bottom: calc(var(--nav-h) + 80px); }
+  #toast { bottom: 72px; }
+}
+
 /* Input focus */
 .form-input:focus {
   transform: translateY(-1px);

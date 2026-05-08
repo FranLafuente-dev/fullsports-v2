@@ -62,6 +62,7 @@ let editFlexId = null, addFlexCuenta = 'capi', addFlexZone = null;
 let editFlexCuenta = 'capi', editFlexZone = null;
 const LS_FLEX_MANUAL = 'fs_flexmanual_v1';
 let prepSort = 'default'; // 'default' = FLEX→PE más nuevo primero | 'modelo' = por modelo+talle
+let _savingVenta = false;
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const $loginScreen = document.getElementById('login-screen');
@@ -1615,6 +1616,11 @@ window.removeGroup = kEnc => {
 
 // ─── GUARDAR VENTA ────────────────────────────────────────────────────────────
 async function guardarVenta() {
+  if (_savingVenta) return;
+  _savingVenta = true;
+  try { await _guardarVentaInner(); } finally { _savingVenta = false; }
+}
+async function _guardarVentaInner() {
   const nombre=titleCase(V('f-nombre').value.trim());
   if (!nombre)           { toast('⚠️ Ingresá el nombre'); _flashInvalid(V('f-nombre')); return; }
   if (!formItems.length) { toast('⚠️ Agregá al menos un producto'); _flashInvalid(V('producto-btns')?.querySelector('.producto-btn')); return; }
@@ -1798,7 +1804,7 @@ function renderDepCorte() {
       </div>`).join('')}
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--sep)">
       <div class="dep-hdr" style="margin-bottom:6px">Stock restante tras preparar</div>
-      ${lines.map(l=>`<div class="dep-row"><span class="dep-n">${l.prod} ${displayTalle(l.talle)}</span><span class="dep-q">−${l.qty}</span><span class="dep-r ${l.queda===0?'cero':l.queda<=2?'bajo':'ok'}">queda ${l.queda}</span></div>`).join('')}
+      ${lines.map(l=>`<div class="dep-row"><span class="dep-n">${l.prod} ${displayTalle(l.talle)}</span><span class="dep-q">−${l.qty}</span><span class="dep-r ${l.queda<0?'negativo':l.queda===0?'cero':l.queda<=2?'bajo':'ok'}">queda ${l.queda}</span></div>`).join('')}
     </div>
     <button class="btn btn-primary" style="margin-top:14px;width:100%" onclick="copyTxt(${esc(txt)})">📋 Copiar lista</button>
   </div>
@@ -2598,7 +2604,7 @@ function renderStock() {
   v.innerHTML=PRODUCTOS.map(p=>{
     const talles=PRODUCTOS_FIJO[p]?PRODUCTOS_FIJO[p]:TALLES;
     const conStock=talles.filter(t=>(stock[`${p}_${t}`]??0)>0);
-    const sinStock=talles.filter(t=>(stock[`${p}_${t}`]??0)===0);
+    const sinStock=talles.filter(t=>(stock[`${p}_${t}`]??0)<=0);
     const pEnc=encodeURIComponent(p);
     const total=talles.reduce((s,t)=>s+(stock[`${p}_${t}`]??0),0);
     const totCls=total<0?'negativo':'';
@@ -2616,7 +2622,7 @@ function renderStock() {
 }
 
 function renderStockRow(p,t) {
-  const k=`${p}_${t}`,val=stock[k]??0,cls=val===0?'cero':val<=2?'bajo':'ok';
+  const k=`${p}_${t}`,val=stock[k]??0,cls=val<0?'negativo':val===0?'cero':val<=2?'bajo':'ok';
   return `<div class="stock-row ${cls}">
     <span class="stock-talle">${displayTalle(t)}</span>
     <div class="stock-stepper">

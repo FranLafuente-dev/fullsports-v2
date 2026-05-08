@@ -1004,20 +1004,18 @@ function orderCard(o) {
       <button class="card-icon-btn" onclick="event.stopPropagation();acEditar('${o.id}')">✏️</button>
       <button class="card-icon-btn danger" onclick="event.stopPropagation();acEliminar('${o.id}')">🗑</button>
     </div>`;
-    const etqIcon=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
     act=`<div class="card-act-preparar-row">
       <button class="btn btn-green btn-sm" style="flex:1" onclick="acPreparado('${o.id}',this)">✓ Preparado</button>
-      <button class="btn-etiqueta${o.etiqueta?' active':''}" onclick="acEtiqueta('${o.id}')" title="${o.etiqueta?'Etiqueta impresa':'Marcar como impreso'}">${etqIcon}</button>
+      <button class="btn-etiqueta${o.etiqueta?' active':''}" onclick="acEtiqueta('${o.id}')" title="${o.etiqueta?'Etiqueta impresa':'Marcar como impreso'}">🏷️</button>
     </div>`;
   } else if (o.status==='pendiente') {
-    const etqIcon=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
     act=`<div class="card-act-preparar-row">
       <div class="card-act" style="flex:1;margin-top:0">
         <button class="btn btn-primary btn-sm" onclick="acDespachado('${o.id}',this)">🚚 Despachar</button>
         <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️</button>
         <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
       </div>
-      <button class="btn-etiqueta${o.etiqueta?' active':''}" onclick="acEtiqueta('${o.id}')" title="${o.etiqueta?'Etiqueta impresa':'Marcar como impreso'}">${etqIcon}</button>
+      <button class="btn-etiqueta${o.etiqueta?' active':''}" onclick="acEtiqueta('${o.id}')" title="${o.etiqueta?'Etiqueta impresa':'Marcar como impreso'}">🏷️</button>
     </div>`;
   } else if (o.status==='camino') {
     act=`<div class="card-act">
@@ -1038,8 +1036,9 @@ function orderCard(o) {
     return `<div class="order-card${flexCls}" data-oid="${o.id}">
       <div class="order-header-wrap">
         <div style="flex:1;min-width:0">
-          <div class="order-header">${cb}${eb}${sc}${cd}${meliRef}</div>
+          <div class="order-header">${cb}${eb}${sc}${cd}</div>
           <div class="order-name">${o.nombreComprador}</div>
+          ${meliRef}
         </div>
         ${topAct}
       </div>
@@ -1048,8 +1047,9 @@ function orderCard(o) {
     </div>`;
   }
   return `<div class="order-card${flexCls}" data-oid="${o.id}">
-    <div class="order-header">${cb}${eb}${sc}${cd}${meliRef}</div>
+    <div class="order-header">${cb}${eb}${sc}${cd}</div>
     <div class="order-name">${o.nombreComprador}</div>
+    ${meliRef}
     <div class="order-items">${fmtItemsShort(o.items)}</div>
     ${fechaLine}${iibb}${monto}${act}
   </div>`;

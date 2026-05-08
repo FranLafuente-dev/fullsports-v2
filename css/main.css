@@ -1422,12 +1422,13 @@ input:-webkit-autofill:focus {
   width: 42px; height: 42px; border-radius: 10px; flex-shrink: 0;
   border: 2px solid var(--border-hi); background: var(--card);
   cursor: pointer; display: flex; align-items: center; justify-content: center;
-  transition: background 0.15s, border-color 0.15s, transform 0.1s var(--spring);
-  color: var(--text-3);
+  font-size: 20px; line-height: 1;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s var(--spring), filter 0.15s;
+  filter: grayscale(1) opacity(0.45);
 }
 .btn-etiqueta.active {
   background: var(--teal-light); border-color: var(--teal);
-  color: var(--teal);
+  filter: none;
 }
 .btn-etiqueta:active { transform: scale(0.86); }
 

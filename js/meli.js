@@ -623,7 +623,6 @@ window.syncMeli = syncMeli;
 // ─── ENRIQUECIMIENTO DE PAGOS (IIBB para ENANO) ──────────────────────────────
 async function _enrichFromPayment(orders) {
   await Promise.all(orders.map(async o => {
-    if (o._account !== 'enano') return; // IIBB es retención provincial, aplica a ENANO
     const payId = o.payments?.[0]?.id;
     if (!payId) return;
     try {
@@ -744,9 +743,9 @@ function _detectShipping(order) {
 function _getBuyerName(order) {
   const b = order.buyer;
   if (b?.first_name) return titleCase(`${b.first_name} ${b.last_name || ''}`.trim());
-  if (b?.nickname)   return titleCase(b.nickname.trim());
   const rec = order.shipping?.receiver_address;
   if (rec?.receiver_name) return titleCase(rec.receiver_name.trim());
+  if (b?.nickname) return titleCase(b.nickname.trim());
   return '';
 }
 function _getLocality(order) {

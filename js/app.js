@@ -348,12 +348,17 @@ function updateTopbarDate() {
 }
 
 
+let _stockFabTimer = null;
 function setupStockScrollFab() {
   const view = VIEWS.stock;
   const fab  = document.getElementById('stock-fab');
   if (!view || !fab) return;
   view.addEventListener('scroll', () => {
-    fab.classList.toggle('compact', view.scrollTop > 40);
+    clearTimeout(_stockFabTimer);
+    const scrolled = view.scrollTop > 40;
+    fab.classList.toggle('compact', scrolled);
+    // Si volvió arriba, agendar compactación automática en 4s
+    if (!scrolled) _stockFabTimer = setTimeout(() => fab.classList.add('compact'), 4000);
   }, { passive: true });
 }
 
@@ -429,7 +434,16 @@ function navInternal(name) {
   } else {
     titleEl.textContent = titleText;
   }
-  if ($stockFab) $stockFab.classList.toggle('visible', name === 'stock');
+  if ($stockFab) {
+    $stockFab.classList.toggle('visible', name === 'stock');
+    if (name === 'stock') {
+      clearTimeout(_stockFabTimer);
+      $stockFab.classList.remove('compact');
+      _stockFabTimer = setTimeout(() => $stockFab.classList.add('compact'), 3000);
+    } else {
+      clearTimeout(_stockFabTimer);
+    }
+  }
   document.getElementById('pedidos-tabbar')?.classList.toggle('show', name === 'pedidos');
   document.getElementById('corte-tabbar')?.classList.toggle('show', name === 'corte');
   document.getElementById('pedidos-search-bar')?.classList.toggle('hidden', name !== 'pedidos');
@@ -437,14 +451,16 @@ function navInternal(name) {
 function navigateTo(name) { navInternal(name); history.pushState({ view:name }, ''); }
 
 function setupSwipe() {
-  let x0=0, y0=0;
+  let x0=0, y0=0, t0=0;
   const mc = document.getElementById('main-content');
-  mc.addEventListener('touchstart', e => { x0=e.touches[0].clientX; y0=e.touches[0].clientY; }, { passive:true });
+  mc.addEventListener('touchstart', e => { x0=e.touches[0].clientX; y0=e.touches[0].clientY; t0=Date.now(); }, { passive:true });
   mc.addEventListener('touchend', e => {
     const dx = e.changedTouches[0].clientX - x0;
     const dy = e.changedTouches[0].clientY - y0;
-    // 200px para secciones principales — gestos muy pronunciados y casi horizontales
-    if (Math.abs(dx) < 200 || Math.abs(dy) > Math.abs(dx) * 0.22) return;
+    const vx = Math.abs(dx) / Math.max(Date.now()-t0, 1); // px/ms
+    // Flick rápido (>0.5px/ms): requiere 80px. Gesto lento: 180px.
+    const min = vx > 0.5 ? 80 : 180;
+    if (Math.abs(dx) < min || Math.abs(dy) > Math.abs(dx) * 0.5) return;
     const i = TABS.indexOf(curView);
     if (dx < 0 && i < TABS.length-1) navigateTo(TABS[i+1]);
     if (dx > 0 && i > 0) navigateTo(TABS[i-1]);
@@ -1343,11 +1359,11 @@ function openNuevaSheet(data=null) {
   renderFormItems();
 
   if (typeof meliResetSelected === 'function') meliResetSelected();
-  if (typeof renderMeliSuggestions === 'function') renderMeliSuggestions();
   openSheet($shNueva);
   requestAnimationFrame(() => {
     const body = $shNueva.querySelector('.sheet-body');
     if (body) body.scrollTop = 0;
+    if (typeof renderMeliSuggestions === 'function') renderMeliSuggestions();
   });
   if (!editingId) {
     setTimeout(() => V('f-nombre')?.focus(), 380);
@@ -1754,22 +1770,19 @@ function renderCorteBody() {
   const tV=sel.length?(corteCuenta==='capi'?textoCapi(sel):textoEnano(sel)):'';
   const tC=sel.length?textoCostos(sel,corteCuenta):'';
   return `
+    ${noneSel?'':
+      `<div class="corte-sticky-act">
+        <button class="btn btn-ghost btn-sm" onclick="copyAndConfirmCorte(${esc(tV)},'${corteCuenta}')">📋 Copiar</button>
+        <button class="btn btn-primary btn-sm" onclick="doCortadoSelected('${corteCuenta}')">✓ Marcar cortado</button>
+        <button class="btn btn-ghost btn-sm" onclick="copyTxt(${esc(tC)})" style="margin-left:auto">💰 Costos</button>
+      </div>`}
     <div class="card" style="padding:16px">
       <div class="section-title">Ventas ${corteCuenta.toUpperCase()}</div>
       <div class="text-output" style="margin-top:8px">${noneSel?'<span style="color:var(--text-3)">Ningún pedido seleccionado</span>':renderWA(tV)}</div>
-      <div class="card-act" style="margin-top:10px">
-        ${noneSel?'':
-          `<button class="btn btn-ghost btn-sm" onclick="copyAndConfirmCorte(${esc(tV)},'${corteCuenta}')">📋 Copiar</button>
-           <button class="btn btn-primary btn-sm" onclick="doCortadoSelected('${corteCuenta}')">✓ Marcar cortado</button>`}
-      </div>
     </div>
     <div class="card" style="padding:16px">
       <div class="section-title">Costos ${corteCuenta.toUpperCase()}</div>
       <div class="text-output" style="margin-top:8px">${noneSel?'<span style="color:var(--text-3)">—</span>':renderWA(tC)}</div>
-      <div class="card-act" style="margin-top:10px">
-        ${noneSel?'':
-          `<button class="btn btn-ghost btn-sm" onclick="copyTxt(${esc(tC)})">📋 Copiar</button>`}
-      </div>
     </div>
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <span>Pedidos (${sel.length}/${pend.length})</span>
@@ -2435,11 +2448,11 @@ function setupAddFlexSheet() {
     let hits=[];
     inp.addEventListener('input',()=>{
       const q=normalizeStr(inp.value.trim());
-      if (!q) { sel.classList.remove('show'); return; }
+      if (!q) { sel.classList.remove('show','results-mode'); return; }
       hits=zones.filter(z=>normalizeStr(z.localidad).includes(q)).slice(0,6);
-      if (!hits.length) { sel.classList.remove('show'); return; }
-      sel.innerHTML=hits.map((z,i)=>`<div class="search-result-item" data-zi="${i}"><div class="sri-name">${z.localidad}</div><div class="sri-precio">$${fmt(z.importe)}</div></div>`).join('');
-      sel.classList.add('show');
+      if (!hits.length) { sel.classList.remove('show','results-mode'); return; }
+      sel.innerHTML=hits.map((z,i)=>`<div class="search-result-item" data-zi="${i}"><div><div class="sri-name">${z.localidad}</div><div class="search-result-zona">${z.zona}</div></div><div class="sri-precio">$${fmt(z.importe)}</div></div>`).join('');
+      sel.classList.add('show','results-mode');
       sel.querySelectorAll('.search-result-item').forEach(el=>{
         el.addEventListener('mousedown',e=>{e.preventDefault();_pickAddZone(hits[+el.dataset.zi],inp,sel);});
         el.addEventListener('touchstart',e=>{e.preventDefault();_pickAddZone(hits[+el.dataset.zi],inp,sel);},{passive:false});
@@ -2488,6 +2501,7 @@ function setupAddFlexSheet() {
 
 function _pickAddZone(z, inp, sel) {
   addFlexZone=z; inp.value='';
+  sel.classList.remove('results-mode');
   sel.innerHTML=`<div><div class="flex-selected-name">${z.localidad}</div><div style="font-size:11px;color:var(--text-3)">${z.zona}</div></div><div class="flex-selected-importe">−$${fmt(z.importe)}</div>`;
   V('af-costo-wrap').style.display='block';
   V('af-costo-display').textContent=`$${fmt(z.importe)}`;
@@ -2506,14 +2520,15 @@ function setupEditFlexSheet() {
     let hits=[];
     inp.addEventListener('input',()=>{
       const q=normalizeStr(inp.value.trim());
-      if (!q) return;
+      if (!q) { sel.classList.remove('show','results-mode'); return; }
       hits=zones.filter(z=>normalizeStr(z.localidad).includes(q)).slice(0,6);
-      if (!hits.length) return;
-      sel.innerHTML=hits.map((z,i)=>`<div class="search-result-item" data-zi="${i}"><div class="sri-name">${z.localidad}</div><div class="sri-precio">$${fmt(z.importe)}</div></div>`).join('');
-      sel.classList.add('show');
+      if (!hits.length) { sel.classList.remove('show','results-mode'); return; }
+      sel.innerHTML=hits.map((z,i)=>`<div class="search-result-item" data-zi="${i}"><div><div class="sri-name">${z.localidad}</div><div class="search-result-zona">${z.zona}</div></div><div class="sri-precio">$${fmt(z.importe)}</div></div>`).join('');
+      sel.classList.add('show','results-mode');
       sel.querySelectorAll('.search-result-item').forEach(el=>{
         const pick=e=>{e.preventDefault();const z=hits[+el.dataset.zi];
           editFlexZone=z; inp.value='';
+          sel.classList.remove('results-mode');
           sel.innerHTML=`<div><div class="flex-selected-name">${z.localidad}</div><div style="font-size:11px;color:var(--text-3)">${z.zona}</div></div><div class="flex-selected-importe">−$${fmt(z.importe)}</div>`;
           sel.classList.add('show');
           V('ef-importe').value=z.importe;
@@ -2613,10 +2628,7 @@ function renderStock() {
       ${conStock.length
         ? conStock.map(t=>renderStockRow(p,t)).join('')
         : `<div class="hint-text" style="padding:6px 0;color:var(--red)">Sin stock disponible</div>`}
-      ${sinStock.length?`
-        <button class="zero-toggle btn-link" onclick="toggleZeroStock('${pEnc}')">▼ Sin stock (${sinStock.length})</button>
-        <div id="zero-${pEnc}" class="zero-section" style="display:none">${sinStock.map(t=>renderStockRow(p,t)).join('')}</div>
-      `:''}
+      ${sinStock.length?`<div class="zero-section">${sinStock.map(t=>renderStockRow(p,t)).join('')}</div>`:''}
     </div>`;
   }).join('');
 }
@@ -2634,13 +2646,7 @@ function renderStockRow(p,t) {
   </div>`;
 }
 
-window.toggleZeroStock=pEnc=>{
-  const div=document.getElementById(`zero-${pEnc}`); if(!div) return;
-  const btn=div.previousElementSibling;
-  const show=div.style.display==='none';
-  div.style.display=show?'block':'none';
-  if(btn) btn.textContent=show?'▲ Ocultar agotados':`▼ Sin stock (${div.querySelectorAll('.stock-row').length})`;
-};
+
 function animNumPop(el) {
   if (!el) return;
   el.classList.remove('num-pop');

@@ -1738,7 +1738,9 @@ function renderCorte(animDir='') {
       <button class="corte-tab${corteCuenta==='enano'?' active':''}" onclick="setCorte('enano')">ENANO${nE?` <span class="corte-count">${nE}</span>`:''}</button>
       <button class="corte-tab${corteCuenta==='flex'?' active':''}"  onclick="setCorte('flex')">FLEX $</button>
     </div>`;
+  const prevBanner = document.getElementById('corte-confirm-banner');
   v.innerHTML = `<div class="ped-main-content${animDir?' '+animDir:''}">${renderCorteBody()}</div>`;
+  if (prevBanner) v.prepend(prevBanner);
 }
 window.setCorte = (c, dir='') => { corteCuenta=c; flexFilter=null; _corteSelectedIds=null; document.getElementById('corte-confirm-banner')?.remove(); renderCorte(dir); };
 window.setFlexFilter = cuenta => { flexFilter = (flexFilter === cuenta ? null : cuenta); renderCorte(); };

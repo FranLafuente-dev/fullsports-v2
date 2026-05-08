@@ -63,6 +63,8 @@ let editFlexCuenta = 'capi', editFlexZone = null;
 const LS_FLEX_MANUAL = 'fs_flexmanual_v1';
 let prepSort = 'default'; // 'default' = FLEX→PE más nuevo primero | 'modelo' = por modelo+talle
 let _savingVenta = false;
+let _stockExpandZeroTalles = new Set();
+let _stockExpandZeroProds = new Set();
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const $loginScreen = document.getElementById('login-screen');
@@ -348,18 +350,8 @@ function updateTopbarDate() {
 }
 
 
-let _stockFabTimer = null;
 function setupStockScrollFab() {
-  const view = VIEWS.stock;
-  const fab  = document.getElementById('stock-fab');
-  if (!view || !fab) return;
-  view.addEventListener('scroll', () => {
-    clearTimeout(_stockFabTimer);
-    const scrolled = view.scrollTop > 40;
-    fab.classList.toggle('compact', scrolled);
-    // Si volvió arriba, agendar compactación automática en 4s
-    if (!scrolled) _stockFabTimer = setTimeout(() => fab.classList.add('compact'), 4000);
-  }, { passive: true });
+  // FAB siempre compacto — sin lógica de expand por scroll
 }
 
 let uiOk = false;
@@ -436,13 +428,7 @@ function navInternal(name) {
   }
   if ($stockFab) {
     $stockFab.classList.toggle('visible', name === 'stock');
-    if (name === 'stock') {
-      clearTimeout(_stockFabTimer);
-      $stockFab.classList.remove('compact');
-      _stockFabTimer = setTimeout(() => $stockFab.classList.add('compact'), 3000);
-    } else {
-      clearTimeout(_stockFabTimer);
-    }
+    if (name === 'stock') $stockFab.classList.add('compact');
   }
   document.getElementById('pedidos-tabbar')?.classList.toggle('show', name === 'pedidos');
   document.getElementById('corte-tabbar')?.classList.toggle('show', name === 'corte');
@@ -469,17 +455,19 @@ function setupSwipe() {
 
 function setupSheetDrag() {
   document.querySelectorAll('.sheet').forEach(sh => {
-    let startY = 0, startScroll = 0, isDragging = false;
+    let startX = 0, startY = 0, startScroll = 0, isDragging = false;
     sh.addEventListener('touchstart', e => {
       const body = sh.querySelector('.sheet-body');
+      startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       startScroll = body ? body.scrollTop : 0;
       isDragging = true;
     }, { passive:true });
     sh.addEventListener('touchend', e => {
       if (!isDragging) return; isDragging = false;
+      const dx = e.changedTouches[0].clientX - startX;
       const dy = e.changedTouches[0].clientY - startY;
-      // Solo cierra si el body estaba al tope del scroll y el gesto es suficientemente largo
+      if (dx > 80 && Math.abs(dy) < Math.abs(dx) * 0.6) { closeSheet(sh); return; }
       if (dy > 130 && startScroll < 8) closeSheet(sh);
     }, { passive:true });
   });
@@ -1770,19 +1758,17 @@ function renderCorteBody() {
   const tV=sel.length?(corteCuenta==='capi'?textoCapi(sel):textoEnano(sel)):'';
   const tC=sel.length?textoCostos(sel,corteCuenta):'';
   return `
-    ${noneSel?'':
-      `<div class="corte-sticky-act">
-        <button class="btn btn-ghost btn-sm" onclick="copyAndConfirmCorte(${esc(tV)},'${corteCuenta}')">📋 Copiar</button>
-        <button class="btn btn-primary btn-sm" onclick="doCortadoSelected('${corteCuenta}')">✓ Marcar cortado</button>
-        <button class="btn btn-ghost btn-sm" onclick="copyTxt(${esc(tC)})" style="margin-left:auto">💰 Costos</button>
-      </div>`}
     <div class="card" style="padding:16px">
       <div class="section-title">Ventas ${corteCuenta.toUpperCase()}</div>
       <div class="text-output" style="margin-top:8px">${noneSel?'<span style="color:var(--text-3)">Ningún pedido seleccionado</span>':renderWA(tV)}</div>
+      ${noneSel?'':
+        `<button class="btn btn-ghost btn-sm" style="margin-top:10px" onclick="copyAndConfirmCorte(${esc(tV)},'${corteCuenta}')">📋 Copiar</button>`}
     </div>
     <div class="card" style="padding:16px">
       <div class="section-title">Costos ${corteCuenta.toUpperCase()}</div>
       <div class="text-output" style="margin-top:8px">${noneSel?'<span style="color:var(--text-3)">—</span>':renderWA(tC)}</div>
+      ${noneSel?'':
+        `<button class="btn btn-ghost btn-sm" style="margin-top:10px" onclick="copyTxt(${esc(tC)})">📋 Copiar costos</button>`}
     </div>
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <span>Pedidos (${sel.length}/${pend.length})</span>
@@ -2614,23 +2600,55 @@ function setupPedidosSearch() {
 }
 
 // ─── STOCK VIEW ───────────────────────────────────────────────────────────────
+window.toggleStockZeroTalles = p => {
+  if (_stockExpandZeroTalles.has(p)) _stockExpandZeroTalles.delete(p); else _stockExpandZeroTalles.add(p);
+  renderStock();
+};
+window.toggleStockZeroProd = p => {
+  if (_stockExpandZeroProds.has(p)) _stockExpandZeroProds.delete(p); else _stockExpandZeroProds.add(p);
+  renderStock();
+};
 function renderStock() {
   const v=VIEWS.stock; if (!v) return;
-  v.innerHTML=PRODUCTOS.map(p=>{
+  const conStockProds=[], sinStockProds=[];
+  PRODUCTOS.forEach(p=>{
+    const talles=PRODUCTOS_FIJO[p]?PRODUCTOS_FIJO[p]:TALLES;
+    talles.some(t=>(stock[`${p}_${t}`]??0)>0) ? conStockProds.push(p) : sinStockProds.push(p);
+  });
+  const renderProd = p => {
     const talles=PRODUCTOS_FIJO[p]?PRODUCTOS_FIJO[p]:TALLES;
     const conStock=talles.filter(t=>(stock[`${p}_${t}`]??0)>0);
     const sinStock=talles.filter(t=>(stock[`${p}_${t}`]??0)<=0);
-    const pEnc=encodeURIComponent(p);
     const total=talles.reduce((s,t)=>s+(stock[`${p}_${t}`]??0),0);
     const totCls=total<0?'negativo':'';
+    const pe=esc(p);
+    if (conStock.length===0) {
+      const open=_stockExpandZeroProds.has(p);
+      return `<div class="card stock-product-card stock-zero-prod">
+        <div class="stock-product-name stock-name-toggle" onclick="toggleStockZeroProd(${pe})">
+          ${p}
+          <span style="display:flex;align-items:center;gap:6px">
+            <span class="stock-product-total ${totCls}">${total}</span>
+            <span style="font-size:11px;color:var(--text-3)">${open?'▲':'▼'}</span>
+          </span>
+        </div>
+        ${open?sinStock.map(t=>renderStockRow(p,t)).join(''):''}
+      </div>`;
+    }
+    const showZero=_stockExpandZeroTalles.has(p);
     return `<div class="card stock-product-card">
       <div class="stock-product-name">${p}<span class="stock-product-total ${totCls}">${total}</span></div>
-      ${conStock.length
-        ? conStock.map(t=>renderStockRow(p,t)).join('')
-        : `<div class="hint-text" style="padding:6px 0;color:var(--red)">Sin stock disponible</div>`}
-      ${sinStock.length?`<div class="zero-section">${sinStock.map(t=>renderStockRow(p,t)).join('')}</div>`:''}
+      ${conStock.map(t=>renderStockRow(p,t)).join('')}
+      ${sinStock.length?`
+        <button class="btn-link stock-zero-toggle" onclick="toggleStockZeroTalles(${pe})">
+          ${showZero?'▲ Ocultar sin stock':'▼ Mostrar sin stock ('+sinStock.length+')'}
+        </button>
+        ${showZero?`<div class="zero-section">${sinStock.map(t=>renderStockRow(p,t)).join('')}</div>`:''}
+      `:''}
     </div>`;
-  }).join('');
+  };
+  v.innerHTML=conStockProds.map(renderProd).join('')+
+    (sinStockProds.length?`<div class="stock-zero-separator"></div>${sinStockProds.map(renderProd).join('')}`:'');
 }
 
 function renderStockRow(p,t) {

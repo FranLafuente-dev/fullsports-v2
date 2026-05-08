@@ -565,8 +565,10 @@ async function syncMeli(showToast = true) {
       candidates.push(o);
     }
     if (candidates.length) {
-      await _enrichFromShipment(candidates);
-      await _enrichFromPayment(candidates);
+      await Promise.all([
+        _enrichFromShipment(candidates),
+        _enrichFromPayment(candidates),
+      ]);
     }
     const suggestions = candidates.map(o => _buildSuggestion(o));
     meliSuggestions = suggestions;
@@ -1058,7 +1060,8 @@ function _fillFormFromSuggestion(sug) {
       if (sug.importe) meliSetField('f-importe-pe', sug.importe, '$' + fmt(sug.importe));
     }
   } else if (sug.importe) {
-    // Sin localidad reconocida — igual pre-llenar importe
+    // Sin localidad reconocida — igual pre-llenar importe y tipo de envío
+    setEnvio(sug.tipoEnvio || 'PE');
     if (sug.tipoEnvio === 'FLEX') {
       meliSetField('f-importe-flex', sug.importe, '$' + fmt(sug.importe));
       updateNeto();

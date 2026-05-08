@@ -1010,10 +1010,14 @@ function orderCard(o) {
       <button class="btn-etiqueta${o.etiqueta?' active':''}" onclick="acEtiqueta('${o.id}')" title="${o.etiqueta?'Etiqueta impresa':'Marcar como impreso'}">${etqIcon}</button>
     </div>`;
   } else if (o.status==='pendiente') {
-    act=`<div class="card-act">
-      <button class="btn btn-primary btn-sm" onclick="acDespachado('${o.id}',this)">🚚 Despachar</button>
-      <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️</button>
-      <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
+    const etqIcon=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+    act=`<div class="card-act-preparar-row">
+      <div class="card-act" style="flex:1;margin-top:0">
+        <button class="btn btn-primary btn-sm" onclick="acDespachado('${o.id}',this)">🚚 Despachar</button>
+        <button class="btn btn-ghost btn-sm" onclick="acEditar('${o.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="acEliminar('${o.id}')">🗑</button>
+      </div>
+      <button class="btn-etiqueta${o.etiqueta?' active':''}" onclick="acEtiqueta('${o.id}')" title="${o.etiqueta?'Etiqueta impresa':'Marcar como impreso'}">${etqIcon}</button>
     </div>`;
   } else if (o.status==='camino') {
     act=`<div class="card-act">
@@ -1100,18 +1104,15 @@ window.acEtiqueta = async id => {
   catch(e) { toast('📶 Sin red — se sincronizará'); }
 };
 
-window.toggleEditEtiqueta = function() {
+window.desmarcarPreparado = function() {
   if (!editingId) return;
-  const o = orders.find(o => o.id === editingId); if (!o) return;
-  const newVal = !o.etiqueta;
-  mutateOrder(editingId, { etiqueta: newVal });
-  renderPedidos();
-  const btn = document.getElementById('btn-edit-etiqueta');
-  if (btn) {
-    btn.textContent = newVal ? '✓ Etiqueta impresa' : 'Sin imprimir';
-    btn.classList.toggle('active', newVal);
-  }
-  db.collection('orders').doc(editingId).update({ etiqueta: newVal }).catch(() => {});
+  const o = orders.find(o => o.id === editingId); if (!o || o.status !== 'pendiente') return;
+  mutateOrder(editingId, { status: 'preparar' });
+  renderPedidos(); renderCorte();
+  db.collection('orders').doc(editingId).update({ status: 'preparar' }).catch(() => {});
+  // Cerrar el sheet tras desmarcar
+  closeSheet($shNueva);
+  toast('Pedido desmarcado como preparado');
 };
 
 window.acDespachado = async (id, btn) => {
@@ -1399,18 +1400,11 @@ function openNuevaSheet(data=null) {
   renderFormItems();
 
   if (typeof meliResetSelected === 'function') meliResetSelected();
-  // Toggle etiqueta — solo visible al editar
-  const etqWrap = document.getElementById('edit-etiqueta-wrap');
-  const etqBtn  = document.getElementById('btn-edit-etiqueta');
-  if (etqWrap && etqBtn) {
-    if (editingId) {
-      const oEtq = orders.find(o => o.id === editingId);
-      etqWrap.style.display = '';
-      etqBtn.textContent = oEtq?.etiqueta ? '✓ Etiqueta impresa' : 'Sin imprimir';
-      etqBtn.classList.toggle('active', !!oEtq?.etiqueta);
-    } else {
-      etqWrap.style.display = 'none';
-    }
+  // Botón "Desmarcar como preparado" — solo visible al editar un pedido en estado 'pendiente'
+  const statusWrap = document.getElementById('edit-status-wrap');
+  if (statusWrap) {
+    const oStatus = editingId ? orders.find(o => o.id === editingId) : null;
+    statusWrap.style.display = (editingId && oStatus?.status === 'pendiente') ? '' : 'none';
   }
   openSheet($shNueva);
   requestAnimationFrame(() => {

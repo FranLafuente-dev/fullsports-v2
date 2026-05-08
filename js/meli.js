@@ -5,7 +5,7 @@
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const MELI_AUTH_URL    = 'https://auth.mercadolibre.com.ar/authorization';
 const MELI_WORKER_BASE = 'https://meli-test.lafuentefranciscolucas.workers.dev';
-const MELI_POLL_MS     = 15 * 60 * 1000;
+const MELI_POLL_MS     = 5 * 60 * 1000;
 const LS_MELI_TOKENS   = 'fs_meli_tokens_v1';
 const LS_MELI_IGNORED  = 'fs_meli_ignored_v1';
 const LS_MELI_APPID    = 'fs_meli_appid_v1';

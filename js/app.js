@@ -84,6 +84,24 @@ const VIEWS = {
   config:  document.getElementById('view-config'),
 };
 
+// ─── SERVICE WORKER — mensaje desde SW para sync en background ───────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data?.type === 'MELI_SYNC' && typeof syncMeli === 'function') syncMeli(false);
+  });
+}
+
+async function _registerPeriodicSync() {
+  if (!('serviceWorker' in navigator)) return;
+  const reg = await navigator.serviceWorker.ready.catch(() => null);
+  if (!reg || !('periodicSync' in reg)) return;
+  try {
+    const perm = await navigator.permissions.query({ name: 'periodic-background-sync' });
+    if (perm.state !== 'granted') return;
+    await reg.periodicSync.register('meli-check', { minInterval: 5 * 60 * 1000 });
+  } catch(e) {}
+}
+
 // ─── ARRANQUE — sesión persiste, login screen empieza oculta ─────────────────
 auth.onAuthStateChanged(user => {
   if (user) {
@@ -376,6 +394,7 @@ function initUI() {
   setupCorteTabSwipe();
   setupPedidosSearch();
   requestNotificationPermission();
+  _registerPeriodicSync();
   navigateTo('pedidos');
   setTimeout(checkAutoArchiveEnano, 1000);
 }
@@ -456,20 +475,24 @@ function setupSwipe() {
 function setupSheetDrag() {
   document.querySelectorAll('.sheet').forEach(sh => {
     let startX = 0, startY = 0, startScroll = 0, isDragging = false;
+    // capture:true garantiza que capturamos el touch antes de que inner elements llamen stopPropagation
     sh.addEventListener('touchstart', e => {
       const body = sh.querySelector('.sheet-body');
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       startScroll = body ? body.scrollTop : 0;
       isDragging = true;
-    }, { passive:true });
+    }, { capture: true, passive: true });
+    sh.addEventListener('touchcancel', () => { isDragging = false; }, { capture: true, passive: true });
     sh.addEventListener('touchend', e => {
       if (!isDragging) return; isDragging = false;
       const dx = e.changedTouches[0].clientX - startX;
       const dy = e.changedTouches[0].clientY - startY;
-      if (dx > 80 && Math.abs(dy) < Math.abs(dx) * 0.6) { closeSheet(sh); return; }
+      // Swipe derecha: cierra el sheet (umbral 60px, mayormente horizontal)
+      if (dx > 60 && Math.abs(dy) < Math.abs(dx) * 0.65) { closeSheet(sh); return; }
+      // Swipe abajo: cierra si estaba al tope del scroll
       if (dy > 130 && startScroll < 8) closeSheet(sh);
-    }, { passive:true });
+    }, { capture: true, passive: true });
   });
 }
 

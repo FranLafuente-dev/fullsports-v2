@@ -1,8 +1,8 @@
-// FullSports SW v23 — network first + cache fallback + notificationclick
-const CACHE = 'fs-v23';
+// FullSports SW v24 — + periodic background sync + meli.js en shell
+const CACHE = 'fs-v24';
 
 // Archivos del app shell a pre-cachear
-const SHELL = ['./', './css/main.css', './js/app.js', './js/flex-zones.js', './manifest.json'];
+const SHELL = ['./', './css/main.css', './js/app.js', './js/meli.js', './js/flex-zones.js', './js/config.js', './manifest.json'];
 
 self.addEventListener('install', e => {
   self.skipWaiting();
@@ -34,6 +34,17 @@ self.addEventListener('notificationclick', e => {
         if (client.url.includes('fullsports-v2') && 'focus' in client) return client.focus();
       }
       if (clients.openWindow) return clients.openWindow('/fullsports-v2/');
+    })
+  );
+});
+
+// Periodic Background Sync — disponible en Chrome Android con PWA instalada
+self.addEventListener('periodicsync', e => {
+  if (e.tag !== 'meli-check') return;
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      // Si hay tabs abiertos (en background), les mandamos mensaje para que sincen
+      list.forEach(c => c.postMessage({ type: 'MELI_SYNC' }));
     })
   );
 });

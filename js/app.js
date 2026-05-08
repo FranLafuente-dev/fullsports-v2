@@ -1043,7 +1043,7 @@ function orderCard(o) {
         ${topAct}
       </div>
       <div class="order-items">${fmtItemsShort(o.items)}</div>
-      ${fechaLine}${iibb}${monto}${act}
+      ${fechaLine}${monto}${act}
     </div>`;
   }
   return `<div class="order-card${flexCls}" data-oid="${o.id}">
@@ -1051,7 +1051,7 @@ function orderCard(o) {
     <div class="order-name">${o.nombreComprador}</div>
     ${meliRef}
     <div class="order-items">${fmtItemsShort(o.items)}</div>
-    ${fechaLine}${iibb}${monto}${act}
+    ${fechaLine}${monto}${act}
   </div>`;
 }
 
@@ -2877,17 +2877,32 @@ function setupZoneSheets() {
 }
 
 // ─── SHEETS ───────────────────────────────────────────────────────────────────
+let _sheetHistoryActive = false;
 function openSheet(sh) {
   $overlay.classList.add('open');
   sh.classList.add('open');
+  _sheetHistoryActive = true;
+  history.pushState({ sheet: sh.id }, '');
 }
 function closeSheet(sh) {
   sh.classList.remove('open');
   if (!document.querySelectorAll('.sheet.open').length) $overlay.classList.remove('open');
+  if (_sheetHistoryActive) {
+    _sheetHistoryActive = false;
+    history.back();
+  }
 }
+window.addEventListener('popstate', () => {
+  if (_sheetHistoryActive) {
+    _sheetHistoryActive = false;
+    document.querySelectorAll('.sheet.open').forEach(s => s.classList.remove('open'));
+    $overlay.classList.remove('open');
+  }
+});
 $overlay.addEventListener('click', () => {
   document.querySelectorAll('.sheet.open').forEach(s=>s.classList.remove('open'));
   $overlay.classList.remove('open');
+  if (_sheetHistoryActive) { _sheetHistoryActive = false; history.back(); }
 });
 document.querySelectorAll('[data-close-sheet]').forEach(b=>
   b.addEventListener('click', () => { const s=b.closest('.sheet'); if(s) closeSheet(s); })

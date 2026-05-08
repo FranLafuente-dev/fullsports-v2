@@ -629,30 +629,43 @@ async function _enrichFromPayment(orders) {
       const token = await _meliGetToken(o._account);
       if (!token) return;
       const pay = await _meliGet(`/payments/${payId}`, token);
-      // Buscar IIBB en fee_details (tipo "tax")
       const fees = pay.fee_details || [];
-      const taxEntry = fees.find(f =>
-        f.type === 'tax' ||
-        String(f.type).toLowerCase().includes('tax') ||
-        String(f.type).toLowerCase().includes('iibb') ||
-        String(f.type).toLowerCase().includes('withhold')
-      );
-      let iibb = taxEntry ? Math.abs(taxEntry.amount || 0) : 0;
-      // Fallback: included_taxes dentro de alguna fee_detail
-      if (!iibb) {
-        for (const fee of fees) {
-          if (Array.isArray(fee.included_taxes)) {
-            const sum = fee.included_taxes.reduce((s, t) => s + Math.abs(t.amount || 0), 0);
-            if (sum > 0) { iibb = sum; break; }
-          }
+
+      // ── Importe neto ──────────────────────────────────────────────────────
+      // 1. net_received_amount del detalle si es distinto al bruto
+      if (pay.net_received_amount && pay.net_received_amount !== pay.total_paid_amount) {
+        o.payments[0].net_received_amount = pay.net_received_amount;
+      }
+      // 2. Si sigue igual al bruto (o vacío), calcular sumando fee_details (todos negativos)
+      if ((!o.payments[0].net_received_amount ||
+           o.payments[0].net_received_amount === pay.total_paid_amount) &&
+          pay.total_paid_amount && fees.length) {
+        const feesSum = fees.reduce((s, f) => s + (f.amount || 0), 0);
+        const computed = pay.total_paid_amount + feesSum;
+        if (computed > 0 && computed < pay.total_paid_amount) {
+          o.payments[0].net_received_amount = computed;
         }
       }
-      // Último fallback: campo taxes_amount directo
-      if (!iibb && pay.taxes_amount) iibb = Math.abs(pay.taxes_amount);
-      if (iibb) o._iibb = iibb;
-      // Si net_received_amount no vino en el search, tomarlo del detalle del pago
-      if (!o.payments[0].net_received_amount && pay.net_received_amount) {
-        o.payments[0].net_received_amount = pay.net_received_amount;
+
+      // ── IIBB (solo ENANO — retención provincial) ──────────────────────────
+      if (o._account === 'enano') {
+        const taxEntry = fees.find(f =>
+          f.type === 'tax' ||
+          String(f.type).toLowerCase().includes('tax') ||
+          String(f.type).toLowerCase().includes('iibb') ||
+          String(f.type).toLowerCase().includes('withhold')
+        );
+        let iibb = taxEntry ? Math.abs(taxEntry.amount || 0) : 0;
+        if (!iibb) {
+          for (const fee of fees) {
+            if (Array.isArray(fee.included_taxes)) {
+              const s = fee.included_taxes.reduce((a, t) => a + Math.abs(t.amount || 0), 0);
+              if (s > 0) { iibb = s; break; }
+            }
+          }
+        }
+        if (!iibb && pay.taxes_amount) iibb = Math.abs(pay.taxes_amount);
+        if (iibb) o._iibb = iibb;
       }
     } catch(e) { /* skip silently */ }
   }));
@@ -743,9 +756,7 @@ function _detectShipping(order) {
 function _getBuyerName(order) {
   const b = order.buyer;
   if (b?.first_name) return titleCase(`${b.first_name} ${b.last_name || ''}`.trim());
-  const rec = order.shipping?.receiver_address;
-  if (rec?.receiver_name) return titleCase(rec.receiver_name.trim());
-  if (b?.nickname) return titleCase(b.nickname.trim());
+  if (b?.nickname) return b.nickname.trim(); // nickname tal cual (AMITRANOCARLOTA) — fácil de buscar en MELI
   return '';
 }
 function _getLocality(order) {

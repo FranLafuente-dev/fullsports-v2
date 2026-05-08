@@ -167,7 +167,7 @@ function connectFirestore() {
       orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       saveOrders();
       clearTimeout(_snapTimer);
-      _snapTimer = setTimeout(() => { renderPedidos(); renderCorte(); checkAutoArchiveEnano(); }, 200);
+      _snapTimer = setTimeout(() => { renderPedidos(); renderCorte(); checkAutoArchiveEnano(); checkCorteThreshold(); }, 200);
     }, e => console.warn('orders:', e))
   );
 
@@ -727,6 +727,7 @@ function setupAlerts() {
     {h:12,m:50,t:'urgent', msg:'🚨 10 min para despachar FLEX',tipo:'FLEX'},
     {h:13,m:30,t:'warning',msg:'⏰ 30 min para despachar PE',  tipo:'PE'},
     {h:13,m:50,t:'urgent', msg:'🚨 10 min para despachar PE',  tipo:'PE'},
+    {h:14,m:0, t:'warning',msg:'✂️ 14hs — hacé el corte',      tipo:null},
   ].forEach(({h,m,t,msg,tipo}) => {
     const d=new Date(now); d.setHours(h,m,0,0);
     const diff=d-now; if (diff>0) alertTimers.push(setTimeout(()=>showAlert(t,msg,tipo),diff));
@@ -742,6 +743,19 @@ function showAlert(type, msg, tipo) {
   $alert.className=`alert-banner show ${type}`; $alert.textContent=msg;
   setTimeout(()=>$alert.classList.remove('show'),8000);
   _notify('Full Sports', msg, 'fs-alert');
+}
+
+const _corteThresholdNotified = { capi: false, enano: false };
+function checkCorteThreshold() {
+  for (const cuenta of ['capi', 'enano']) {
+    const n = orders.filter(o => !o.corteDone && o.cuenta === cuenta).length;
+    if (n >= 15 && !_corteThresholdNotified[cuenta]) {
+      _corteThresholdNotified[cuenta] = true;
+      _notify(`✂️ ${cuenta.toUpperCase()} — 15 pedidos sin corte`, 'Hacé el corte ahora', `corte-limit-${cuenta}`);
+      toast(`✂️ ${cuenta.toUpperCase()} llegó a 15 pedidos — hacé el corte`);
+    }
+    if (n < 15) _corteThresholdNotified[cuenta] = false;
+  }
 }
 function updateCountdowns() {
   document.querySelectorAll('[data-cd]').forEach(el => {
@@ -990,9 +1004,10 @@ function orderCard(o) {
       <button class="card-icon-btn" onclick="event.stopPropagation();acEditar('${o.id}')">✏️</button>
       <button class="card-icon-btn danger" onclick="event.stopPropagation();acEliminar('${o.id}')">🗑</button>
     </div>`;
+    const etqIcon=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
     act=`<div class="card-act-preparar-row">
       <button class="btn btn-green btn-sm" style="flex:1" onclick="acPreparado('${o.id}',this)">✓ Preparado</button>
-      <button class="btn-etiqueta${o.etiqueta?' active':''}" onclick="acEtiqueta('${o.id}')" title="${o.etiqueta?'Etiqueta lista':'Poner etiqueta'}">${o.etiqueta?`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`:''}</button>
+      <button class="btn-etiqueta${o.etiqueta?' active':''}" onclick="acEtiqueta('${o.id}')" title="${o.etiqueta?'Etiqueta impresa':'Marcar como impreso'}">${etqIcon}</button>
     </div>`;
   } else if (o.status==='pendiente') {
     act=`<div class="card-act">
@@ -1083,6 +1098,20 @@ window.acEtiqueta = async id => {
   renderPedidos();
   try { await db.collection('orders').doc(id).update({ etiqueta: val }); }
   catch(e) { toast('📶 Sin red — se sincronizará'); }
+};
+
+window.toggleEditEtiqueta = function() {
+  if (!editingId) return;
+  const o = orders.find(o => o.id === editingId); if (!o) return;
+  const newVal = !o.etiqueta;
+  mutateOrder(editingId, { etiqueta: newVal });
+  renderPedidos();
+  const btn = document.getElementById('btn-edit-etiqueta');
+  if (btn) {
+    btn.textContent = newVal ? '✓ Etiqueta impresa' : 'Sin imprimir';
+    btn.classList.toggle('active', newVal);
+  }
+  db.collection('orders').doc(editingId).update({ etiqueta: newVal }).catch(() => {});
 };
 
 window.acDespachado = async (id, btn) => {
@@ -1370,6 +1399,19 @@ function openNuevaSheet(data=null) {
   renderFormItems();
 
   if (typeof meliResetSelected === 'function') meliResetSelected();
+  // Toggle etiqueta — solo visible al editar
+  const etqWrap = document.getElementById('edit-etiqueta-wrap');
+  const etqBtn  = document.getElementById('btn-edit-etiqueta');
+  if (etqWrap && etqBtn) {
+    if (editingId) {
+      const oEtq = orders.find(o => o.id === editingId);
+      etqWrap.style.display = '';
+      etqBtn.textContent = oEtq?.etiqueta ? '✓ Etiqueta impresa' : 'Sin imprimir';
+      etqBtn.classList.toggle('active', !!oEtq?.etiqueta);
+    } else {
+      etqWrap.style.display = 'none';
+    }
+  }
   openSheet($shNueva);
   requestAnimationFrame(() => {
     const body = $shNueva.querySelector('.sheet-body');
@@ -1787,13 +1829,11 @@ function renderCorteBody() {
       <div class="section-title">Ventas ${corteCuenta.toUpperCase()}</div>
       <div class="text-output" style="margin-top:8px">${noneSel?'<span style="color:var(--text-3)">Ningún pedido seleccionado</span>':renderWA(tV)}</div>
       ${noneSel?'':
-        `<button class="btn btn-ghost btn-sm" style="margin-top:10px" onclick="copyAndConfirmCorte(${esc(tV)},'${corteCuenta}')">📋 Copiar</button>`}
+        `<div style="margin-top:8px;border-top:1px solid var(--sep);padding-top:8px"></div>
+        ${renderWA(tC)}
+        <button class="btn btn-ghost btn-sm" style="margin-top:10px" onclick="copyAndConfirmCorte(${esc(tV)},${esc(tC)},'${corteCuenta}')">📋 Copiar todo</button>`}
     </div>
-    <div class="card" style="padding:16px">
-      <div class="section-title">Costos ${corteCuenta.toUpperCase()}</div>
-      <div class="text-output" style="margin-top:8px">${noneSel?'<span style="color:var(--text-3)">—</span>':renderWA(tC)}</div>
-      ${noneSel?'':
-        `<button class="btn btn-ghost btn-sm" style="margin-top:10px" onclick="copyTxt(${esc(tC)})">📋 Copiar costos</button>`}
+    <div class="card" style="display:none"><!-- costos ahora van dentro del card de ventas -->
     </div>
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <span>Pedidos (${sel.length}/${pend.length})</span>
@@ -1926,8 +1966,10 @@ window.doCortadoSelected = async c => {
   catch(e) { toast('📶 Sin red — se sincronizará'); }
 };
 
-window.copyAndConfirmCorte = async (text, cuenta) => {
-  await navigator.clipboard.writeText(text).catch(()=>{});
+window.copyAndConfirmCorte = async (textVentas, textCostos, cuenta) => {
+  const sep = '\n\n─────────────────────\n\n';
+  const combined = textVentas + (textCostos ? sep + textCostos : '');
+  await navigator.clipboard.writeText(combined).catch(()=>{});
   toast('¡Copiado!');
   const n=_corteSelectedIds?.size||0;
   if (!n) return;

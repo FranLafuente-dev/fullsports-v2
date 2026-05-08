@@ -564,7 +564,10 @@ async function syncMeli(showToast = true) {
       if (ignored || loaded || dispatched) continue;
       candidates.push(o);
     }
-    if (candidates.length) await _enrichFromShipment(candidates);
+    if (candidates.length) {
+      await _enrichFromShipment(candidates);
+      await _enrichFromPayment(candidates);
+    }
     const suggestions = candidates.map(o => _buildSuggestion(o));
     meliSuggestions = suggestions;
     updateMeliBadge();
@@ -614,6 +617,45 @@ async function syncMeli(showToast = true) {
   }
 }
 window.syncMeli = syncMeli;
+
+// ─── ENRIQUECIMIENTO DE PAGOS (IIBB para ENANO) ──────────────────────────────
+async function _enrichFromPayment(orders) {
+  await Promise.all(orders.map(async o => {
+    if (o._account !== 'enano') return; // IIBB es retención provincial, aplica a ENANO
+    const payId = o.payments?.[0]?.id;
+    if (!payId) return;
+    try {
+      const token = await _meliGetToken(o._account);
+      if (!token) return;
+      const pay = await _meliGet(`/payments/${payId}`, token);
+      // Buscar IIBB en fee_details (tipo "tax")
+      const fees = pay.fee_details || [];
+      const taxEntry = fees.find(f =>
+        f.type === 'tax' ||
+        String(f.type).toLowerCase().includes('tax') ||
+        String(f.type).toLowerCase().includes('iibb') ||
+        String(f.type).toLowerCase().includes('withhold')
+      );
+      let iibb = taxEntry ? Math.abs(taxEntry.amount || 0) : 0;
+      // Fallback: included_taxes dentro de alguna fee_detail
+      if (!iibb) {
+        for (const fee of fees) {
+          if (Array.isArray(fee.included_taxes)) {
+            const sum = fee.included_taxes.reduce((s, t) => s + Math.abs(t.amount || 0), 0);
+            if (sum > 0) { iibb = sum; break; }
+          }
+        }
+      }
+      // Último fallback: campo taxes_amount directo
+      if (!iibb && pay.taxes_amount) iibb = Math.abs(pay.taxes_amount);
+      if (iibb) o._iibb = iibb;
+      // Si net_received_amount no vino en el search, tomarlo del detalle del pago
+      if (!o.payments[0].net_received_amount && pay.net_received_amount) {
+        o.payments[0].net_received_amount = pay.net_received_amount;
+      }
+    } catch(e) { /* skip silently */ }
+  }));
+}
 
 // ─── ENRIQUECIMIENTO DE NOMBRES ──────────────────────────────────────────────
 async function _enrichFromShipment(orders) {
@@ -676,6 +718,7 @@ function _buildSuggestion(order) {
     localidad,
     provincia,
     importe:     _getAmount(order),
+    iibb:        order._iibb || 0,
     items:       _parseItems(order.order_items),
     dateCreated: order.date_created,
   };
@@ -697,11 +740,11 @@ function _detectShipping(order) {
   return 'PE';
 }
 function _getBuyerName(order) {
-  const rec = order.shipping?.receiver_address;
-  if (rec?.receiver_name) return titleCase(rec.receiver_name.trim());
   const b = order.buyer;
   if (b?.first_name) return titleCase(`${b.first_name} ${b.last_name || ''}`.trim());
   if (b?.nickname)   return titleCase(b.nickname.trim());
+  const rec = order.shipping?.receiver_address;
+  if (rec?.receiver_name) return titleCase(rec.receiver_name.trim());
   return '';
 }
 function _getLocality(order) {
@@ -715,7 +758,12 @@ function _getProvince(order) {
 function _getAmount(order) {
   const pay = (order.payments || [])[0];
   if (!pay) return 0;
-  return pay.net_received_amount || 0;
+  if (pay.net_received_amount) return pay.net_received_amount;
+  // Fallback si net_received_amount todavía no fue calculado (pago en proceso)
+  if (pay.total_paid_amount && pay.marketplace_fee) {
+    return pay.total_paid_amount + pay.marketplace_fee; // marketplace_fee es negativo
+  }
+  return pay.total_paid_amount || 0;
 }
 
 // ─── PARSEO DE ÍTEMS ─────────────────────────────────────────────────────────
@@ -937,9 +985,47 @@ window.meliSelectSuggestion = function(meliOrderId) {
   document.getElementById('meli-chip-btn')?.classList.remove('open');
 };
 
+// ─── LÁPIZ — preview de campo precargado desde MELI ─────────────────────────
+function meliSetField(inputId, rawValue, displayText) {
+  const input   = document.getElementById(inputId);
+  const preview = document.getElementById(inputId + '-preview');
+  const valEl   = document.getElementById(inputId + '-preview-val');
+  if (!input) return;
+  const hasValue = rawValue !== '' && rawValue !== null && rawValue !== undefined && rawValue !== 0;
+  if (preview && valEl && hasValue) {
+    input.value = rawValue;
+    valEl.textContent = displayText || String(rawValue);
+    preview.classList.remove('hidden');
+    input.style.display = 'none';
+  } else {
+    input.value = rawValue || '';
+  }
+}
+
+window.meliFieldEdit = function(inputId) {
+  const input   = document.getElementById(inputId);
+  const preview = document.getElementById(inputId + '-preview');
+  if (preview) preview.classList.add('hidden');
+  if (input) {
+    input.style.display = '';
+    input.focus();
+    if (input.select) input.select();
+  }
+};
+
+function meliResetPreviews() {
+  ['f-nombre', 'f-importe-flex', 'f-importe-pe', 'f-iibb', 'f-provincia'].forEach(id => {
+    const preview = document.getElementById(id + '-preview');
+    const input   = document.getElementById(id);
+    if (preview) preview.classList.add('hidden');
+    if (input)   input.style.display = '';
+  });
+}
+window.meliResetPreviews = meliResetPreviews;
+
 function _fillFormFromSuggestion(sug) {
   setCuenta(sug.account || 'capi');
-  V('f-nombre').value = sug.nombre || '';
+  meliSetField('f-nombre', sug.nombre || '', sug.nombre || '');
   const tag = document.getElementById('meli-order-tag');
   if (tag) {
     document.getElementById('meli-order-num').textContent = '#' + sug.meliOrderId;
@@ -960,14 +1046,29 @@ function _fillFormFromSuggestion(sug) {
       setEnvio('FLEX');
       formEnvio = { localidad: zone.localidad, zona: zone.zona, importe: zone.importe };
       showZoneSelected();
-      updateNeto();
-      V('f-provincia').value = zone.zona.includes('CABA')
-        ? 'Ciudad Autónoma de Buenos Aires'
-        : 'Buenos Aires';
+      if (sug.importe) {
+        meliSetField('f-importe-flex', sug.importe, '$' + fmt(sug.importe));
+        updateNeto();
+      }
+      const provName = zone.zona.includes('CABA') ? 'Ciudad Autónoma de Buenos Aires' : 'Buenos Aires';
+      meliSetField('f-provincia', provName, provName);
     } else {
       setEnvio('PE');
-      if (sug.provincia) V('f-provincia').value = sug.provincia;
+      if (sug.provincia) meliSetField('f-provincia', sug.provincia, sug.provincia);
+      if (sug.importe) meliSetField('f-importe-pe', sug.importe, '$' + fmt(sug.importe));
     }
+  } else if (sug.importe) {
+    // Sin localidad reconocida — igual pre-llenar importe
+    if (sug.tipoEnvio === 'FLEX') {
+      meliSetField('f-importe-flex', sug.importe, '$' + fmt(sug.importe));
+      updateNeto();
+    } else {
+      meliSetField('f-importe-pe', sug.importe, '$' + fmt(sug.importe));
+    }
+  }
+  // IIBB solo para ENANO
+  if (sug.account === 'enano' && sug.iibb) {
+    meliSetField('f-iibb', fmtDec(sug.iibb), '$' + fmtDec(sug.iibb));
   }
   const validItems = sug.items.filter(i => i.talle);
   if (validItems.length) { formItems = validItems; renderFormItems(); }
@@ -996,6 +1097,7 @@ function meliResetSelected() {
   meliSelectedSug = null;
   const tag = document.getElementById('meli-order-tag');
   if (tag) tag.classList.add('hidden');
+  meliResetPreviews();
 }
 window.meliGetSelectedId  = meliGetSelectedId;
 window.meliResetSelected  = meliResetSelected;

@@ -1423,13 +1423,30 @@ input:-webkit-autofill:focus {
   border: 2px solid var(--border-hi); background: var(--card);
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: background 0.15s, border-color 0.15s, transform 0.1s var(--spring);
-  color: transparent; font-size: 0;
+  color: var(--text-3);
 }
 .btn-etiqueta.active {
   background: var(--teal-light); border-color: var(--teal);
   color: var(--teal);
 }
 .btn-etiqueta:active { transform: scale(0.86); }
+
+/* ── MELI FIELD PREVIEW (campo precargado con lápiz) ─────────────────────── */
+.meli-preview {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; margin-top: 2px;
+  background: var(--teal-light); border: 1px solid rgba(48,176,199,0.35);
+  border-radius: 10px;
+}
+.meli-preview.hidden { display: none; }
+.meli-preview-val { flex: 1; font-size: 15px; font-weight: 500; color: var(--text-1); }
+.meli-preview-pencil {
+  background: none; border: none; cursor: pointer; padding: 4px 6px;
+  color: var(--teal); font-size: 15px; border-radius: 6px;
+  transition: background 0.15s;
+  line-height: 1;
+}
+.meli-preview-pencil:active { background: rgba(48,176,199,0.25); }
 
 /* ── HISTORIAL FLEX — filtro vendedor ────────────────────────────────────── */
 .hist-filter-btn {

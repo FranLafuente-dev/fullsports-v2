@@ -731,7 +731,7 @@ function _buildSuggestion(order) {
     tipoEnvio:   zone ? 'FLEX' : 'PE',
     localidad,
     provincia,
-    importe:     _getAmount(order),
+    importe:     0,
     iibb:        order._iibb || 0,
     items:       _parseItems(order.order_items),
     dateCreated: order.date_created,
@@ -1026,7 +1026,7 @@ window.meliFieldEdit = function(inputId) {
 };
 
 function meliResetPreviews() {
-  ['f-nombre', 'f-importe-flex', 'f-importe-pe', 'f-iibb', 'f-provincia'].forEach(id => {
+  ['f-nombre', 'f-iibb', 'f-provincia'].forEach(id => {
     const preview = document.getElementById(id + '-preview');
     const input   = document.getElementById(id);
     if (preview) preview.classList.add('hidden');
@@ -1058,26 +1058,14 @@ function _fillFormFromSuggestion(sug) {
       setEnvio('FLEX');
       formEnvio = { localidad: zone.localidad, zona: zone.zona, importe: zone.importe };
       showZoneSelected();
-      if (sug.importe) {
-        meliSetField('f-importe-flex', sug.importe, '$' + fmt(sug.importe));
-        updateNeto();
-      }
       const provName = zone.zona.includes('CABA') ? 'Ciudad Autónoma de Buenos Aires' : 'Buenos Aires';
       meliSetField('f-provincia', provName, provName);
     } else {
       setEnvio('PE');
       if (sug.provincia) meliSetField('f-provincia', sug.provincia, sug.provincia);
-      if (sug.importe) meliSetField('f-importe-pe', sug.importe, '$' + fmt(sug.importe));
     }
-  } else if (sug.importe) {
-    // Sin localidad reconocida — igual pre-llenar importe y tipo de envío
+  } else {
     setEnvio(sug.tipoEnvio || 'PE');
-    if (sug.tipoEnvio === 'FLEX') {
-      meliSetField('f-importe-flex', sug.importe, '$' + fmt(sug.importe));
-      updateNeto();
-    } else {
-      meliSetField('f-importe-pe', sug.importe, '$' + fmt(sug.importe));
-    }
   }
   // IIBB solo para ENANO
   if (sug.account === 'enano' && sug.iibb) {

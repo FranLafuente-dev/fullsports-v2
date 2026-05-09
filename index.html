@@ -176,14 +176,6 @@
           <input class="form-input" id="f-provincia" type="text" placeholder="Ej: Buenos Aires..." autocomplete="off">
         </div>
       </div>
-      <div class="form-group">
-        <div class="form-label">Monto IIBB</div>
-        <div class="meli-preview hidden" id="f-iibb-preview">
-          <span class="meli-preview-val" id="f-iibb-preview-val"></span>
-          <button class="meli-preview-pencil" onclick="meliFieldEdit('f-iibb')" title="Editar">✏️</button>
-        </div>
-        <input class="form-input" id="f-iibb" type="text" placeholder="0,00" inputmode="decimal">
-      </div>
     </div>
     <div class="form-group">
       <div class="form-label">Tipo de despacho</div>
@@ -211,6 +203,14 @@
         <div class="form-label">Importe acreditado</div>
         <input class="form-input" id="f-importe-pe" type="text" placeholder="Importe acreditado" inputmode="numeric" autocomplete="off">
       </div>
+    </div>
+    <div id="iibb-wrap" class="form-group" style="display:none">
+      <div class="form-label">Monto IIBB</div>
+      <div class="meli-preview hidden" id="f-iibb-preview">
+        <span class="meli-preview-val" id="f-iibb-preview-val"></span>
+        <button class="meli-preview-pencil" onclick="meliFieldEdit('f-iibb')" title="Editar">✏️</button>
+      </div>
+      <input class="form-input" id="f-iibb" type="text" placeholder="0,00" inputmode="decimal">
     </div>
     <div id="edit-status-wrap" class="form-group" style="display:none">
       <div class="form-label">Estado del pedido</div>

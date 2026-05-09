@@ -62,6 +62,7 @@ let editFlexId = null, addFlexCuenta = 'capi', addFlexZone = null;
 let editFlexCuenta = 'capi', editFlexZone = null;
 const LS_FLEX_MANUAL = 'fs_flexmanual_v1';
 let prepSort = 'default'; // 'default' = FLEX→PE más nuevo primero | 'modelo' = por modelo+talle
+let prepSortDir = 'asc';
 let _savingVenta = false;
 let _stockExpandZeroTalles = new Set();
 let _stockExpandZeroProds = new Set();
@@ -691,7 +692,7 @@ async function requestNotificationPermission() {
 function _notify(title, body, tag = 'fs-notif') {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (localStorage.getItem('notifMuted') === '1') return;
-  const opts = { body, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag, renotify: true };
+  const opts = { body, icon: 'icons/icon-192.png', badge: 'icons/badge.svg', tag, renotify: true };
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.ready
       .then(reg => reg.showNotification(title, opts))
@@ -837,7 +838,8 @@ function renderPedidos(animDir='') {
     } else {
       sorted = [...preparar].sort((a,b)=>(a.tipoEnvio==='FLEX'?0:10)-(b.tipoEnvio==='FLEX'?0:10));
     }
-    staticHtml = `<div style="display:flex;flex-direction:column;gap:8px"><div class="home-bar">${mkDispBtn('FLEX','🚚',nFlexP)}${mkDispBtn('PE','📦',nPEP)}</div><button class="btn-dep" id="btn-dep" onclick="toggleDep()">🏪 Depósito</button><button class="prep-sort-link${prepSort==='modelo'?' active':''}" onclick="togglePrepSort()">Orden: ${prepSort==='modelo'?'Modelo/Talle ✓':'Tiempo · FLEX→PE'}</button></div><div id="dep-box" style="display:none" class="dep-box"></div>`;
+    if (prepSortDir === 'desc') sorted.reverse();
+    staticHtml = `<div style="display:flex;flex-direction:column;gap:8px"><div class="home-bar">${mkDispBtn('FLEX','🚚',nFlexP)}${mkDispBtn('PE','📦',nPEP)}</div><button class="btn-dep" id="btn-dep" onclick="toggleDep()">🏪 Depósito</button><div style="display:flex;align-items:center;gap:6px"><button class="prep-sort-link${prepSort==='modelo'?' active':''}" onclick="togglePrepSort()">Orden: ${prepSort==='modelo'?'Modelo/Talle ✓':'Tiempo · FLEX→PE'}</button><button class="prep-sort-dir" onclick="togglePrepSortDir()" title="Invertir orden">${prepSortDir==='asc'?'↑':'↓'}</button></div></div><div id="dep-box" style="display:none" class="dep-box"></div>`;
     emptyHtml = `<div class="empty-state empty-preparar"><div class="empty-check-circle">✓</div><p>¡Estás al día!</p></div>`;
   } else if (pedidosTab==='despacho') {
     sorted = [...pendiente,...camino].sort((a,b)=>{
@@ -871,6 +873,8 @@ function renderPedidos(animDir='') {
       sl.className = `prep-sort-link${prepSort==='modelo'?' active':''}`;
       sl.textContent = `Orden: ${prepSort==='modelo'?'Modelo/Talle ✓':'Tiempo · FLEX→PE'}`;
     }
+    const sd = main.querySelector('.prep-sort-dir');
+    if (sd) sd.textContent = prepSortDir==='asc'?'↑':'↓';
     // Transición entre lista y estado vacío
     if (!sorted.length) {
       main.querySelector('.ped-body')?.remove();
@@ -932,6 +936,10 @@ window.togglePrepSort = () => {
   prepSort = prepSort === 'default' ? 'modelo' : 'default';
   renderPedidos();
 };
+window.togglePrepSortDir = () => {
+  prepSortDir = prepSortDir === 'asc' ? 'desc' : 'asc';
+  renderPedidos();
+};
 function _prodSalesOrder() {
   const counts = {};
   orders.forEach(o => (o.items || []).forEach(i => {
@@ -943,7 +951,7 @@ function _prodSalesOrder() {
 // Depósito — solo muestra pedidos en estado 'preparar' (pendientes de buscar en depósito)
 function calcDep() {
   const g={};
-  orders.filter(o=>o.status==='preparar').forEach(o=>(o.items||[]).forEach(item=>{
+  orders.filter(o=>o.status==='preparar'&&!o.separado).forEach(o=>(o.items||[]).forEach(item=>{
     const k=`${item.producto}||${item.talle}`; g[k]=(g[k]||0)+1;
   }));
   return Object.entries(g)
@@ -954,11 +962,14 @@ window.toggleDep = () => {
   const box=document.getElementById('dep-box'), btn=document.getElementById('btn-dep'); if (!box) return;
   if (box.style.display!=='none') { box.style.display='none'; btn.textContent='🏪 Depósito'; return; }
   const lines=calcDep();
-  const nP=orders.filter(o=>o.status==='preparar').length;
+  const nSep=orders.filter(o=>o.status==='preparar'&&o.separado).length;
+  const nP=orders.filter(o=>o.status==='preparar'&&!o.separado).length;
+  const sepNote=nSep?`<div class="dep-sep-note">📦 ${nSep} pedido${nSep!==1?'s':''} ya separado${nSep!==1?'s':''} del depósito</div>`:'';
   box.innerHTML = !lines.length
-    ? `<p class="hint-text">Sin pedidos para preparar</p>`
+    ? `${sepNote}<p class="hint-text">${nSep?'Sin pendientes de buscar':'Sin pedidos para preparar'}</p>`
     : `<div class="dep-hdr">A buscar: ${lines.reduce((a,l)=>a+l.qty,0)} pares · ${nP} pedido${nP!==1?'s':''}</div>
-       ${lines.map(l=>`<div class="dep-row"><span class="dep-n">${l.prod} ${displayTalle(l.talle)}</span><span class="dep-q">×${l.qty}</span><span class="dep-r ${l.queda<0?'negativo':l.queda===0?'cero':l.queda<=2?'bajo':'ok'}">queda ${l.queda}</span></div>`).join('')}`;
+       ${lines.map(l=>`<div class="dep-row"><span class="dep-n">${l.prod} ${displayTalle(l.talle)}</span><span class="dep-q">×${l.qty}</span><span class="dep-r ${l.queda<0?'negativo':l.queda===0?'cero':l.queda<=2?'bajo':'ok'}">queda ${l.queda}</span></div>`).join('')}
+       ${sepNote}`;
   box.style.display='block'; btn.textContent='🏪 Ocultar';
 };
 
@@ -1006,6 +1017,7 @@ function orderCard(o) {
     </div>`;
     act=`<div class="card-act-preparar-row">
       <button class="btn btn-green btn-sm" style="flex:1" onclick="acPreparado('${o.id}',this)">✓ Preparado</button>
+      <button class="btn-separado${o.separado?' active':''}" onclick="acSeparado('${o.id}')" title="${o.separado?'Separado del depósito':'Marcar como separado'}">📦</button>
       <button class="btn-etiqueta${o.etiqueta?' active':''}" onclick="acEtiqueta('${o.id}')" title="${o.etiqueta?'Etiqueta impresa':'Marcar como impreso'}">🏷️</button>
     </div>`;
   } else if (o.status==='pendiente') {
@@ -1101,6 +1113,16 @@ window.acEtiqueta = async id => {
   mutateOrder(id, { etiqueta: val });
   renderPedidos();
   try { await db.collection('orders').doc(id).update({ etiqueta: val }); }
+  catch(e) { toast('📶 Sin red — se sincronizará'); }
+};
+
+window.acSeparado = async id => {
+  const o = orders.find(o => o.id === id); if (!o) return;
+  const val = !o.separado;
+  mutateOrder(id, { separado: val });
+  renderPedidos();
+  toast(val ? '📦 Marcado como separado' : 'Desmarcado');
+  try { await db.collection('orders').doc(id).update({ separado: val }); }
   catch(e) { toast('📶 Sin red — se sincronizará'); }
 };
 
@@ -1421,6 +1443,7 @@ function setCuenta(c) {
   curCuenta=c;
   document.querySelectorAll('[data-cuenta]').forEach(b=>b.classList.toggle('active',b.dataset.cuenta===c));
   V('enano-fields').style.display=c==='enano'?'flex':'none';
+  const iibbWrap=V('iibb-wrap'); if(iibbWrap) iibbWrap.style.display=c==='enano'?'':'none';
   if (typeof renderMeliSuggestions === 'function') renderMeliSuggestions();
 }
 function setEnvio(t) {
@@ -1433,10 +1456,11 @@ function setEnvio(t) {
 function _formEnterNext(id) {
   const isEnano = curCuenta === 'enano';
   const isFlex  = curEnvio  === 'FLEX';
-  if (id === 'f-nombre')    return isEnano ? 'f-provincia' : (isFlex ? 'f-localidad' : 'f-importe-pe');
-  if (id === 'f-provincia') return 'f-iibb';
-  if (id === 'f-iibb')      return isFlex ? 'f-localidad' : 'f-importe-pe';
-  return null; // f-importe-flex / f-importe-pe: blur (cierra teclado)
+  if (id === 'f-nombre')       return isEnano ? 'f-provincia' : (isFlex ? 'f-localidad' : 'f-importe-pe');
+  if (id === 'f-provincia')    return isFlex ? 'f-localidad' : 'f-importe-pe';
+  if (id === 'f-importe-flex') return isEnano ? 'f-iibb' : null;
+  if (id === 'f-importe-pe')   return isEnano ? 'f-iibb' : null;
+  return null; // f-iibb: blur (cierra teclado)
 }
 
 function setupFormListeners() {
@@ -1825,7 +1849,10 @@ function renderCorteBody() {
       ${noneSel?'':
         `<div style="margin-top:8px;border-top:1px solid var(--sep);padding-top:8px"></div>
         ${renderWA(tC)}
-        <button class="btn btn-ghost btn-sm" style="margin-top:10px" onclick="copyAndConfirmCorte(${esc(tV)},${esc(tC)},'${corteCuenta}')">📋 Copiar todo</button>`}
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-ghost btn-sm" style="flex:1" onclick="copyAndConfirmCorte(${esc(tV)},${esc(tC)},'${corteCuenta}')">📋 Copiar</button>
+          <button class="btn btn-primary btn-sm" style="flex:1" onclick="openCorteConfirm('${corteCuenta}')">✂️ Hacer corte</button>
+        </div>`}
     </div>
     <div class="card" style="display:none"><!-- costos ahora van dentro del card de ventas -->
     </div>
@@ -1951,30 +1978,34 @@ window.deselectAllCorte = () => { _corteSelectedIds=new Set(); renderCorte(); };
 window.doCortadoSelected = async c => {
   const ids=[...(_corteSelectedIds||[])];
   if (!ids.length) { toast('Ningún pedido seleccionado'); return; }
+  const allPend=orders.filter(o=>!o.corteDone&&o.cuenta===c).length;
+  const excluded=allPend-ids.length;
   const toCorte=orders.filter(o=>ids.includes(o.id));
   toCorte.forEach(o=>mutateOrder(o.id,{corteDone:true}));
   _corteSelectedIds=null;
   document.getElementById('corte-confirm-banner')?.remove();
   renderCorte();
-  try { for(const o of toCorte) await db.collection('orders').doc(o.id).update({corteDone:true}); toast('Cortado ✓'); }
-  catch(e) { toast('📶 Sin red — se sincronizará'); }
+  try {
+    for(const o of toCorte) await db.collection('orders').doc(o.id).update({corteDone:true});
+    toast(excluded>0 ? `Cortado ✓ · ${excluded} pedido${excluded>1?'s':''} pasan al próximo ciclo` : 'Cortado ✓');
+  } catch(e) { toast('📶 Sin red — se sincronizará'); }
 };
 
-window.copyAndConfirmCorte = async (textVentas, textCostos, cuenta) => {
+window.copyAndConfirmCorte = async (textVentas, textCostos) => {
   const sep = '\n\n─────────────────────\n\n';
   const combined = textVentas + (textCostos ? sep + textCostos : '');
   await navigator.clipboard.writeText(combined).catch(()=>{});
   toast('¡Copiado!');
-  const n=_corteSelectedIds?.size||0;
-  if (!n) return;
-  clearTimeout(_corteConfirmTimer);
-  let banner=document.getElementById('corte-confirm-banner');
-  if (!banner) { banner=document.createElement('div'); banner.id='corte-confirm-banner'; VIEWS.corte.prepend(banner); }
-  banner.className='corte-confirm-banner';
-  banner.innerHTML=`<span>¿Hacer corte de ${n} pedido${n>1?'s':''}?</span>
-    <button class="btn btn-primary btn-sm" onclick="doCortadoSelected('${cuenta}')">✓ Hacer corte</button>
-    <button class="btn btn-ghost btn-sm" onclick="this.closest('#corte-confirm-banner').remove()">Después</button>`;
-  _corteConfirmTimer=setTimeout(()=>document.getElementById('corte-confirm-banner')?.remove(), 20000);
+};
+
+window.openCorteConfirm = async cuenta => {
+  const n = _corteSelectedIds?.size || 0;
+  if (!n) { toast('Ningún pedido seleccionado'); return; }
+  const ok = await showConfirm(
+    `¿Hacer corte de ${n} pedido${n>1?'s':''}?`,
+    { icon: '✂️', confirmText: 'Sí, hacer corte', confirmClass: 'btn-primary', cancelText: 'Después' }
+  );
+  if (ok) doCortadoSelected(cuenta);
 };
 
 window.doCortado = async c=>{

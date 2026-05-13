@@ -724,17 +724,18 @@ function _buildSuggestion(order) {
   const provincia = _getProvince(order);
   const zone      = _findFlexZone(localidad, provincia);
   return {
-    meliOrderId: String(order.id),
-    account:     order._account,
-    nombre:      _getBuyerName(order),
-    nickname:    order.buyer?.nickname || '',
-    tipoEnvio:   zone ? 'FLEX' : 'PE',
+    meliOrderId:  String(order.id),
+    account:      order._account,
+    nombre:       _getBuyerName(order),
+    nickname:     order.buyer?.nickname || '',
+    tipoEnvio:    zone ? 'FLEX' : 'PE',
     localidad,
     provincia,
-    importe:     0,
-    iibb:        order._iibb || 0,
-    items:       _parseItems(order.order_items),
-    dateCreated: order.date_created,
+    importe:      0,
+    iibb:         order._iibb || 0,
+    importeBruto: (order.payments||[])[0]?.total_paid_amount || 0,
+    items:        _parseItems(order.order_items),
+    dateCreated:  order.date_created,
   };
 }
 
@@ -1026,7 +1027,7 @@ window.meliFieldEdit = function(inputId) {
 };
 
 function meliResetPreviews() {
-  ['f-nombre', 'f-iibb', 'f-provincia'].forEach(id => {
+  ['f-nombre', 'f-iibb', 'f-provincia', 'f-importe-bruto'].forEach(id => {
     const preview = document.getElementById(id + '-preview');
     const input   = document.getElementById(id);
     if (preview) preview.classList.add('hidden');
@@ -1067,9 +1068,12 @@ function _fillFormFromSuggestion(sug) {
   } else {
     setEnvio(sug.tipoEnvio || 'PE');
   }
-  // IIBB solo para ENANO
+  // IIBB e importe bruto solo para ENANO
   if (sug.account === 'enano' && sug.iibb) {
     meliSetField('f-iibb', fmtDec(sug.iibb), '$' + fmtDec(sug.iibb));
+  }
+  if (sug.account === 'enano' && sug.importeBruto) {
+    meliSetField('f-importe-bruto', String(sug.importeBruto), '$' + fmt(sug.importeBruto));
   }
   const validItems = sug.items.filter(i => i.talle);
   if (validItems.length) { formItems = validItems; renderFormItems(); }

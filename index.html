@@ -141,6 +141,28 @@
         <button class="toggle-btn" data-cuenta="enano">ENANO</button>
       </div>
     </div>
+    <!-- SECCIÓN FISCAL — solo ENANO -->
+    <div id="info-fiscal" style="display:none;flex-direction:column;gap:12px">
+      <div class="fiscal-section-hdr">📊 Información fiscal</div>
+      <div class="form-group">
+        <div class="form-label">Provincia</div>
+        <div class="meli-preview hidden" id="f-provincia-preview">
+          <span class="meli-preview-val" id="f-provincia-preview-val"></span>
+          <button class="meli-preview-pencil" onclick="meliFieldEdit('f-provincia')" title="Editar">✏️</button>
+        </div>
+        <div class="search-wrap">
+          <input class="form-input" id="f-provincia" type="text" placeholder="Ej: Buenos Aires..." autocomplete="off">
+        </div>
+      </div>
+      <div class="form-group">
+        <div class="form-label">Importe bruto MELI <span style="font-size:10px;color:var(--text-3);font-weight:400">(solo informativo)</span></div>
+        <div class="meli-preview hidden" id="f-importe-bruto-preview">
+          <span class="meli-preview-val" id="f-importe-bruto-preview-val"></span>
+          <button class="meli-preview-pencil" onclick="meliFieldEdit('f-importe-bruto')" title="Editar">✏️</button>
+        </div>
+        <input class="form-input fiscal-input" id="f-importe-bruto" type="text" placeholder="—" inputmode="numeric" autocomplete="off">
+      </div>
+    </div>
     <div class="form-group">
       <div class="form-label">Nombre comprador</div>
       <div class="meli-preview hidden" id="f-nombre-preview">
@@ -162,18 +184,6 @@
         </button>
         <div id="meli-suggestions-panel" class="meli-suggestions-panel collapsed">
           <div id="meli-suggestions-list" class="meli-suggestions-list"></div>
-        </div>
-      </div>
-    </div>
-    <div id="enano-fields" style="display:none;flex-direction:column;gap:16px">
-      <div class="form-group">
-        <div class="form-label">Provincia</div>
-        <div class="meli-preview hidden" id="f-provincia-preview">
-          <span class="meli-preview-val" id="f-provincia-preview-val"></span>
-          <button class="meli-preview-pencil" onclick="meliFieldEdit('f-provincia')" title="Editar">✏️</button>
-        </div>
-        <div class="search-wrap">
-          <input class="form-input" id="f-provincia" type="text" placeholder="Ej: Buenos Aires..." autocomplete="off">
         </div>
       </div>
     </div>

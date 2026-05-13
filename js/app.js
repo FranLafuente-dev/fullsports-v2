@@ -24,6 +24,7 @@ const LS_ORDERS        = 'fs_orders_v4';
 const LS_STOCK         = 'fs_stock_v3';
 const LS_ZONES         = 'fs_zones_v1';
 const LS_FLEX_PERIODS  = 'fs_flexperiods_v1';
+const LS_IIBB_PERIODS  = 'fs_iibbperiods_v1';
 const LS_SORTED_PRODS  = 'fs_sorted_prods_v1';
 
 const PROVINCIAS = [
@@ -40,7 +41,7 @@ const STOCK_DEFAULTS = {
 };
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
-let orders = [], stock = {}, zones = [...FLEX_ZONES], flexPeriods = [], flexManualRecords = [];
+let orders = [], stock = {}, zones = [...FLEX_ZONES], flexPeriods = [], flexManualRecords = [], iibbPeriods = [];
 let curView = 'pedidos', pedidosTab = 'preparar', corteCuenta = 'capi', flexFilter = null;
 let _corteSelectedIds = null; // null = todos seleccionados (lazy init)
 let _corteConfirmTimer = null;
@@ -150,12 +151,14 @@ function loadCache() {
   try { const r = localStorage.getItem(LS_ZONES);        if (r) zones             = JSON.parse(r); } catch(e) { zones  = [...FLEX_ZONES]; }
   try { const r = localStorage.getItem(LS_FLEX_PERIODS); if (r) flexPeriods       = JSON.parse(r); } catch(e) { flexPeriods = []; }
   try { const r = localStorage.getItem(LS_FLEX_MANUAL);  if (r) flexManualRecords = JSON.parse(r); } catch(e) { flexManualRecords = []; }
+  try { const r = localStorage.getItem(LS_IIBB_PERIODS); if (r) iibbPeriods       = JSON.parse(r); } catch(e) { iibbPeriods = []; }
 }
 function saveOrders()        { try { localStorage.setItem(LS_ORDERS,       JSON.stringify(orders));            } catch(e) {} }
 function saveStock()         { try { localStorage.setItem(LS_STOCK,        JSON.stringify(stock));             } catch(e) {} }
 function saveZones()         { try { localStorage.setItem(LS_ZONES,        JSON.stringify(zones));             } catch(e) {} }
 function saveFlexPeriods()   { try { localStorage.setItem(LS_FLEX_PERIODS, JSON.stringify(flexPeriods));       } catch(e) {} }
 function saveFlexManual()    { try { localStorage.setItem(LS_FLEX_MANUAL,  JSON.stringify(flexManualRecords)); } catch(e) {} }
+function saveIibbPeriods()   { try { localStorage.setItem(LS_IIBB_PERIODS, JSON.stringify(iibbPeriods));       } catch(e) {} }
 
 // ─── FIRESTORE ────────────────────────────────────────────────────────────────
 function connectFirestore() {
@@ -168,7 +171,7 @@ function connectFirestore() {
       orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       saveOrders();
       clearTimeout(_snapTimer);
-      _snapTimer = setTimeout(() => { renderPedidos(); renderCorte(); checkAutoArchiveEnano(); checkCorteThreshold(); }, 200);
+      _snapTimer = setTimeout(() => { renderPedidos(); renderCorte(); checkAutoArchiveEnano(); checkCorteThreshold(); checkIibbMonth(); }, 200);
     }, e => console.warn('orders:', e))
   );
 
@@ -398,6 +401,7 @@ function initUI() {
   _registerPeriodicSync();
   navigateTo('pedidos');
   setTimeout(checkAutoArchiveEnano, 1000);
+  setTimeout(checkIibbMonth, 1500);
 }
 
 function renderAll() {
@@ -1403,6 +1407,7 @@ function openNuevaSheet(data=null) {
   V('f-iibb').value           = data?.iibb ? fmtDec(data.iibb) : '';
   V('f-importe-pe').value     = data?.importeAcreditado || '';
   V('f-importe-flex').value   = data?.importeVenta || '';
+  const _fib = V('f-importe-bruto'); if (_fib) _fib.value = data?.importeBruto ? fmt(data.importeBruto) : '';
   V('btn-stock-override').textContent = '✏️ Manual';
 
   // Zona seleccionada (si editando FLEX)
@@ -1442,7 +1447,7 @@ function openNuevaSheet(data=null) {
 function setCuenta(c) {
   curCuenta=c;
   document.querySelectorAll('[data-cuenta]').forEach(b=>b.classList.toggle('active',b.dataset.cuenta===c));
-  V('enano-fields').style.display=c==='enano'?'flex':'none';
+  V('info-fiscal').style.display=c==='enano'?'flex':'none';
   const iibbWrap=V('iibb-wrap'); if(iibbWrap) iibbWrap.style.display=c==='enano'?'':'none';
   if (typeof renderMeliSuggestions === 'function') renderMeliSuggestions();
 }
@@ -1733,6 +1738,7 @@ async function _guardarVentaInner() {
   if (curCuenta==='enano') {
     base.provincia=V('f-provincia').value.trim();
     base.iibb=parseNum(V('f-iibb').value)||0;
+    base.importeBruto=parseNum(V('f-importe-bruto')?.value||'')||0;
   }
   if (curEnvio==='FLEX') {
     if (!formEnvio) { toast('⚠️ Seleccioná la localidad'); _flashInvalid(V('f-localidad')); return; }
@@ -1820,6 +1826,7 @@ function renderCorte(animDir='') {
       <button class="corte-tab${corteCuenta==='capi'?' active':''}"  onclick="setCorte('capi')">CAPI${nC?` <span class="corte-count">${nC}</span>`:''}</button>
       <button class="corte-tab${corteCuenta==='enano'?' active':''}" onclick="setCorte('enano')">ENANO${nE?` <span class="corte-count">${nE}</span>`:''}</button>
       <button class="corte-tab${corteCuenta==='flex'?' active':''}"  onclick="setCorte('flex')">FLEX $</button>
+      <button class="corte-tab${corteCuenta==='iibb'?' active':''}"  onclick="setCorte('iibb')">IIBB</button>
     </div>`;
   const prevBanner = document.getElementById('corte-confirm-banner');
   v.innerHTML = `<div class="ped-main-content${animDir?' '+animDir:''}">${renderCorteBody()}</div>`;
@@ -1831,6 +1838,7 @@ window.setFlexFilter = cuenta => { flexFilter = (flexFilter === cuenta ? null : 
 function renderCorteBody() {
   if (corteCuenta==='deposito') return renderDepCorte();
   if (corteCuenta==='flex')     return renderCorteFlexBody();
+  if (corteCuenta==='iibb')     return renderIibbCorteBody();
   const pend=orders.filter(o=>!o.corteDone&&o.cuenta===corteCuenta);
   if (!pend.length) return `<div class="empty-state"><span>✂️</span><p>Sin ventas pendientes de corte</p></div>`;
   // Inicializar selección con todos los pedidos si es null
@@ -1917,11 +1925,10 @@ function textoCapi(pend) {
 function textoEnano(pend) {
   let tot=0; const L=['*Ventas meli enano*'];
   pend.forEach((o,i)=>{
-    const iibb=o.provincia&&o.iibb?` (${o.provincia} IIBB ya descontado $${fmtDec(o.iibb)})`:'';
     const m=o.tipoEnvio==='FLEX'&&o.importeVenta
       ?`importe venta $${fmt(o.importeVenta)} *menos ENVIO FLEX $${fmt(o.flexImporte)}* total sin envío $${fmt(o.importeNeto)}`
       :`se acredito $${fmt(o.importeAcreditado)}`;
-    L.push(`${i+1}. ${o.nombreComprador}${iibb} - ${fmtItemsCorte(o.items)} - ${m}`); tot+=o.importeAcreditado||0;
+    L.push(`${i+1}. ${o.nombreComprador} - ${fmtItemsCorte(o.items)} - ${m}`); tot+=o.importeAcreditado||0;
   });
   L.push('',`*Total acreditado a mp enano $${fmt(tot)}*`); return L.join('\n');
 }
@@ -2655,7 +2662,7 @@ function setupPedidosTabSwipe() {
 // ─── SWIPE ENTRE TABS DE CORTE ────────────────────────────────────────────────
 function setupCorteTabSwipe() {
   const view = VIEWS.corte; if (!view) return;
-  const tabs = ['capi','enano','flex'];
+  const tabs = ['capi','enano','flex','iibb'];
   let x0=0, y0=0;
   view.addEventListener('touchstart',e=>{x0=e.touches[0].clientX;y0=e.touches[0].clientY;},{passive:true});
   view.addEventListener('touchend',e=>{
@@ -2938,6 +2945,155 @@ $overlay.addEventListener('click', () => {
 document.querySelectorAll('[data-close-sheet]').forEach(b=>
   b.addEventListener('click', () => { const s=b.closest('.sheet'); if(s) closeSheet(s); })
 );
+
+// ─── IIBB REPORTING ───────────────────────────────────────────────────────────
+function _iibbPeriodLabel(year, month) {
+  return new Date(year, month - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+}
+
+function getCurrentIibbMonth() {
+  const now = new Date();
+  const year = now.getFullYear(), month = now.getMonth() + 1;
+  const id = `${year}-${String(month).padStart(2,'0')}`;
+  const existing = iibbPeriods.find(p => p.id === id);
+  if (existing) return existing;
+  const fromMs = new Date(year, month - 1, 1).getTime();
+  const toMs   = new Date(year, month, 0, 23, 59, 59, 999).getTime();
+  return { id, label: _iibbPeriodLabel(year, month), fromMs, toMs, closed: false };
+}
+
+function renderIibbCorteBody() {
+  const curPeriod = getCurrentIibbMonth();
+  const periodOrders = orders.filter(o =>
+    o.cuenta === 'enano' && o.createdAt && ms(o.createdAt) >= curPeriod.fromMs && ms(o.createdAt) <= curPeriod.toMs
+  );
+  const rows = periodOrders.map(o => ({
+    fecha:        new Date(ms(o.createdAt)).toLocaleDateString('es-AR'),
+    cliente:      o.nombreComprador,
+    provincia:    o.provincia || '—',
+    importeBruto: o.importeBruto || 0,
+    iibb:         o.iibb || 0,
+  }));
+
+  const byProv = {};
+  rows.forEach(r => {
+    if (!byProv[r.provincia]) byProv[r.provincia] = { bruto: 0, iibb: 0 };
+    byProv[r.provincia].bruto += r.importeBruto;
+    byProv[r.provincia].iibb  += r.iibb;
+  });
+  const provs = Object.entries(byProv).filter(([,v]) => v.bruto > 0 || v.iibb > 0);
+  const totalBruto = rows.reduce((s,r) => s + r.importeBruto, 0);
+  const totalIibb  = rows.reduce((s,r) => s + r.iibb, 0);
+  const closedPeriods = iibbPeriods.filter(p => p.closed);
+
+  const tableHtml = rows.length === 0
+    ? `<div style="color:var(--text-3);font-size:13px;margin-top:8px">Sin ventas ENANO este mes</div>`
+    : `<div class="iibb-table-wrap">
+        <table class="iibb-table">
+          <thead><tr><th>Fecha</th><th>Cliente</th><th>Provincia</th><th>Bruto</th><th>IIBB</th></tr></thead>
+          <tbody>${rows.map(r=>`<tr>
+            <td>${r.fecha}</td><td>${r.cliente}</td><td>${r.provincia}</td>
+            <td>${r.importeBruto?'$'+fmt(r.importeBruto):'—'}</td>
+            <td>${r.iibb?'$'+fmtDec(r.iibb):'—'}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+      ${provs.length > 1 ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--sep)">
+        <div class="dep-hdr" style="margin-bottom:6px">Por provincia</div>
+        ${provs.map(([prov,v])=>`<div class="dep-row">
+          <span class="dep-n">${prov}</span>
+          <span style="font-size:12px;color:var(--text-2)">Bruto $${fmt(v.bruto)} · IIBB $${fmtDec(v.iibb)}</span>
+        </div>`).join('')}
+      </div>` : ''}
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--sep);display:flex;justify-content:space-between">
+        <span style="font-weight:600">Total bruto: $${fmt(totalBruto)}</span>
+        <span style="font-weight:600">IIBB: $${fmtDec(totalIibb)}</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="printIibbReport(${esc(JSON.stringify(curPeriod))},${esc(JSON.stringify(rows))})">🖨️ Imprimir</button>
+        ${!curPeriod.closed ? `<button class="btn btn-primary btn-sm" style="flex:1" onclick="closeIibbMonth(${esc(curPeriod.id)})">📁 Cerrar mes</button>` : ''}
+      </div>`;
+
+  return `<div class="card" style="padding:16px">
+    <div class="section-title">IIBB — ${curPeriod.label}</div>
+    ${tableHtml}
+  </div>
+  ${closedPeriods.length ? `<div class="section-title" style="margin-top:0">Períodos anteriores</div>
+  ${closedPeriods.slice().reverse().map(p=>`<div class="card" style="padding:12px 14px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="font-weight:600">${p.label}</span>
+      <span style="font-size:12px;color:var(--text-3)">📁 Cerrado</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn btn-ghost btn-sm" style="flex:1" onclick="printIibbReport(${esc(JSON.stringify(p))},${esc(JSON.stringify(p.rows||[]))})">🖨️ Imprimir</button>
+    </div>
+  </div>`).join('')}` : ''}`;
+}
+
+window.closeIibbMonth = async function(periodId) {
+  const curPeriod = getCurrentIibbMonth();
+  const ok = await showConfirm(`¿Cerrar IIBB de ${curPeriod.label}?`, {
+    icon: '📁', confirmText: 'Cerrar mes', confirmClass: 'btn-primary', cancelText: 'Cancelar',
+  });
+  if (!ok) return;
+  // Save snapshot of current rows
+  const periodOrders = orders.filter(o =>
+    o.cuenta === 'enano' && o.createdAt && ms(o.createdAt) >= curPeriod.fromMs && ms(o.createdAt) <= curPeriod.toMs
+  );
+  const rows = periodOrders.map(o => ({
+    fecha: new Date(ms(o.createdAt)).toLocaleDateString('es-AR'),
+    cliente: o.nombreComprador, provincia: o.provincia || '—',
+    importeBruto: o.importeBruto || 0, iibb: o.iibb || 0,
+  }));
+  const existing = iibbPeriods.find(p => p.id === periodId);
+  if (existing) {
+    existing.closed = true; existing.closedAt = Date.now(); existing.rows = rows;
+  } else {
+    iibbPeriods.push({ ...curPeriod, closed: true, closedAt: Date.now(), rows });
+  }
+  saveIibbPeriods();
+  renderCorte();
+  toast('Período IIBB cerrado ✓');
+};
+
+window.printIibbReport = function(periodJson, rowsJson) {
+  let period, rows;
+  try { period = typeof periodJson === 'string' ? JSON.parse(periodJson) : periodJson; } catch { return; }
+  try { rows   = typeof rowsJson   === 'string' ? JSON.parse(rowsJson)   : rowsJson;  } catch { rows = []; }
+  const totalBruto = rows.reduce((s,r) => s + (r.importeBruto||0), 0);
+  const totalIibb  = rows.reduce((s,r) => s + (r.iibb||0), 0);
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>IIBB ${period.label}</title>
+    <style>body{font-family:Arial,sans-serif;font-size:12px;margin:20px}h2{margin-bottom:8px}
+    table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
+    th{background:#f0f0f0}tfoot td{font-weight:bold;background:#f8f8f8}</style></head><body>
+    <h2>IIBB — ${period.label}</h2>
+    <table><thead><tr><th>Fecha</th><th>Cliente</th><th>Provincia</th><th>Importe bruto</th><th>Retención IIBB</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td>${r.fecha}</td><td>${r.cliente}</td><td>${r.provincia}</td><td>$${fmt(r.importeBruto||0)}</td><td>$${fmtDec(r.iibb||0)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="3">Total</td><td>$${fmt(totalBruto)}</td><td>$${fmtDec(totalIibb)}</td></tr></tfoot>
+    </table></body></html>`;
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); w.print(); }
+};
+
+let _iibbAlertShown = false;
+function checkIibbMonth() {
+  if (_iibbAlertShown) return;
+  const now = new Date();
+  if (now.getDate() > 5) return;
+  const prevDate  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevYear  = prevDate.getFullYear(), prevMonth = prevDate.getMonth() + 1;
+  const prevId    = `${prevYear}-${String(prevMonth).padStart(2,'0')}`;
+  const prevLabel = _iibbPeriodLabel(prevYear, prevMonth);
+  if (iibbPeriods.find(p => p.id === prevId && p.closed)) return;
+  const prevFromMs = prevDate.getTime();
+  const prevToMs   = new Date(prevYear, prevMonth, 0, 23, 59, 59, 999).getTime();
+  const hasPrevOrders = orders.some(o => o.cuenta === 'enano' && o.createdAt && ms(o.createdAt) >= prevFromMs && ms(o.createdAt) <= prevToMs);
+  if (!hasPrevOrders) return;
+  _iibbAlertShown = true;
+  $alert.className = 'alert-banner show warning';
+  $alert.innerHTML = `📊 IIBB ${prevLabel} sin cerrar &nbsp;<button onclick="setCorte('iibb');navigateTo('corte');document.getElementById('alert-banner').classList.remove('show')" style="background:none;border:1px solid currentColor;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:12px">Ver</button>`;
+  setTimeout(() => $alert.classList.remove('show'), 20000);
+}
 
 // ─── TOAST ────────────────────────────────────────────────────────────────────
 let toastTimer = null;

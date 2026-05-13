@@ -1487,4 +1487,33 @@ input:-webkit-autofill:focus {
 .hist-filter-btn.active {
   background: var(--accent); color: #fff; border-color: var(--accent);
 }
+
+/* ── SECCIÓN FISCAL ──────────────────────────────────────────────────────── */
+.fiscal-section-hdr {
+  font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
+  color: var(--teal); text-transform: uppercase; padding-bottom: 4px;
+  border-bottom: 1px solid rgba(48,176,199,0.25);
+}
+.fiscal-input {
+  color: var(--text-3) !important;
+}
+.fiscal-input::placeholder { color: var(--text-3); }
+
+/* ── TABLA IIBB ──────────────────────────────────────────────────────────── */
+.iibb-table-wrap {
+  overflow-x: auto; margin-top: 10px; border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.iibb-table {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+}
+.iibb-table th {
+  background: rgba(255,255,255,0.05); color: var(--text-3);
+  font-weight: 600; padding: 7px 10px; text-align: left; white-space: nowrap;
+}
+.iibb-table td {
+  padding: 7px 10px; color: var(--text-1); border-top: 1px solid var(--sep);
+  white-space: nowrap;
+}
+.iibb-table tr:first-child td { border-top: none; }
 .hist-filter-btn:active { opacity: 0.80; }

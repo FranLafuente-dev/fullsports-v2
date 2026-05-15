@@ -66,6 +66,8 @@ let editFlexCuenta = 'capi', editFlexZone = null;
 const LS_FLEX_MANUAL = 'fs_flexmanual_v1';
 let prepSort = 'default'; // 'default' = FLEX→PE más nuevo primero | 'modelo' = por modelo+talle
 let prepSortDir = 'asc';
+let _prepProdFilter = null;
+let _iibbExpandPeriods = new Set();
 let _savingVenta = false;
 let _stockExpandZeroTalles = new Set();
 let _stockExpandZeroProds = new Set();
@@ -431,6 +433,10 @@ function setupNav() {
 }
 
 function navInternal(name) {
+  if (curView === 'stock' && name !== 'stock') {
+    saveStock();
+    db.collection('meta').doc('stock').set(stock).catch(() => {});
+  }
   const prevIdx = TABS.indexOf(curView);
   const nextIdx = TABS.indexOf(name);
   curView = name;
@@ -847,7 +853,11 @@ function renderPedidos(animDir='') {
       sorted = [...preparar].sort((a,b)=>(a.tipoEnvio==='FLEX'?0:10)-(b.tipoEnvio==='FLEX'?0:10));
     }
     if (prepSortDir === 'desc') sorted.reverse();
-    staticHtml = `<div style="display:flex;flex-direction:column;gap:8px"><div class="home-bar">${mkDispBtn('FLEX','🚚',nFlexP)}${mkDispBtn('PE','📦',nPEP)}</div><button class="btn-dep" id="btn-dep" onclick="toggleDep()">🏪 Depósito</button><div style="display:flex;align-items:center;gap:6px"><button class="prep-sort-link${prepSort==='modelo'?' active':''}" onclick="togglePrepSort()">Orden: ${prepSort==='modelo'?'Modelo/Talle ✓':'Tiempo · FLEX→PE'}</button><button class="prep-sort-dir" onclick="togglePrepSortDir()" title="Invertir orden">${prepSortDir==='asc'?'↑':'↓'}</button><span id="recuento-counter" class="recuento-counter"></span></div></div><div id="dep-box" style="display:none" class="dep-box"></div>`;
+    const _prepProds = [...new Set(preparar.flatMap(o=>(o.items||[]).map(i=>i.producto)))].sort();
+    const _filterBar = _prepProds.length > 1
+      ? `<div class="prep-prod-filter">${_prepProds.map(p=>`<button class="prep-prod-chip${_prepProdFilter===p?' active':''}" onclick="setPrepProdFilter('${p.replace(/'/g,"\\'")}')">${p}</button>`).join('')}</div>`
+      : '';
+    staticHtml = `<div style="display:flex;flex-direction:column;gap:8px"><div class="home-bar">${mkDispBtn('FLEX','🚚',nFlexP)}${mkDispBtn('PE','📦',nPEP)}</div><button class="btn-dep" id="btn-dep" onclick="toggleDep()">🏪 Depósito</button><div style="display:flex;align-items:center;gap:6px"><button class="prep-sort-link${prepSort==='modelo'?' active':''}" onclick="togglePrepSort()">Orden: ${prepSort==='modelo'?'Modelo/Talle ✓':'Tiempo · FLEX→PE'}</button><button class="prep-sort-dir" onclick="togglePrepSortDir()" title="Invertir orden">${prepSortDir==='asc'?'↑':'↓'}</button><span id="recuento-counter" class="recuento-counter"></span></div>${_filterBar}</div><div id="dep-box" style="display:none" class="dep-box"></div>`;
     emptyHtml = `<div class="empty-state empty-preparar"><div class="empty-check-circle">✓</div><p>¡Estás al día!</p></div>`;
   } else if (pedidosTab==='despacho') {
     sorted = [...pendiente,...camino].sort((a,b)=>{
@@ -893,10 +903,18 @@ function renderPedidos(animDir='') {
     }
   }
 
-  // Filtrar por búsqueda
-  const displayed = pedidosSearch
-    ? sorted.filter(o => normalizeStr(o.nombreComprador).includes(normalizeStr(pedidosSearch)))
-    : sorted;
+  // Filtrar por producto (solo tab preparar) y por búsqueda
+  let displayed = sorted;
+  if (pedidosTab === 'preparar' && _prepProdFilter) {
+    displayed = displayed.filter(o => (o.items||[]).some(i => i.producto === _prepProdFilter));
+  }
+  if (pedidosSearch) {
+    const q = normalizeStr(pedidosSearch);
+    displayed = displayed.filter(o =>
+      normalizeStr(o.nombreComprador).includes(q) ||
+      (o.items||[]).some(i => normalizeStr(i.producto).includes(q))
+    );
+  }
 
   // Actualizar empty state si el filtro dejó la lista vacía
   if (!displayed.length && sorted.length) {
@@ -904,7 +922,10 @@ function renderPedidos(animDir='') {
     if (!main.querySelector('.search-empty')) {
       const se = document.createElement('div');
       se.className = 'empty-state search-empty';
-      se.innerHTML = `<span>🔍</span><p>Sin resultados para "${pedidosSearch}"</p>`;
+      const msg = _prepProdFilter && !pedidosSearch
+        ? `Sin pedidos de "${_prepProdFilter}"`
+        : `Sin resultados para "${pedidosSearch}"`;
+      se.innerHTML = `<span>🔍</span><p>${msg}</p>`;
       main.appendChild(se);
     }
   } else {
@@ -936,6 +957,7 @@ window.setTab = t => {
   const tabs=['preparar','despacho','entregados'];
   const dir = tabs.indexOf(t) > tabs.indexOf(pedidosTab) ? 'slide-in-right' : 'slide-in-left';
   pedidosTab=t;
+  _prepProdFilter = null;
   // Limpiar búsqueda al cambiar de tab
   if (pedidosSearch) {
     pedidosSearch = '';
@@ -959,6 +981,10 @@ window.togglePrepSort = () => {
 };
 window.togglePrepSortDir = () => {
   prepSortDir = prepSortDir === 'asc' ? 'desc' : 'asc';
+  renderPedidos();
+};
+window.setPrepProdFilter = p => {
+  _prepProdFilter = (_prepProdFilter === p) ? null : p;
   renderPedidos();
 };
 function _prodSalesOrder() {
@@ -1881,12 +1907,43 @@ function renderCorte(animDir='') {
 window.setCorte = (c, dir='') => { corteCuenta=c; flexFilter=null; _corteSelectedIds=null; document.getElementById('corte-confirm-banner')?.remove(); renderCorte(dir); };
 window.setFlexFilter = cuenta => { flexFilter = (flexFilter === cuenta ? null : cuenta); renderCorte(); };
 
+function _calcMonthStats(cuenta) {
+  const now = new Date();
+  const fromMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const toMs   = new Date(now.getFullYear(), now.getMonth()+1, 0, 23,59,59,999).getTime();
+  const mOrders = orders.filter(o => o.cuenta===cuenta && o.createdAt && ms(o.createdAt)>=fromMs && ms(o.createdAt)<=toMs);
+  let pares=0, acreditado=0, costo=0;
+  mOrders.forEach(o => {
+    acreditado += o.importeAcreditado||0;
+    (o.items||[]).forEach(i => {
+      if (i.producto==='Banderas') {
+        costo += i.talle==='60x90' ? COSTO_BANDERA_60X90 : COSTO_BANDERA_90X150;
+      } else if (i.producto==='Remeras Colapinto') {
+        costo += COSTO_REMERA_COLAPINTO;
+      } else {
+        pares++;
+        costo += TALLES_ESP.includes(i.talle) ? COSTO_ESP : COSTO_COMUN;
+      }
+    });
+  });
+  return { pares, acreditado, costo, ganancia: acreditado - costo, n: mOrders.length };
+}
+
 function renderCorteBody() {
   if (corteCuenta==='deposito') return renderDepCorte();
   if (corteCuenta==='flex')     return renderCorteFlexBody();
   if (corteCuenta==='iibb')     return renderIibbCorteBody();
   const pend=orders.filter(o=>!o.corteDone&&o.cuenta===corteCuenta);
-  if (!pend.length) return `<div class="empty-state"><span>✂️</span><p>Sin ventas pendientes de corte</p></div>`;
+  // Stats del mes
+  const mStats = _calcMonthStats(corteCuenta);
+  const mLabel = `${MESES[new Date().getMonth()]} ${new Date().getFullYear()}`;
+  const statsHtml = mStats.n > 0 ? `<div class="corte-month-stats">
+    <div class="cms-label">📊 ${mLabel} — a modo informativo</div>
+    <div class="cms-row"><span>${mStats.pares} par${mStats.pares!==1?'es':''} · ${mStats.n} venta${mStats.n!==1?'s':''}</span><span class="cms-val">$${fmt(mStats.acreditado)}</span></div>
+    <div class="cms-row"><span style="color:var(--text-3)">Costo estimado</span><span style="color:var(--text-2)">−$${fmt(mStats.costo)}</span></div>
+    <div class="cms-row" style="border-top:1px solid var(--sep);padding-top:4px;margin-top:2px"><span style="font-weight:700">Ganancia estimada</span><span class="cms-ganancia${mStats.ganancia<0?' negativa':''}">$${fmt(mStats.ganancia)}</span></div>
+  </div>` : '';
+  if (!pend.length) return statsHtml+`<div class="empty-state"><span>✂️</span><p>Sin ventas pendientes de corte</p></div>`;
   // Inicializar selección con todos los pedidos si es null
   if (_corteSelectedIds===null) _corteSelectedIds=new Set(pend.map(o=>o.id));
   // Limpiar IDs que ya no existen
@@ -1896,7 +1953,7 @@ function renderCorteBody() {
   const noneSel=sel.length===0;
   const tV=sel.length?(corteCuenta==='capi'?textoCapi(sel):textoEnano(sel)):'';
   const tC=sel.length?textoCostos(sel,corteCuenta):'';
-  return `
+  return statsHtml+`
     <div class="card" style="padding:16px">
       <div class="section-title">Ventas ${corteCuenta.toUpperCase()}</div>
       <div class="text-output" style="margin-top:8px">${noneSel?'<span style="color:var(--text-3)">Ningún pedido seleccionado</span>':renderWA(tV)}</div>
@@ -2792,7 +2849,14 @@ function renderStock() {
       `:''}
     </div>`;
   };
-  v.innerHTML=conStockProds.map(renderProd).join('')+
+  const _minAlerts = Object.entries(stockMin)
+    .filter(([k,min]) => (stock[k]??0) <= min)
+    .map(([k,min]) => { const [prod,talle]=k.split('_'); return {prod,talle,val:stock[k]??0,min}; });
+  const _alertSection = _minAlerts.length
+    ? `<div class="stock-alerts-section"><div class="dep-hdr">⚠️ Bajo mínimo</div>${_minAlerts.map(a=>`<div class="stock-alert-row"><span>${a.prod} ${displayTalle(a.talle)}</span><span class="stock-alert-val">${a.val} / mín ${a.min}</span></div>`).join('')}</div>`
+    : '';
+
+  v.innerHTML=_alertSection+conStockProds.map(renderProd).join('')+
     (sinStockProds.length?`<div class="stock-zero-separator"></div>${sinStockProds.map(renderProd).join('')}`:'');
 }
 
@@ -2838,7 +2902,7 @@ window.editSt=async k=>{
   const el=document.getElementById(`sv-${k}`); if(!el)return;
   const v = await showInputDialog(k.replace('_',' '), stock[k]??0);
   if(v===null)return; const n=parseInt(v);
-  if(isNaN(n)||n<0){toast('⚠️ Número inválido');return;}
+  if(isNaN(n)){toast('⚠️ Número inválido');return;}
   stock[k]=n; el.textContent=n; upRowCls(el,n); animNumPop(el);
 };
 function upRowCls(el,v){const r=el.closest('.stock-row');if(r)r.className=`stock-row ${v<0?'negativo':v===0?'cero':v<=2?'bajo':'ok'}`;}
@@ -3082,16 +3146,39 @@ function renderIibbCorteBody() {
 
   return `${actionCard}${tableCard}
   ${closedPeriods.length ? `<div class="section-title" style="margin-top:0">Períodos anteriores</div>
-  ${closedPeriods.slice().reverse().map(p=>`<div class="card" style="padding:12px 14px">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <span style="font-weight:600">${p.label}</span>
-      <span style="font-size:12px;color:var(--text-3)">📁 Cerrado</span>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:10px">
-      <button class="btn btn-ghost btn-sm" style="flex:1" onclick="printIibbReport(${esc(JSON.stringify(p))},${esc(JSON.stringify(p.rows||[]))})">🖨️ Imprimir</button>
-    </div>
-  </div>`).join('')}` : ''}`;
+  ${closedPeriods.slice().reverse().map(p => {
+    const pRows = p.rows || [];
+    const pBruto = pRows.reduce((s,r)=>s+(r.importeBruto||0),0);
+    const pIibb  = pRows.reduce((s,r)=>s+(r.iibb||0),0);
+    const isExp  = _iibbExpandPeriods.has(p.id);
+    return `<div class="card" style="padding:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer" onclick="toggleIibbPeriod('${p.id}')">
+        <div>
+          <div style="font-weight:600">${p.label}</div>
+          <div style="font-size:12px;color:var(--text-3);margin-top:2px">Bruto $${fmt(pBruto)} · IIBB $${fmtDec(pIibb)}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;color:var(--text-3)">📁</span>
+          <span style="color:var(--text-3);font-size:12px;transition:transform 0.2s;transform:rotate(${isExp?180:0}deg)">▼</span>
+        </div>
+      </div>
+      ${isExp ? `<div style="padding:0 14px 12px">
+        ${pRows.length ? `<div class="iibb-table-wrap"><table class="iibb-table">
+          <thead><tr><th>Fecha</th><th>Cliente</th><th>Provincia</th><th>Bruto</th><th>IIBB</th></tr></thead>
+          <tbody>${pRows.map(r=>`<tr><td>${r.fecha}</td><td>${r.cliente}</td><td>${r.provincia}</td><td>${r.importeBruto?'$'+fmt(r.importeBruto):'—'}</td><td>${r.iibb?'$'+fmtDec(r.iibb):'—'}</td></tr>`).join('')}</tbody>
+        </table></div>` : '<p class="hint-text">Sin detalle guardado</p>'}
+        <div style="margin-top:8px">
+          <button class="btn btn-ghost btn-sm" style="width:100%" onclick="event.stopPropagation();printIibbReport(${esc(JSON.stringify(p))},${esc(JSON.stringify(pRows))})">🖨️ Imprimir</button>
+        </div>
+      </div>` : ''}
+    </div>`;
+  }).join('')}` : ''}`;
 }
+
+window.toggleIibbPeriod = id => {
+  _iibbExpandPeriods.has(id) ? _iibbExpandPeriods.delete(id) : _iibbExpandPeriods.add(id);
+  renderCorte();
+};
 
 window.closeIibbMonth = async function(periodId) {
   const curPeriod = getCurrentIibbMonth();

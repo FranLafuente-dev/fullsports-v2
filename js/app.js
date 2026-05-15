@@ -1462,9 +1462,9 @@ function _formEnterNext(id) {
   const isFlex  = curEnvio  === 'FLEX';
   if (id === 'f-nombre')       return isEnano ? 'f-provincia' : (isFlex ? 'f-localidad' : 'f-importe-pe');
   if (id === 'f-provincia')    return isFlex ? 'f-localidad' : 'f-importe-pe';
-  if (id === 'f-importe-flex') return isEnano ? 'f-iibb' : null;
-  if (id === 'f-importe-pe')   return isEnano ? 'f-iibb' : null;
-  return null; // f-iibb: blur (cierra teclado)
+  if (id === 'f-importe-flex') return null;
+  if (id === 'f-importe-pe')   return null;
+  return null;
 }
 
 function setupFormListeners() {
@@ -3068,12 +3068,12 @@ window.printIibbReport = function(periodJson, rowsJson) {
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>IIBB ${period.label}</title>
     <style>body{font-family:Arial,sans-serif;font-size:12px;margin:20px}h2{margin-bottom:8px}
     table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
-    th{background:#f0f0f0}tfoot td{font-weight:bold;background:#f8f8f8}</style></head><body>
+    th{background:#f0f0f0}.total-row td{font-weight:bold;background:#f8f8f8}</style></head><body>
     <h2>IIBB — ${period.label}</h2>
     <table><thead><tr><th>Fecha</th><th>Cliente</th><th>Provincia</th><th>Importe bruto</th><th>Retención IIBB</th></tr></thead>
-    <tbody>${rows.map(r=>`<tr><td>${r.fecha}</td><td>${r.cliente}</td><td>${r.provincia}</td><td>$${fmt(r.importeBruto||0)}</td><td>$${fmtDec(r.iibb||0)}</td></tr>`).join('')}</tbody>
-    <tfoot><tr><td colspan="3">Total</td><td>$${fmt(totalBruto)}</td><td>$${fmtDec(totalIibb)}</td></tr></tfoot>
-    </table></body></html>`;
+    <tbody>${rows.map(r=>`<tr><td>${r.fecha}</td><td>${r.cliente}</td><td>${r.provincia}</td><td>$${fmt(r.importeBruto||0)}</td><td>$${fmtDec(r.iibb||0)}</td></tr>`).join('')}
+    <tr class="total-row"><td colspan="3">Total</td><td>$${fmt(totalBruto)}</td><td>$${fmtDec(totalIibb)}</td></tr>
+    </tbody></table></body></html>`;
   const w = window.open('', '_blank');
   if (w) { w.document.write(html); w.document.close(); w.print(); }
 };

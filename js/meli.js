@@ -733,7 +733,7 @@ function _buildSuggestion(order) {
     provincia,
     importe:      0,
     iibb:         order._iibb || 0,
-    importeBruto: (order.payments||[])[0]?.total_paid_amount || 0,
+    importeBruto: (order.payments||[]).reduce((s,p) => s + (p.total_paid_amount||0), 0),
     items:        _parseItems(order.order_items),
     dateCreated:  order.date_created,
   };

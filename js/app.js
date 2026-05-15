@@ -1000,8 +1000,15 @@ function orderCard(o) {
   const iibb=o.cuenta==='enano'&&o.provincia?`<div class="order-iibb">${o.provincia} — IIBB $${fmtDec(o.iibb)}</div>`:'';
 
   let fechaLine='';
-  if (o.status==='camino'&&o.fechaEstimada) {
-    fechaLine=`<div class="order-fecha">📅 Entrega est.: <b>${o.fechaEstimada}</b> <button class="btn-link" onclick="openDelivery('${o.id}','edit')">✏️</button></div>`;
+  if (o.status==='camino') {
+    const diasEnCamino = o.despachadoAt ? Math.floor((Date.now()-ms(o.despachadoAt))/H24) : 0;
+    if (o.fechaEstimada) {
+      fechaLine=`<div class="order-fecha">📅 Entrega est.: <b>${o.fechaEstimada}</b> <button class="btn-link" onclick="openDelivery('${o.id}','edit')">✏️</button></div>`;
+    }
+    if (diasEnCamino >= 4) {
+      fechaLine+=`<div class="order-transit-alert">⚠️ ${diasEnCamino} días en camino${o.meliOrderId?` — <a class="order-meli-link" href="https://www.mercadolibre.com.ar/ventas/${o.meliOrderId}/detalle" target="_blank" rel="noopener">Ver en MELI</a>`:''}
+</div>`;
+    }
     if (o.cuenta==='enano'&&ms(o.despachadoAt)>0) {
       const elapsed=Math.min(1,(Date.now()-ms(o.despachadoAt))/H24);
       fechaLine+=`<div class="transit-bar"><div class="transit-bar-fill" style="width:${Math.round(elapsed*100)}%"></div></div>`;

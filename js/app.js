@@ -22,6 +22,7 @@ const COSTO_BANDERA_90X150    = 4200;
 const H24         = 86400000;
 const LS_ORDERS        = 'fs_orders_v4';
 const LS_STOCK         = 'fs_stock_v3';
+const LS_STOCK_MIN     = 'fs_stockmin_v1';
 const LS_ZONES         = 'fs_zones_v1';
 const LS_FLEX_PERIODS  = 'fs_flexperiods_v1';
 const LS_IIBB_PERIODS  = 'fs_iibbperiods_v1';
@@ -41,11 +42,12 @@ const STOCK_DEFAULTS = {
 };
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
-let orders = [], stock = {}, zones = [...FLEX_ZONES], flexPeriods = [], flexManualRecords = [], iibbPeriods = [];
+let orders = [], stock = {}, stockMin = {}, zones = [...FLEX_ZONES], flexPeriods = [], flexManualRecords = [], iibbPeriods = [];
 let curView = 'pedidos', pedidosTab = 'preparar', corteCuenta = 'capi', flexFilter = null;
-let _corteSelectedIds = null; // null = todos seleccionados (lazy init)
+let _corteSelectedIds = null;
 let _corteConfirmTimer = null;
 let pedidosSearch = '';
+let _recuentoChecked = new Set();
 let _prodSortTs = 0;
 let expandFlexPeriods = new Set();
 let expandFlexQuincenas = new Set();
@@ -148,6 +150,7 @@ function entrarApp(user) {
 function loadCache() {
   try { const r = localStorage.getItem(LS_ORDERS);       if (r) orders            = JSON.parse(r); } catch(e) { orders = []; }
   try { const r = localStorage.getItem(LS_STOCK);        if (r) stock             = JSON.parse(r); } catch(e) { stock  = {}; }
+  try { const r = localStorage.getItem(LS_STOCK_MIN);    if (r) stockMin          = JSON.parse(r); } catch(e) { stockMin = {}; }
   try { const r = localStorage.getItem(LS_ZONES);        if (r) zones             = JSON.parse(r); } catch(e) { zones  = [...FLEX_ZONES]; }
   try { const r = localStorage.getItem(LS_FLEX_PERIODS); if (r) flexPeriods       = JSON.parse(r); } catch(e) { flexPeriods = []; }
   try { const r = localStorage.getItem(LS_FLEX_MANUAL);  if (r) flexManualRecords = JSON.parse(r); } catch(e) { flexManualRecords = []; }
@@ -155,6 +158,7 @@ function loadCache() {
 }
 function saveOrders()        { try { localStorage.setItem(LS_ORDERS,       JSON.stringify(orders));            } catch(e) {} }
 function saveStock()         { try { localStorage.setItem(LS_STOCK,        JSON.stringify(stock));             } catch(e) {} }
+function saveStockMin()      { try { localStorage.setItem(LS_STOCK_MIN,    JSON.stringify(stockMin));          } catch(e) {} }
 function saveZones()         { try { localStorage.setItem(LS_ZONES,        JSON.stringify(zones));             } catch(e) {} }
 function saveFlexPeriods()   { try { localStorage.setItem(LS_FLEX_PERIODS, JSON.stringify(flexPeriods));       } catch(e) {} }
 function saveFlexManual()    { try { localStorage.setItem(LS_FLEX_MANUAL,  JSON.stringify(flexManualRecords)); } catch(e) {} }
@@ -843,7 +847,7 @@ function renderPedidos(animDir='') {
       sorted = [...preparar].sort((a,b)=>(a.tipoEnvio==='FLEX'?0:10)-(b.tipoEnvio==='FLEX'?0:10));
     }
     if (prepSortDir === 'desc') sorted.reverse();
-    staticHtml = `<div style="display:flex;flex-direction:column;gap:8px"><div class="home-bar">${mkDispBtn('FLEX','🚚',nFlexP)}${mkDispBtn('PE','📦',nPEP)}</div><button class="btn-dep" id="btn-dep" onclick="toggleDep()">🏪 Depósito</button><div style="display:flex;align-items:center;gap:6px"><button class="prep-sort-link${prepSort==='modelo'?' active':''}" onclick="togglePrepSort()">Orden: ${prepSort==='modelo'?'Modelo/Talle ✓':'Tiempo · FLEX→PE'}</button><button class="prep-sort-dir" onclick="togglePrepSortDir()" title="Invertir orden">${prepSortDir==='asc'?'↑':'↓'}</button></div></div><div id="dep-box" style="display:none" class="dep-box"></div>`;
+    staticHtml = `<div style="display:flex;flex-direction:column;gap:8px"><div class="home-bar">${mkDispBtn('FLEX','🚚',nFlexP)}${mkDispBtn('PE','📦',nPEP)}</div><button class="btn-dep" id="btn-dep" onclick="toggleDep()">🏪 Depósito</button><div style="display:flex;align-items:center;gap:6px"><button class="prep-sort-link${prepSort==='modelo'?' active':''}" onclick="togglePrepSort()">Orden: ${prepSort==='modelo'?'Modelo/Talle ✓':'Tiempo · FLEX→PE'}</button><button class="prep-sort-dir" onclick="togglePrepSortDir()" title="Invertir orden">${prepSortDir==='asc'?'↑':'↓'}</button><span id="recuento-counter" class="recuento-counter"></span></div></div><div id="dep-box" style="display:none" class="dep-box"></div>`;
     emptyHtml = `<div class="empty-state empty-preparar"><div class="empty-check-circle">✓</div><p>¡Estás al día!</p></div>`;
   } else if (pedidosTab==='despacho') {
     sorted = [...pendiente,...camino].sort((a,b)=>{
@@ -913,8 +917,21 @@ function renderPedidos(animDir='') {
     if (pedBody) _patchCardList(pedBody, displayed.map(o => ({id:o.id, html:orderCard(o)})));
   }
 
+  // Contador recuento
+  if (pedidosTab === 'preparar') {
+    const counter = document.getElementById('recuento-counter');
+    if (counter) {
+      const n = _recuentoChecked.size;
+      counter.textContent = n > 0 ? `${n}/${sorted.length} rev.` : '';
+    }
+  }
+
   updateAppBadge();
 }
+window.toggleRecuento = id => {
+  if (_recuentoChecked.has(id)) _recuentoChecked.delete(id); else _recuentoChecked.add(id);
+  renderPedidos();
+};
 window.setTab = t => {
   const tabs=['preparar','despacho','entregados'];
   const dir = tabs.indexOf(t) > tabs.indexOf(pedidosTab) ? 'slide-in-right' : 'slide-in-left';
@@ -992,7 +1009,7 @@ function orderCard(o) {
   if (o.tipoEnvio==='FLEX'&&o.importeVenta) {
     monto=o.cuenta==='capi'
       ?`<div class="order-monto">Acreditado <b>$${fmt(o.importeNeto)}</b></div>`
-      :`<div class="order-monto">$${fmt(o.importeVenta)} − FLEX $${fmt(o.flexImporte)} = <b>$${fmt(o.importeNeto)}</b></div>`;
+      :`<div class="order-monto"><b>$${fmt(o.importeNeto)}</b> <span class="order-monto-detail">($${fmt(o.importeVenta)} − FLEX $${fmt(o.flexImporte)})</span></div>`;
   } else {
     monto=`<div class="order-monto">Acreditado $${fmt(o.importeAcreditado)}</div>`;
   }
@@ -1022,7 +1039,9 @@ function orderCard(o) {
   // Acciones — eliminar disponible en todos los estados
   let act='', topAct='';
   if (o.status==='preparar') {
+    const rev=_recuentoChecked.has(o.id);
     topAct=`<div class="card-top-act">
+      <button class="card-icon-btn recuento-btn${rev?' recuentado':''}" onclick="event.stopPropagation();toggleRecuento('${o.id}')" title="${rev?'Revisado':'Marcar revisado'}">✓</button>
       <button class="card-icon-btn" onclick="event.stopPropagation();acEditar('${o.id}')">✏️</button>
       <button class="card-icon-btn danger" onclick="event.stopPropagation();acEliminar('${o.id}')">🗑</button>
     </div>`;
@@ -1260,7 +1279,9 @@ window.acEliminar = async id => {
 
 window.acEditar = id => {
   const o=orders.find(o=>o.id===id);
-  if (o) openNuevaSheet(o);
+  if (!o) return;
+  if (o.status !== 'preparar') toast('⚠️ Pedido ya despachado — editando de todas formas');
+  openNuevaSheet(o);
 };
 
 function mutateOrder(id,patch) {
@@ -1423,6 +1444,8 @@ function openNuevaSheet(data=null) {
     showZoneSelected();
   } else {
     clearZone();
+    const locInp = V('f-localidad'); if (locInp) locInp.value = '';
+    const locRes = V('localidad-results'); if (locRes) locRes.classList.remove('show');
   }
 
   // Selector de productos
@@ -1455,6 +1478,10 @@ function setCuenta(c) {
   curCuenta=c;
   document.querySelectorAll('[data-cuenta]').forEach(b=>b.classList.toggle('active',b.dataset.cuenta===c));
   V('info-fiscal').style.display=c==='enano'?'flex':'none';
+  ['f-provincia','f-importe-bruto','f-iibb'].forEach(id=>{
+    const inp=V(id); if(inp){inp.value='';inp.style.display='';}
+    const prev=V(id+'-preview'); if(prev) prev.classList.add('hidden');
+  });
   if (typeof renderMeliSuggestions === 'function') renderMeliSuggestions();
 }
 function setEnvio(t) {
@@ -1592,9 +1619,17 @@ function showZoneSelected() {
       <button class="btn-link" style="color:var(--red);font-size:11px" id="btn-clear-zone">Cambiar</button>
     </div>`;
   el.classList.add('show');
-  // Remover listener anterior con cloneNode trick
   const btn = document.getElementById('btn-clear-zone');
   if (btn) { const fresh = btn.cloneNode(true); btn.replaceWith(fresh); fresh.addEventListener('click', clearZone); }
+  // Auto-fill provincia para ENANO si está vacía
+  if (curCuenta==='enano' && formEnvio) {
+    const provInp=V('f-provincia'), provPrev=V('f-provincia-preview'), provPrevVal=V('f-provincia-preview-val');
+    if (provInp && !provInp.value) {
+      const prov = formEnvio.zona.startsWith('Zona 1') ? 'CABA' : 'Buenos Aires';
+      provInp.value = prov;
+      if (provPrev && provPrevVal) { provPrevVal.textContent=prov; provPrev.classList.remove('hidden'); provInp.style.display='none'; }
+    }
+  }
   updateNeto();
 }
 function clearZone() {
@@ -1604,7 +1639,11 @@ function clearZone() {
 }
 function updateNeto() {
   const v=parseNum(V('f-importe-flex')?.value||'');
-  const fn=V('flex-neto'); if(fn) fn.textContent=formEnvio&&v>0?`Neto: $${fmt(v-formEnvio.importe)}`:'';
+  const fn=V('flex-neto'); if(!fn) return;
+  if (formEnvio&&v>0) {
+    const neto=v-formEnvio.importe;
+    fn.innerHTML=`<b class="neto-val">$${fmt(neto)}</b> <span class="neto-detail">($${fmt(v)} − FLEX $${fmt(formEnvio.importe)})</span>`;
+  } else { fn.innerHTML=''; }
 }
 
 // ─── SELECTOR PRODUCTOS / TALLES ──────────────────────────────────────────────
@@ -1781,6 +1820,7 @@ async function _guardarVentaInner() {
   const btnGuardar = V('btn-guardar-venta');
   if (btnGuardar) { btnGuardar.disabled = true; btnGuardar.textContent = 'Guardando…'; }
   closeSheet($shNueva);
+  toast('Guardando…');
 
   try {
     if (editingId) {
@@ -1970,7 +2010,7 @@ function fmtItemsCorte(items) {
   return`${footwear.length} pares (${fmtGrp(footwear)}) + ${fmtGrp(fixed)}`;
 }
 function renderWA(t){return t.replace(/\*(.*?)\*/g,'<b>$1</b>').replace(/\n/g,'<br>');}
-function esc(t){return JSON.stringify(t).replace(/"/g,'&quot;');}
+function esc(t){return JSON.stringify(t).replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 window.copyTxt = t=>navigator.clipboard.writeText(t).then(()=>toast('¡Copiado!')).catch(()=>toast('Error al copiar'));
 
 window.toggleCorteOrder = id => {
@@ -2757,17 +2797,30 @@ function renderStock() {
 }
 
 function renderStockRow(p,t) {
-  const k=`${p}_${t}`,val=stock[k]??0,cls=val<0?'negativo':val===0?'cero':val<=2?'bajo':'ok';
+  const k=`${p}_${t}`, val=stock[k]??0, min=stockMin[k];
+  const atMin = min!=null && val<=min;
+  const cls = val<0?'negativo':val===0?'cero':atMin?'minimo':val<=2?'bajo':'ok';
+  const minLabel = min!=null ? `<span class="stock-min-label">mín:${min}</span>` : '';
   return `<div class="stock-row ${cls}">
-    <span class="stock-talle">${displayTalle(t)}</span>
+    <span class="stock-talle">${displayTalle(t)}${minLabel}</span>
     <div class="stock-stepper">
       <button class="stepper-btn" onclick="adjSt('${k}',-1)">−</button>
       <span class="stepper-val" id="sv-${k}">${val}</span>
       <button class="stepper-btn" onclick="adjSt('${k}',1)">+</button>
       <button class="stepper-btn stepper-pencil" onclick="editSt('${k}')">✏️</button>
+      <button class="stepper-btn stepper-min${min!=null?' active':''}" onclick="editStMin('${k}')" title="Mínimo de alerta">🔔</button>
     </div>
   </div>`;
 }
+window.editStMin = async k => {
+  const cur = stockMin[k]??'';
+  const v = await showInputDialog(`Mínimo para ${k.replace('_',' ')}`, cur, 'Sin mínimo = dejar vacío');
+  if (v === null) return;
+  const n = v.trim() === '' ? null : parseInt(v);
+  if (v.trim() !== '' && (isNaN(n)||n<0)) { toast('⚠️ Número inválido'); return; }
+  if (n==null) delete stockMin[k]; else stockMin[k]=n;
+  saveStockMin(); renderStock();
+};
 
 
 function animNumPop(el) {

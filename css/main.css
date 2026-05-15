@@ -916,8 +916,18 @@ input:-webkit-autofill:focus {
 .stock-row.negativo .stepper-val { color: var(--red); font-weight: 800; }
 .stock-row.cero     .stepper-val { color: var(--red); }
 .stock-row.bajo     .stepper-val { color: var(--orange); }
-.stepper-pencil { font-size: 13px !important; padding: 4px 7px; border-left: 1px solid var(--border) !important; border-radius: 0 50% 50% 0 !important; opacity: 0.75; }
+.stepper-pencil { font-size: 13px !important; padding: 4px 7px; border-left: 1px solid var(--border) !important; border-radius: 0 !important; opacity: 0.75; }
 .stepper-pencil:active { opacity: 1; }
+.stepper-min { font-size: 11px !important; padding: 4px 6px; border-left: 1px solid var(--border) !important; border-radius: 0 50% 50% 0 !important; opacity: 0.6; }
+.stepper-min.active { opacity: 1; color: var(--orange); }
+.stepper-min:active { opacity: 1; }
+.stock-row.minimo .stock-talle { color: var(--orange); font-weight: 700; }
+.stock-row.minimo .stepper-val { color: var(--orange); font-weight: 800; }
+.stock-min-label { font-size: 10px; color: var(--orange); font-weight: 600; margin-left: 4px; opacity: 0.8; }
+.order-monto-detail { font-size: 12px; color: var(--text-3); font-weight: 400; }
+.neto-val { font-size: 15px; }
+.neto-detail { font-size: 11px; color: var(--text-3); }
+.recuento-counter { font-size: 12px; color: var(--green); font-weight: 600; margin-left: 4px; }
 
 .zero-section { border-top: 1px dashed var(--sep); margin-top: 4px; padding-top: 2px; }
 
@@ -1425,6 +1435,8 @@ input:-webkit-autofill:focus {
 .card-icon-btn:active { transform: scale(0.84); background: var(--border); }
 .card-icon-btn.danger { background: var(--red-light); color: var(--red); border-color: rgba(255,59,48,0.20); }
 .card-icon-btn.danger:active { background: rgba(255,59,48,0.25); }
+.card-icon-btn.recuento-btn { color: var(--text-3); font-size: 16px; font-weight: 700; }
+.card-icon-btn.recuento-btn.recuentado { background: rgba(52,199,89,0.15); color: var(--green); border-color: rgba(52,199,89,0.3); }
 
 /* ── SEPARADO DEL DEPÓSITO ───────────────────────────────────────────────── */
 .btn-separado {

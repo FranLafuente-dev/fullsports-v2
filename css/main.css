@@ -1490,14 +1490,34 @@ input:-webkit-autofill:focus {
 
 /* ── SECCIÓN FISCAL ──────────────────────────────────────────────────────── */
 .fiscal-section-hdr {
-  font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
   color: var(--teal); text-transform: uppercase; padding-bottom: 4px;
-  border-bottom: 1px solid rgba(48,176,199,0.25);
+  border-bottom: 1px solid rgba(48,176,199,0.2);
 }
-.fiscal-input {
-  color: var(--text-3) !important;
+.fiscal-row {
+  display: flex; align-items: center; gap: 8px; min-height: 28px;
 }
-.fiscal-input::placeholder { color: var(--text-3); }
+.fiscal-row-lbl {
+  font-size: 11px; color: var(--text-3); font-weight: 600;
+  min-width: 72px; flex-shrink: 0;
+}
+.fiscal-row-val {
+  flex: 1; display: flex; align-items: center; min-width: 0;
+}
+.fiscal-preview {
+  padding: 3px 8px !important; font-size: 12px !important;
+  min-height: 0 !important;
+}
+.fiscal-preview .meli-preview-val { font-size: 12px; }
+.fiscal-preview .meli-preview-pencil { font-size: 13px; padding: 2px 4px; }
+.fiscal-row-input {
+  flex: 1; font-size: 12px; font-family: inherit;
+  padding: 3px 8px; height: 26px;
+  background: var(--input-bg); color: var(--text-2);
+  border: 1px solid var(--input-bdr); border-radius: 7px;
+  outline: none; min-width: 0;
+}
+.fiscal-row-input::placeholder { color: var(--text-3); font-size: 11px; }
 
 /* ── TABLA IIBB ──────────────────────────────────────────────────────────── */
 .iibb-table-wrap {

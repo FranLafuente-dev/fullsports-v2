@@ -1448,7 +1448,6 @@ function setCuenta(c) {
   curCuenta=c;
   document.querySelectorAll('[data-cuenta]').forEach(b=>b.classList.toggle('active',b.dataset.cuenta===c));
   V('info-fiscal').style.display=c==='enano'?'flex':'none';
-  const iibbWrap=V('iibb-wrap'); if(iibbWrap) iibbWrap.style.display=c==='enano'?'':'none';
   if (typeof renderMeliSuggestions === 'function') renderMeliSuggestions();
 }
 function setEnvio(t) {
@@ -2986,38 +2985,42 @@ function renderIibbCorteBody() {
   const totalIibb  = rows.reduce((s,r) => s + r.iibb, 0);
   const closedPeriods = iibbPeriods.filter(p => p.closed);
 
-  const tableHtml = rows.length === 0
-    ? `<div style="color:var(--text-3);font-size:13px;margin-top:8px">Sin ventas ENANO este mes</div>`
-    : `<div class="iibb-table-wrap">
-        <table class="iibb-table">
-          <thead><tr><th>Fecha</th><th>Cliente</th><th>Provincia</th><th>Bruto</th><th>IIBB</th></tr></thead>
-          <tbody>${rows.map(r=>`<tr>
-            <td>${r.fecha}</td><td>${r.cliente}</td><td>${r.provincia}</td>
-            <td>${r.importeBruto?'$'+fmt(r.importeBruto):'—'}</td>
-            <td>${r.iibb?'$'+fmtDec(r.iibb):'—'}</td>
-          </tr>`).join('')}</tbody>
-        </table>
-      </div>
-      ${provs.length > 1 ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--sep)">
-        <div class="dep-hdr" style="margin-bottom:6px">Por provincia</div>
-        ${provs.map(([prov,v])=>`<div class="dep-row">
-          <span class="dep-n">${prov}</span>
-          <span style="font-size:12px;color:var(--text-2)">Bruto $${fmt(v.bruto)} · IIBB $${fmtDec(v.iibb)}</span>
-        </div>`).join('')}
-      </div>` : ''}
-      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--sep);display:flex;justify-content:space-between">
-        <span style="font-weight:600">Total bruto: $${fmt(totalBruto)}</span>
-        <span style="font-weight:600">IIBB: $${fmtDec(totalIibb)}</span>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:12px">
-        <button class="btn btn-ghost btn-sm" style="flex:1" onclick="printIibbReport(${esc(JSON.stringify(curPeriod))},${esc(JSON.stringify(rows))})">🖨️ Imprimir</button>
-        ${!curPeriod.closed ? `<button class="btn btn-primary btn-sm" style="flex:1" onclick="closeIibbMonth(${esc(curPeriod.id)})">📁 Cerrar mes</button>` : ''}
+  // Card de acción — siempre primero, arriba del scroll
+  const actionCard = `<div class="card" style="padding:12px 16px">
+    <div class="section-title" style="margin-bottom:${rows.length ? '8px' : '0'}">IIBB — ${curPeriod.label}</div>
+    ${rows.length ? `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600;margin-bottom:8px">
+      <span>Bruto: $${fmt(totalBruto)}</span>
+      <span>IIBB: $${fmtDec(totalIibb)}</span>
+    </div>` : ''}
+    <div style="display:flex;gap:8px">
+      ${rows.length ? `<button class="btn btn-ghost btn-sm" style="flex:1" onclick="printIibbReport(${esc(JSON.stringify(curPeriod))},${esc(JSON.stringify(rows))})">🖨️ Imprimir</button>` : ''}
+      ${!curPeriod.closed ? `<button class="btn btn-primary btn-sm" style="flex:1" onclick="closeIibbMonth(${esc(curPeriod.id)})">📁 Cerrar mes</button>` : ''}
+    </div>
+  </div>`;
+
+  const tableCard = rows.length === 0
+    ? `<div style="color:var(--text-3);font-size:13px;padding:4px">Sin ventas ENANO este mes</div>`
+    : `<div class="card" style="padding:16px">
+        <div class="iibb-table-wrap">
+          <table class="iibb-table">
+            <thead><tr><th>Fecha</th><th>Cliente</th><th>Provincia</th><th>Bruto</th><th>IIBB</th></tr></thead>
+            <tbody>${rows.map(r=>`<tr>
+              <td>${r.fecha}</td><td>${r.cliente}</td><td>${r.provincia}</td>
+              <td>${r.importeBruto?'$'+fmt(r.importeBruto):'—'}</td>
+              <td>${r.iibb?'$'+fmtDec(r.iibb):'—'}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>
+        ${provs.length > 1 ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--sep)">
+          <div class="dep-hdr" style="margin-bottom:5px">Por provincia</div>
+          ${provs.map(([prov,v])=>`<div class="dep-row">
+            <span class="dep-n">${prov}</span>
+            <span style="font-size:12px;color:var(--text-2)">Bruto $${fmt(v.bruto)} · IIBB $${fmtDec(v.iibb)}</span>
+          </div>`).join('')}
+        </div>` : ''}
       </div>`;
 
-  return `<div class="card" style="padding:16px">
-    <div class="section-title">IIBB — ${curPeriod.label}</div>
-    ${tableHtml}
-  </div>
+  return `${actionCard}${tableCard}
   ${closedPeriods.length ? `<div class="section-title" style="margin-top:0">Períodos anteriores</div>
   ${closedPeriods.slice().reverse().map(p=>`<div class="card" style="padding:12px 14px">
     <div style="display:flex;justify-content:space-between;align-items:center">

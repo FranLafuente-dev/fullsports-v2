@@ -142,25 +142,37 @@
       </div>
     </div>
     <!-- SECCIÓN FISCAL — solo ENANO -->
-    <div id="info-fiscal" style="display:none;flex-direction:column;gap:12px">
+    <div id="info-fiscal" style="display:none;flex-direction:column;gap:5px">
       <div class="fiscal-section-hdr">📊 Información fiscal</div>
-      <div class="form-group">
-        <div class="form-label">Provincia</div>
-        <div class="meli-preview hidden" id="f-provincia-preview">
-          <span class="meli-preview-val" id="f-provincia-preview-val"></span>
-          <button class="meli-preview-pencil" onclick="meliFieldEdit('f-provincia')" title="Editar">✏️</button>
-        </div>
-        <div class="search-wrap">
-          <input class="form-input" id="f-provincia" type="text" placeholder="Ej: Buenos Aires..." autocomplete="off">
+      <div class="fiscal-row">
+        <span class="fiscal-row-lbl">Provincia</span>
+        <div class="fiscal-row-val">
+          <div class="meli-preview hidden fiscal-preview" id="f-provincia-preview">
+            <span class="meli-preview-val" id="f-provincia-preview-val"></span>
+            <button class="meli-preview-pencil" onclick="meliFieldEdit('f-provincia')" title="Editar">✏️</button>
+          </div>
+          <input class="fiscal-row-input" id="f-provincia" type="text" placeholder="—" autocomplete="off">
         </div>
       </div>
-      <div class="form-group">
-        <div class="form-label">Importe bruto MELI <span style="font-size:10px;color:var(--text-3);font-weight:400">(solo informativo)</span></div>
-        <div class="meli-preview hidden" id="f-importe-bruto-preview">
-          <span class="meli-preview-val" id="f-importe-bruto-preview-val"></span>
-          <button class="meli-preview-pencil" onclick="meliFieldEdit('f-importe-bruto')" title="Editar">✏️</button>
+      <div class="fiscal-row">
+        <span class="fiscal-row-lbl">Bruto MELI</span>
+        <div class="fiscal-row-val">
+          <div class="meli-preview hidden fiscal-preview" id="f-importe-bruto-preview">
+            <span class="meli-preview-val" id="f-importe-bruto-preview-val"></span>
+            <button class="meli-preview-pencil" onclick="meliFieldEdit('f-importe-bruto')" title="Editar">✏️</button>
+          </div>
+          <input class="fiscal-row-input" id="f-importe-bruto" type="text" placeholder="—" inputmode="numeric" autocomplete="off">
         </div>
-        <input class="form-input fiscal-input" id="f-importe-bruto" type="text" placeholder="—" inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="fiscal-row">
+        <span class="fiscal-row-lbl">Monto IIBB</span>
+        <div class="fiscal-row-val">
+          <div class="meli-preview hidden fiscal-preview" id="f-iibb-preview">
+            <span class="meli-preview-val" id="f-iibb-preview-val"></span>
+            <button class="meli-preview-pencil" onclick="meliFieldEdit('f-iibb')" title="Editar">✏️</button>
+          </div>
+          <input class="fiscal-row-input" id="f-iibb" type="text" placeholder="0,00" inputmode="decimal" autocomplete="off">
+        </div>
       </div>
     </div>
     <div class="form-group">
@@ -213,14 +225,6 @@
         <div class="form-label">Importe acreditado</div>
         <input class="form-input" id="f-importe-pe" type="text" placeholder="Importe acreditado" inputmode="numeric" autocomplete="off">
       </div>
-    </div>
-    <div id="iibb-wrap" class="form-group" style="display:none">
-      <div class="form-label">Monto IIBB</div>
-      <div class="meli-preview hidden" id="f-iibb-preview">
-        <span class="meli-preview-val" id="f-iibb-preview-val"></span>
-        <button class="meli-preview-pencil" onclick="meliFieldEdit('f-iibb')" title="Editar">✏️</button>
-      </div>
-      <input class="form-input" id="f-iibb" type="text" placeholder="0,00" inputmode="decimal">
     </div>
     <div id="edit-status-wrap" class="form-group" style="display:none">
       <div class="form-label">Estado del pedido</div>

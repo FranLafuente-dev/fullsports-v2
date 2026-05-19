@@ -140,7 +140,7 @@ body {
 /* ── TOP BAR — liquid glass ──────────────────────────────────────────────── */
 #topbar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 20px 12px;
+  padding: calc(14px + env(safe-area-inset-top, 0px)) 20px 12px;
   background: rgba(10,12,26,0.75);
   backdrop-filter: blur(12px) saturate(160%) brightness(1.06);
   -webkit-backdrop-filter: blur(12px) saturate(160%) brightness(1.06);
@@ -444,6 +444,9 @@ body {
 .dep-r.bajo     { background: rgba(255,149,0,0.15);   color: var(--orange); }
 .dep-r.cero     { background: rgba(255,59,48,0.15);   color: var(--red); }
 .dep-r.negativo { background: rgba(255,59,48,0.25);   color: var(--red); font-weight: 800; }
+.dep-check-btn { background: none; border: 1.5px solid var(--border); border-radius: 50%; width: 22px; height: 22px; padding: 0; font-size: 11px; color: var(--text-3); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+.dep-check-btn.active { background: var(--teal); border-color: var(--teal); color: #fff; }
+.dep-row-checked .dep-n { opacity: 0.45; text-decoration: line-through; }
 
 /* ── ORDER CARD — glass ──────────────────────────────────────────────────── */
 .order-card {
@@ -918,12 +921,6 @@ input:-webkit-autofill:focus {
 .stock-row.bajo     .stepper-val { color: var(--orange); }
 .stepper-pencil { font-size: 13px !important; padding: 4px 7px; border-left: 1px solid var(--border) !important; border-radius: 0 !important; opacity: 0.75; }
 .stepper-pencil:active { opacity: 1; }
-.stepper-min { font-size: 11px !important; padding: 4px 6px; border-left: 1px solid var(--border) !important; border-radius: 0 50% 50% 0 !important; opacity: 0.6; }
-.stepper-min.active { opacity: 1; color: var(--orange); }
-.stepper-min:active { opacity: 1; }
-.stock-row.minimo .stock-talle { color: var(--orange); font-weight: 700; }
-.stock-row.minimo .stepper-val { color: var(--orange); font-weight: 800; }
-.stock-min-label { font-size: 10px; color: var(--orange); font-weight: 600; margin-left: 4px; opacity: 0.8; }
 .order-monto-detail { font-size: 12px; color: var(--text-3); font-weight: 400; }
 .neto-val { font-size: 15px; }
 .neto-detail { font-size: 11px; color: var(--text-3); }
@@ -1551,19 +1548,6 @@ input:-webkit-autofill:focus {
 }
 .iibb-table tr:first-child td { border-top: none; }
 .hist-filter-btn:active { opacity: 0.80; }
-
-/* ── STOCK — alertas de mínimo ───────────────────────────────────────────── */
-.stock-alerts-section {
-  background: var(--orange-light); border: 1px solid rgba(255,149,0,0.25);
-  border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 10px;
-}
-.stock-alerts-section .dep-hdr { color: var(--orange); margin-bottom: 6px; }
-.stock-alert-row {
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: 13px; padding: 3px 0; border-bottom: 1px solid rgba(255,149,0,0.12);
-}
-.stock-alert-row:last-child { border-bottom: none; }
-.stock-alert-val { font-size: 12px; color: var(--orange); font-weight: 700; }
 
 /* ── CORTE — stats del mes ───────────────────────────────────────────────── */
 .corte-month-stats {

@@ -22,7 +22,6 @@ const COSTO_BANDERA_90X150    = 4200;
 const H24         = 86400000;
 const LS_ORDERS        = 'fs_orders_v4';
 const LS_STOCK         = 'fs_stock_v3';
-const LS_STOCK_MIN     = 'fs_stockmin_v1';
 const LS_ZONES         = 'fs_zones_v1';
 const LS_FLEX_PERIODS  = 'fs_flexperiods_v1';
 const LS_IIBB_PERIODS  = 'fs_iibbperiods_v1';
@@ -42,12 +41,13 @@ const STOCK_DEFAULTS = {
 };
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
-let orders = [], stock = {}, stockMin = {}, zones = [...FLEX_ZONES], flexPeriods = [], flexManualRecords = [], iibbPeriods = [];
+let orders = [], stock = {}, zones = [...FLEX_ZONES], flexPeriods = [], flexManualRecords = [], iibbPeriods = [];
 let curView = 'pedidos', pedidosTab = 'preparar', corteCuenta = 'capi', flexFilter = null;
 let _corteSelectedIds = null;
 let _corteConfirmTimer = null;
 let pedidosSearch = '';
 let _recuentoChecked = new Set();
+let _depChecked = new Set();
 let _prodSortTs = 0;
 let expandFlexPeriods = new Set();
 let expandFlexQuincenas = new Set();
@@ -152,7 +152,6 @@ function entrarApp(user) {
 function loadCache() {
   try { const r = localStorage.getItem(LS_ORDERS);       if (r) orders            = JSON.parse(r); } catch(e) { orders = []; }
   try { const r = localStorage.getItem(LS_STOCK);        if (r) stock             = JSON.parse(r); } catch(e) { stock  = {}; }
-  try { const r = localStorage.getItem(LS_STOCK_MIN);    if (r) stockMin          = JSON.parse(r); } catch(e) { stockMin = {}; }
   try { const r = localStorage.getItem(LS_ZONES);        if (r) zones             = JSON.parse(r); } catch(e) { zones  = [...FLEX_ZONES]; }
   try { const r = localStorage.getItem(LS_FLEX_PERIODS); if (r) flexPeriods       = JSON.parse(r); } catch(e) { flexPeriods = []; }
   try { const r = localStorage.getItem(LS_FLEX_MANUAL);  if (r) flexManualRecords = JSON.parse(r); } catch(e) { flexManualRecords = []; }
@@ -160,7 +159,6 @@ function loadCache() {
 }
 function saveOrders()        { try { localStorage.setItem(LS_ORDERS,       JSON.stringify(orders));            } catch(e) {} }
 function saveStock()         { try { localStorage.setItem(LS_STOCK,        JSON.stringify(stock));             } catch(e) {} }
-function saveStockMin()      { try { localStorage.setItem(LS_STOCK_MIN,    JSON.stringify(stockMin));          } catch(e) {} }
 function saveZones()         { try { localStorage.setItem(LS_ZONES,        JSON.stringify(zones));             } catch(e) {} }
 function saveFlexPeriods()   { try { localStorage.setItem(LS_FLEX_PERIODS, JSON.stringify(flexPeriods));       } catch(e) {} }
 function saveFlexManual()    { try { localStorage.setItem(LS_FLEX_MANUAL,  JSON.stringify(flexManualRecords)); } catch(e) {} }
@@ -750,7 +748,7 @@ function setupAlerts() {
   setInterval(updateCountdowns, 60000);
 }
 function showAlert(type, msg, tipo) {
-  // Solo alertar si hay pedidos pendientes del tipo correspondiente
+  if ([0,6].includes(new Date().getDay())) return;
   const hasPending = orders.some(o =>
     (o.status==='pendiente'||o.status==='preparar') && (!tipo || o.tipoEnvio===tipo)
   );
@@ -773,10 +771,13 @@ function checkCorteThreshold() {
   }
 }
 function updateCountdowns() {
+  const isWeekend=[0,6].includes(new Date().getDay());
   document.querySelectorAll('[data-cd]').forEach(el => {
-    const diff=dispTarget(el.dataset.cd)-new Date(), min=Math.floor(diff/60000);
+    const tipo=el.dataset.cd;
+    const diff=dispTarget(tipo)-new Date(), min=Math.floor(diff/60000);
     el.textContent=fmtDiff(diff);
-    const urg=min<=15?'urgent':min<=60?'warn':'';
+    const nPend=orders.filter(o=>(o.status==='pendiente'||o.status==='preparar')&&o.tipoEnvio===tipo).length;
+    const urg=(isWeekend||nPend===0)?'':min<=15?'urgent':min<=60?'warn':'';
     el.className='countdown'+(urg?' '+urg:'');
     const btn=el.closest('.dispatch-btn');
     if (btn) { btn.classList.remove('warn','urgent'); if (urg) btn.classList.add(urg); }
@@ -824,7 +825,8 @@ function renderPedidos(animDir='') {
   const mkDispBtn = (tipo, icon, n) => {
     const diff = dispTarget(tipo) - new Date();
     const min  = Math.floor(diff / 60000);
-    const urg  = min <= 15 ? 'urgent' : min <= 60 ? 'warn' : '';
+    const isWeekend = [0,6].includes(new Date().getDay());
+    const urg  = (n === 0 || isWeekend) ? '' : min <= 15 ? 'urgent' : min <= 60 ? 'warn' : '';
     const cls  = tipo === 'FLEX' ? 'flex-btn' : 'pe-btn';
     return `<button class="dispatch-btn ${cls}${urg?' '+urg:''}" onclick="despacharTodos('${tipo}')">
       ${icon} Despachar ${tipo} (${n}) <span class="countdown${urg?' '+urg:''}" data-cd="${tipo}">${fmtDiff(diff)}</span>
@@ -1005,9 +1007,7 @@ function calcDep() {
     .sort(([a],[b])=>{ const[aP,aT]=a.split('||'),[bP,bT]=b.split('||'); return aP!==bP?aP.localeCompare(bP):String(aT).localeCompare(String(bT)); })
     .map(([k,qty])=>{ const[prod,talle]=k.split('||'); return {prod,talle,qty,queda:stock[`${prod}_${talle}`]??0}; });
 }
-window.toggleDep = () => {
-  const box=document.getElementById('dep-box'), btn=document.getElementById('btn-dep'); if (!box) return;
-  if (box.style.display!=='none') { box.style.display='none'; btn.textContent='🏪 Depósito'; return; }
+function _renderDepBox(box) {
   const lines=calcDep();
   const nSep=orders.filter(o=>o.status==='preparar'&&o.separado).length;
   const nP=orders.filter(o=>o.status==='preparar'&&!o.separado).length;
@@ -1015,9 +1015,19 @@ window.toggleDep = () => {
   box.innerHTML = !lines.length
     ? `${sepNote}<p class="hint-text">${nSep?'Sin pendientes de buscar':'Sin pedidos para preparar'}</p>`
     : `<div class="dep-hdr">A buscar: ${lines.reduce((a,l)=>a+l.qty,0)} pares · ${nP} pedido${nP!==1?'s':''}</div>
-       ${lines.map(l=>`<div class="dep-row"><span class="dep-n">${l.prod} ${displayTalle(l.talle)}</span><span class="dep-q">×${l.qty}</span><span class="dep-r ${l.queda<0?'negativo':l.queda===0?'cero':l.queda<=2?'bajo':'ok'}">queda ${l.queda}</span></div>`).join('')}
+       ${lines.map(l=>{const k=`${l.prod}||${l.talle}`;const chk=_depChecked.has(k);return `<div class="dep-row${chk?' dep-row-checked':''}"><span class="dep-n">${l.prod} ${displayTalle(l.talle)}</span><span class="dep-q">×${l.qty}</span><span class="dep-r ${l.queda<0?'negativo':l.queda===0?'cero':l.queda<=2?'bajo':'ok'}">queda ${l.queda}</span><button class="dep-check-btn${chk?' active':''}" onclick="toggleDepCheck('${k}')">✓</button></div>`;}).join('')}
        ${sepNote}`;
+}
+window.toggleDep = () => {
+  const box=document.getElementById('dep-box'), btn=document.getElementById('btn-dep'); if (!box) return;
+  if (box.style.display!=='none') { box.style.display='none'; btn.textContent='🏪 Depósito'; return; }
+  _renderDepBox(box);
   box.style.display='block'; btn.textContent='🏪 Ocultar';
+};
+window.toggleDepCheck = k => {
+  if (_depChecked.has(k)) _depChecked.delete(k); else _depChecked.add(k);
+  const box=document.getElementById('dep-box');
+  if (box && box.style.display!=='none') _renderDepBox(box);
 };
 
 function orderCard(o) {
@@ -1511,10 +1521,11 @@ function setCuenta(c) {
   if (typeof renderMeliSuggestions === 'function') renderMeliSuggestions();
 }
 function setEnvio(t) {
-  curEnvio=t;
+  const prev=curEnvio; curEnvio=t;
   document.querySelectorAll('[data-envio]').forEach(b=>b.classList.toggle('active',b.dataset.envio===t));
   V('flex-fields').style.display=t==='FLEX'?'flex':'none';
   V('pe-fields').style.display=t==='PE'?'flex':'none';
+  if (t==='PE' && prev==='FLEX') { const fv=V('f-importe-flex').value; if (fv) V('f-importe-pe').value=fv; }
 }
 
 function _formEnterNext(id) {
@@ -2849,43 +2860,23 @@ function renderStock() {
       `:''}
     </div>`;
   };
-  const _minAlerts = Object.entries(stockMin)
-    .filter(([k,min]) => (stock[k]??0) <= min)
-    .map(([k,min]) => { const [prod,talle]=k.split('_'); return {prod,talle,val:stock[k]??0,min}; });
-  const _alertSection = _minAlerts.length
-    ? `<div class="stock-alerts-section"><div class="dep-hdr">⚠️ Bajo mínimo</div>${_minAlerts.map(a=>`<div class="stock-alert-row"><span>${a.prod} ${displayTalle(a.talle)}</span><span class="stock-alert-val">${a.val} / mín ${a.min}</span></div>`).join('')}</div>`
-    : '';
-
-  v.innerHTML=_alertSection+conStockProds.map(renderProd).join('')+
+  v.innerHTML=conStockProds.map(renderProd).join('')+
     (sinStockProds.length?`<div class="stock-zero-separator"></div>${sinStockProds.map(renderProd).join('')}`:'');
 }
 
 function renderStockRow(p,t) {
-  const k=`${p}_${t}`, val=stock[k]??0, min=stockMin[k];
-  const atMin = min!=null && val<=min;
-  const cls = val<0?'negativo':val===0?'cero':atMin?'minimo':val<=2?'bajo':'ok';
-  const minLabel = min!=null ? `<span class="stock-min-label">mín:${min}</span>` : '';
+  const k=`${p}_${t}`, val=stock[k]??0;
+  const cls = val<0?'negativo':val===0?'cero':val<=2?'bajo':'ok';
   return `<div class="stock-row ${cls}">
-    <span class="stock-talle">${displayTalle(t)}${minLabel}</span>
+    <span class="stock-talle">${displayTalle(t)}</span>
     <div class="stock-stepper">
       <button class="stepper-btn" onclick="adjSt('${k}',-1)">−</button>
       <span class="stepper-val" id="sv-${k}">${val}</span>
       <button class="stepper-btn" onclick="adjSt('${k}',1)">+</button>
       <button class="stepper-btn stepper-pencil" onclick="editSt('${k}')">✏️</button>
-      <button class="stepper-btn stepper-min${min!=null?' active':''}" onclick="editStMin('${k}')" title="Mínimo de alerta">🔔</button>
     </div>
   </div>`;
 }
-window.editStMin = async k => {
-  const cur = stockMin[k]??'';
-  const v = await showInputDialog(`Mínimo para ${k.replace('_',' ')}`, cur, 'Sin mínimo = dejar vacío');
-  if (v === null) return;
-  const n = v.trim() === '' ? null : parseInt(v);
-  if (v.trim() !== '' && (isNaN(n)||n<0)) { toast('⚠️ Número inválido'); return; }
-  if (n==null) delete stockMin[k]; else stockMin[k]=n;
-  saveStockMin(); renderStock();
-};
-
 
 function animNumPop(el) {
   if (!el) return;

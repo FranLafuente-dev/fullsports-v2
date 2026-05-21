@@ -585,10 +585,13 @@ async function syncMeli(showToast = true) {
       }
     }
     const preMerged = [...Array.from(packMap.values()).map(_mergePack), ...nonPacked];
-    // Filtrar ya cargados/ignorados usando el ID final (pack_id o order_id)
+    // Filtrar ya cargados/ignorados: chequear pack_id, order_id individual, y cada ID del pack
     const candidates = preMerged.filter(o => {
       const mid = o.pack_id ? String(o.pack_id) : String(o.id);
       if (meliIgnoredIds.has(mid) || _isMeliOrderLoaded(mid)) return false;
+      // Backward compat: órdenes guardadas con ID individual antes del merge por pack
+      const oid = String(o.id);
+      if (meliIgnoredIds.has(oid) || _isMeliOrderLoaded(oid)) return false;
       if (o._packOrderIds) {
         for (const pid of o._packOrderIds) {
           if (meliIgnoredIds.has(pid) || _isMeliOrderLoaded(pid)) return false;

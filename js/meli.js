@@ -531,6 +531,16 @@ async function _fetchTodayOrders(account) {
     .map(o => ({ ...o, _account: account }));
 }
 
+// ─── MERGE PACK ───────────────────────────────────────────────────────────────
+function _mergePack(orders) {
+  if (orders.length === 1) return orders[0];
+  const base = { ...orders[0] };
+  base.order_items  = orders.flatMap(o => o.order_items || []);
+  base.total_amount = orders.reduce((s, o) => s + (o.total_amount || 0), 0);
+  base._packOrderIds = orders.map(o => String(o.id));
+  return base;
+}
+
 // ─── SYNC PRINCIPAL ───────────────────────────────────────────────────────────
 async function syncMeli(showToast = true) {
   if (!meliTokens.capi && !meliTokens.enano) {
@@ -552,18 +562,40 @@ async function syncMeli(showToast = true) {
     ]);
     const all = [...capiOrders, ...enanoOrders];
 
-    const candidates = [];
+    // Dedup + filtro dispatched por orden individual
+    const rawCandidates = [];
     const seenIds = new Set();
     for (const o of all) {
-      const id        = String(o.id);
-      if (seenIds.has(id)) continue; // dedup: mismo ID en ambas cuentas o paginación
+      const id = String(o.id);
+      if (seenIds.has(id)) continue;
       seenIds.add(id);
-      const ignored   = meliIgnoredIds.has(id);
-      const loaded    = _isMeliOrderLoaded(id);
-      const dispatched= _isMeliDispatched(o);
-      if (ignored || loaded || dispatched) continue;
-      candidates.push(o);
+      if (_isMeliDispatched(o)) continue;
+      rawCandidates.push(o);
     }
+    // Agrupar por pack_id (compras múltiples MELI = un solo pedido)
+    const packMap = new Map();
+    const nonPacked = [];
+    for (const o of rawCandidates) {
+      if (o.pack_id) {
+        const pk = String(o.pack_id);
+        if (!packMap.has(pk)) packMap.set(pk, []);
+        packMap.get(pk).push(o);
+      } else {
+        nonPacked.push(o);
+      }
+    }
+    const preMerged = [...Array.from(packMap.values()).map(_mergePack), ...nonPacked];
+    // Filtrar ya cargados/ignorados usando el ID final (pack_id o order_id)
+    const candidates = preMerged.filter(o => {
+      const mid = o.pack_id ? String(o.pack_id) : String(o.id);
+      if (meliIgnoredIds.has(mid) || _isMeliOrderLoaded(mid)) return false;
+      if (o._packOrderIds) {
+        for (const pid of o._packOrderIds) {
+          if (meliIgnoredIds.has(pid) || _isMeliOrderLoaded(pid)) return false;
+        }
+      }
+      return true;
+    });
     if (candidates.length) {
       await Promise.all([
         _enrichFromShipment(candidates),
@@ -724,18 +756,19 @@ function _buildSuggestion(order) {
   const provincia = _getProvince(order);
   const zone      = _findFlexZone(localidad, provincia);
   return {
-    meliOrderId:  String(order.id),
-    account:      order._account,
-    nombre:       _getBuyerName(order),
-    nickname:     order.buyer?.nickname || '',
-    tipoEnvio:    zone ? 'FLEX' : 'PE',
+    meliOrderId:   order.pack_id ? String(order.pack_id) : String(order.id),
+    packOrderIds:  order._packOrderIds || null,
+    account:       order._account,
+    nombre:        _getBuyerName(order),
+    nickname:      order.buyer?.nickname || '',
+    tipoEnvio:     zone ? 'FLEX' : 'PE',
     localidad,
     provincia,
-    importe:      0,
-    iibb:         order._iibb || 0,
-    importeBruto: order.total_amount || (order.payments||[]).reduce((s,p) => s + (p.total_paid_amount||0), 0),
-    items:        _parseItems(order.order_items),
-    dateCreated:  order.date_created,
+    importe:       0,
+    iibb:          order._iibb || 0,
+    importeBruto:  order.total_amount || (order.payments||[]).reduce((s,p) => s + (p.total_paid_amount||0), 0),
+    items:         _parseItems(order.order_items),
+    dateCreated:   order.date_created,
   };
 }
 
@@ -1097,7 +1130,9 @@ function meliMarkLoaded(meliOrderId) {
 }
 window.meliMarkLoaded = meliMarkLoaded;
 
-function meliGetSelectedId()  { return meliSelectedSug?.meliOrderId || null; }
+function meliGetSelectedId()    { return meliSelectedSug?.meliOrderId  || null; }
+function meliGetPackOrderIds()  { return meliSelectedSug?.packOrderIds || null; }
+window.meliGetPackOrderIds = meliGetPackOrderIds;
 function meliResetSelected() {
   meliSelectedSug = null;
   const tag = document.getElementById('meli-order-tag');
@@ -1133,7 +1168,10 @@ async function _updateTracking(freshMeliOrders) {
   if (!inTransit.length) return;
   let changed = false;
   for (const order of inTransit) {
-    let mo = freshMeliOrders.find(m => String(m.id) === String(order.meliOrderId));
+    let mo = freshMeliOrders.find(m =>
+      String(m.id) === String(order.meliOrderId) ||
+      (order.meliPackOrderIds?.some(pid => String(m.id) === pid))
+    );
     // Si el pedido es más viejo que la ventana del fetch, consultarlo directamente.
     // Si no hay cuenta definida, prueba ambas (pedidos cargados antes de la integración MELI).
     if (!mo) {
@@ -1142,7 +1180,8 @@ async function _updateTracking(freshMeliOrders) {
         try {
           const token = await _meliGetToken(acct);
           if (token) {
-            const fetched = await _meliGet(`/orders/${order.meliOrderId}`, token);
+            const trackId = order.meliPackOrderIds?.[0] || order.meliOrderId;
+            const fetched = await _meliGet(`/orders/${trackId}`, token);
             mo = { ...fetched, _account: acct };
             break;
           }

@@ -1809,13 +1809,15 @@ async function _guardarVentaInner() {
     })) return;
   }
 
-  const _meliId = (!editingId && typeof meliGetSelectedId === 'function') ? meliGetSelectedId() : null;
+  const _meliId     = (!editingId && typeof meliGetSelectedId   === 'function') ? meliGetSelectedId()   : null;
+  const _meliPackIds = (!editingId && typeof meliGetPackOrderIds === 'function') ? meliGetPackOrderIds() : null;
 
   const base={
     cuenta:curCuenta, nombreComprador:nombre, tipoEnvio:curEnvio, items:formItems,
     status:editingId?(orders.find(o=>o.id===editingId)?.status||'preparar'):'preparar',
     corteDone:editingId?(orders.find(o=>o.id===editingId)?.corteDone||false):false,
-    ...(_meliId ? { meliOrderId: _meliId } : {}),
+    ...(_meliId     ? { meliOrderId:      _meliId     } : {}),
+    ...(_meliPackIds ? { meliPackOrderIds: _meliPackIds } : {}),
   };
   if (curCuenta==='enano') {
     base.provincia=V('f-provincia').value.trim();

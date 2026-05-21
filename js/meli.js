@@ -643,7 +643,7 @@ async function syncMeli(showToast = true) {
       _meliRetryCount = 0; // reset backoff en éxito
       if (showToast) toast(suggestions.length > 0
         ? `${suggestions.length} pedido${suggestions.length > 1 ? 's' : ''} nuevo${suggestions.length > 1 ? 's' : ''} en MELI ✓`
-        : 'MELI sincronizado ✓'
+        : '✓ Sin pedidos pendientes de carga'
       );
     }
   } catch(e) {

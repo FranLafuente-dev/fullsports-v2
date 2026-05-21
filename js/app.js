@@ -48,6 +48,9 @@ let _corteConfirmTimer = null;
 let pedidosSearch = '';
 let _recuentoChecked = new Set();
 let _depChecked = new Set();
+let _corteCopied = {};
+let _lastCorteIds = null;
+let _lastCorteCuenta = null;
 let _prodSortTs = 0;
 let expandFlexPeriods = new Set();
 let expandFlexQuincenas = new Set();
@@ -1956,7 +1959,10 @@ function renderCorteBody() {
     <div class="cms-row"><span style="color:var(--text-3)">Costo estimado</span><span style="color:var(--text-2)">−$${fmt(mStats.costo)}</span></div>
     <div class="cms-row" style="border-top:1px solid var(--sep);padding-top:4px;margin-top:2px"><span style="font-weight:700">Ganancia estimada</span><span class="cms-ganancia${mStats.ganancia<0?' negativa':''}">$${fmt(mStats.ganancia)}</span></div>
   </div>` : '';
-  if (!pend.length) return statsHtml+`<div class="empty-state"><span>✂️</span><p>Sin ventas pendientes de corte</p></div>`;
+  const undoHtml = (_lastCorteIds?.length && _lastCorteCuenta === corteCuenta)
+    ? `<button class="btn btn-ghost btn-sm" style="width:100%;margin-bottom:8px" onclick="undoCorte()">↩ Deshacer último corte (${_lastCorteIds.length} pedido${_lastCorteIds.length!==1?'s':''})</button>`
+    : '';
+  if (!pend.length) return statsHtml+undoHtml+`<div class="empty-state"><span>✂️</span><p>Sin ventas pendientes de corte</p></div>`;
   // Inicializar selección con todos los pedidos si es null
   if (_corteSelectedIds===null) _corteSelectedIds=new Set(pend.map(o=>o.id));
   // Limpiar IDs que ya no existen
@@ -1966,7 +1972,7 @@ function renderCorteBody() {
   const noneSel=sel.length===0;
   const tV=sel.length?(corteCuenta==='capi'?textoCapi(sel):textoEnano(sel)):'';
   const tC=sel.length?textoCostos(sel,corteCuenta):'';
-  return statsHtml+`
+  return statsHtml+undoHtml+`
     <div class="card" style="padding:16px">
       <div class="section-title">Ventas ${corteCuenta.toUpperCase()}</div>
       <div class="text-output" style="margin-top:8px">${noneSel?'<span style="color:var(--text-3)">Ningún pedido seleccionado</span>':renderWA(tV)}</div>
@@ -2105,6 +2111,9 @@ window.doCortadoSelected = async c => {
   const excluded=allPend-ids.length;
   const toCorte=orders.filter(o=>ids.includes(o.id));
   toCorte.forEach(o=>mutateOrder(o.id,{corteDone:true}));
+  _lastCorteIds = [...ids];
+  _lastCorteCuenta = c;
+  _corteCopied[c] = false;
   _corteSelectedIds=null;
   document.getElementById('corte-confirm-banner')?.remove();
   renderCorte();
@@ -2114,21 +2123,43 @@ window.doCortadoSelected = async c => {
   } catch(e) { toast('📶 Sin red — se sincronizará'); }
 };
 
-window.copyAndConfirmCorte = async (textVentas, textCostos) => {
+window.copyAndConfirmCorte = async (textVentas, textCostos, cuenta) => {
   const sep = '\n\n─────────────────────\n\n';
   const combined = textVentas + (textCostos ? sep + textCostos : '');
   await navigator.clipboard.writeText(combined).catch(()=>{});
+  if (cuenta) _corteCopied[cuenta] = true;
   toast('¡Copiado!');
 };
 
 window.openCorteConfirm = async cuenta => {
   const n = _corteSelectedIds?.size || 0;
   if (!n) { toast('Ningún pedido seleccionado'); return; }
-  const ok = await showConfirm(
-    `¿Hacer corte de ${n} pedido${n>1?'s':''}?`,
-    { icon: '✂️', confirmText: 'Sí, hacer corte', confirmClass: 'btn-primary', cancelText: 'Después' }
-  );
-  if (ok) doCortadoSelected(cuenta);
+  if (!_corteCopied[cuenta]) {
+    const ok = await showConfirm(
+      '¿Hacer corte sin copiar el resumen?',
+      { icon: '⚠️', confirmText: 'Cortar igual', confirmClass: 'btn-danger', cancelText: 'Volver a copiar' }
+    );
+    if (!ok) return;
+  } else {
+    const ok = await showConfirm(
+      `¿Hacer corte de ${n} pedido${n>1?'s':''}?`,
+      { icon: '✂️', confirmText: 'Sí, hacer corte', confirmClass: 'btn-primary', cancelText: 'Después' }
+    );
+    if (!ok) return;
+  }
+  doCortadoSelected(cuenta);
+};
+
+window.undoCorte = async () => {
+  if (!_lastCorteIds?.length) return;
+  const ids = [..._lastCorteIds];
+  _lastCorteIds = null; _lastCorteCuenta = null;
+  ids.forEach(id => mutateOrder(id, { corteDone: false }));
+  renderCorte();
+  try {
+    for (const id of ids) await db.collection('orders').doc(id).update({ corteDone: false });
+    toast(`Corte deshecho ✓`);
+  } catch(e) { toast('📶 Sin red — se sincronizará'); }
 };
 
 window.doCortado = async c=>{

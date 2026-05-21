@@ -49,8 +49,6 @@ let pedidosSearch = '';
 let _recuentoChecked = new Set();
 let _depChecked = new Set();
 let _corteCopied = {};
-let _lastCorteIds = null;
-let _lastCorteCuenta = null;
 let _prodSortTs = 0;
 let expandFlexPeriods = new Set();
 let expandFlexQuincenas = new Set();
@@ -1347,9 +1345,11 @@ window.doUndo = async () => {
   REDO_STACK.push(entry);
   await applyHistoryEntry(entry, 'undo');
   updateUndoUI();
-  const nombre = entry.type === 'delete'
-    ? entry.order?.nombreComprador
-    : (entry.id ? orders.find(o => o.id === entry.id)?.nombreComprador : null);
+  const nombre = entry.type === 'corte'
+    ? `Corte ${entry.cuenta.toUpperCase()} (${entry.ids.length} pedido${entry.ids.length!==1?'s':''})`
+    : entry.type === 'delete'
+      ? entry.order?.nombreComprador
+      : (entry.id ? orders.find(o => o.id === entry.id)?.nombreComprador : null);
   toast(nombre ? `↩ Deshecho: ${nombre}` : '↩ Deshecho ✓');
 };
 window.doRedo = async () => {
@@ -1384,6 +1384,11 @@ async function applyHistoryEntry(entry, dir) {
       saveOrders(); renderPedidos(); renderCorte();
       try { await db.collection('orders').doc(entry.id).delete(); } catch(e) {}
     }
+  } else if (entry.type === 'corte') {
+    const val = dir === 'undo' ? false : true;
+    entry.ids.forEach(id => mutateOrder(id, { corteDone: val }));
+    renderPedidos(); renderCorte();
+    try { for (const id of entry.ids) await db.collection('orders').doc(id).update({ corteDone: val }); } catch(e) {}
   }
 }
 
@@ -1959,10 +1964,7 @@ function renderCorteBody() {
     <div class="cms-row"><span style="color:var(--text-3)">Costo estimado</span><span style="color:var(--text-2)">−$${fmt(mStats.costo)}</span></div>
     <div class="cms-row" style="border-top:1px solid var(--sep);padding-top:4px;margin-top:2px"><span style="font-weight:700">Ganancia estimada</span><span class="cms-ganancia${mStats.ganancia<0?' negativa':''}">$${fmt(mStats.ganancia)}</span></div>
   </div>` : '';
-  const undoHtml = (_lastCorteIds?.length && _lastCorteCuenta === corteCuenta)
-    ? `<button class="btn btn-ghost btn-sm" style="width:100%;margin-bottom:8px" onclick="undoCorte()">↩ Deshacer último corte (${_lastCorteIds.length} pedido${_lastCorteIds.length!==1?'s':''})</button>`
-    : '';
-  if (!pend.length) return statsHtml+undoHtml+`<div class="empty-state"><span>✂️</span><p>Sin ventas pendientes de corte</p></div>`;
+  if (!pend.length) return statsHtml+`<div class="empty-state"><span>✂️</span><p>Sin ventas pendientes de corte</p></div>`;
   // Inicializar selección con todos los pedidos si es null
   if (_corteSelectedIds===null) _corteSelectedIds=new Set(pend.map(o=>o.id));
   // Limpiar IDs que ya no existen
@@ -1972,7 +1974,7 @@ function renderCorteBody() {
   const noneSel=sel.length===0;
   const tV=sel.length?(corteCuenta==='capi'?textoCapi(sel):textoEnano(sel)):'';
   const tC=sel.length?textoCostos(sel,corteCuenta):'';
-  return statsHtml+undoHtml+`
+  return statsHtml+`
     <div class="card" style="padding:16px">
       <div class="section-title">Ventas ${corteCuenta.toUpperCase()}</div>
       <div class="text-output" style="margin-top:8px">${noneSel?'<span style="color:var(--text-3)">Ningún pedido seleccionado</span>':renderWA(tV)}</div>
@@ -1981,7 +1983,7 @@ function renderCorteBody() {
         ${renderWA(tC)}
         <div style="display:flex;gap:8px;margin-top:10px">
           <button class="btn btn-ghost btn-sm" style="flex:1" onclick="copyAndConfirmCorte(${esc(tV)},${esc(tC)},'${corteCuenta}')">📋 Copiar</button>
-          <button class="btn btn-primary btn-sm" style="flex:1" onclick="openCorteConfirm('${corteCuenta}')">✂️ Hacer corte</button>
+          <button class="btn btn-primary btn-sm" style="flex:1" onclick="openCorteConfirm('${corteCuenta}',${esc(tV)},${esc(tC)})">✂️ Hacer corte</button>
         </div>`}
     </div>
     <div class="card" style="display:none"><!-- costos ahora van dentro del card de ventas -->
@@ -2111,8 +2113,7 @@ window.doCortadoSelected = async c => {
   const excluded=allPend-ids.length;
   const toCorte=orders.filter(o=>ids.includes(o.id));
   toCorte.forEach(o=>mutateOrder(o.id,{corteDone:true}));
-  _lastCorteIds = [...ids];
-  _lastCorteCuenta = c;
+  pushUndo({type:'corte', ids:[...ids], cuenta:c});
   _corteCopied[c] = false;
   _corteSelectedIds=null;
   document.getElementById('corte-confirm-banner')?.remove();
@@ -2131,15 +2132,37 @@ window.copyAndConfirmCorte = async (textVentas, textCostos, cuenta) => {
   toast('¡Copiado!');
 };
 
-window.openCorteConfirm = async cuenta => {
+window.openCorteConfirm = async (cuenta, textVentas='', textCostos='') => {
   const n = _corteSelectedIds?.size || 0;
   if (!n) { toast('Ningún pedido seleccionado'); return; }
   if (!_corteCopied[cuenta]) {
-    const ok = await showConfirm(
-      '¿Hacer corte sin copiar el resumen?',
-      { icon: '⚠️', confirmText: 'Cortar igual', confirmClass: 'btn-danger', cancelText: 'Volver a copiar' }
-    );
-    if (!ok) return;
+    const result = await new Promise(resolve => {
+      const bg = document.createElement('div');
+      bg.className = 'custom-dialog-bg';
+      bg.innerHTML = `<div class="custom-dialog">
+        <div class="custom-dialog-icon">⚠️</div>
+        <div class="custom-dialog-msg">¿Hacer corte sin copiar el resumen?</div>
+        <div class="custom-dialog-btns" style="flex-direction:column;gap:8px">
+          <button class="btn btn-primary cd-copy">📋 Copiar</button>
+          <button class="btn btn-danger cd-force">Cortar igual</button>
+          <button class="btn btn-ghost cd-cancel">Cancelar</button>
+        </div>
+      </div>`;
+      document.body.appendChild(bg);
+      bg.querySelector('.cd-copy').onclick   = () => _closeDlg(bg, resolve, 'copy');
+      bg.querySelector('.cd-force').onclick  = () => _closeDlg(bg, resolve, 'force');
+      bg.querySelector('.cd-cancel').onclick = () => _closeDlg(bg, resolve, 'cancel');
+      bg.addEventListener('click', e => { if (e.target === bg) _closeDlg(bg, resolve, 'cancel'); });
+    });
+    if (result === 'cancel') return;
+    if (result === 'copy') {
+      const sep = '\n\n─────────────────────\n\n';
+      await navigator.clipboard.writeText(textVentas + (textCostos ? sep + textCostos : '')).catch(()=>{});
+      _corteCopied[cuenta] = true;
+      toast('¡Copiado!');
+      return;
+    }
+    // result === 'force': sigue sin copiar
   } else {
     const ok = await showConfirm(
       `¿Hacer corte de ${n} pedido${n>1?'s':''}?`,
@@ -2148,18 +2171,6 @@ window.openCorteConfirm = async cuenta => {
     if (!ok) return;
   }
   doCortadoSelected(cuenta);
-};
-
-window.undoCorte = async () => {
-  if (!_lastCorteIds?.length) return;
-  const ids = [..._lastCorteIds];
-  _lastCorteIds = null; _lastCorteCuenta = null;
-  ids.forEach(id => mutateOrder(id, { corteDone: false }));
-  renderCorte();
-  try {
-    for (const id of ids) await db.collection('orders').doc(id).update({ corteDone: false });
-    toast(`Corte deshecho ✓`);
-  } catch(e) { toast('📶 Sin red — se sincronizará'); }
 };
 
 window.doCortado = async c=>{

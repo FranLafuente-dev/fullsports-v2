@@ -30,6 +30,8 @@ let _meliRetryCount = 0;   // contador de fallos consecutivos para backoff expon
 const _meliInvalidCount = { capi: 0, enano: 0 };
 // IDs de pedidos MELI que están siendo guardados ahora mismo (entre el add() y el onSnapshot)
 const _meliPendingSaves = new Set();
+// Cache de enriquecimiento por sesión — evita refetch de shipment/payment ya consultados
+const _meliEnrichCache = new Map();
 
 // ─── ALERTA DESCONEXIÓN — notifica siempre, incluso en background ─────────────
 let _lastDisconnectNotifAt = 0;
@@ -609,6 +611,9 @@ async function syncMeli(showToast = true) {
     meliSuggestions = suggestions;
     updateMeliBadge();
 
+    // Guardar estado para background sync (se usa cuando la app está cerrada)
+    _saveBgState();
+
     // Notificar pedidos genuinamente nuevos — siempre, incluso con la app abierta
     const newCount = suggestions.filter(s => !_lastNotifiedSugIds.has(s.meliOrderId)).length;
     if (newCount > 0) _notifyNewOrders(newCount);
@@ -660,10 +665,17 @@ async function _enrichFromPayment(orders) {
   await Promise.all(orders.map(async o => {
     const payId = o.payments?.[0]?.id;
     if (!payId) return;
+    const ckey = 'pay:' + payId;
+    let pay = _meliEnrichCache.get(ckey);
+    if (!pay) {
+      try {
+        const token = await _meliGetToken(o._account);
+        if (!token) return;
+        pay = await _meliGet(`/payments/${payId}`, token);
+        _meliEnrichCache.set(ckey, pay);
+      } catch(e) { return; }
+    }
     try {
-      const token = await _meliGetToken(o._account);
-      if (!token) return;
-      const pay = await _meliGet(`/payments/${payId}`, token);
       const fees = pay.fee_details || [];
 
       // ── Importe neto ──────────────────────────────────────────────────────
@@ -710,15 +722,21 @@ async function _enrichFromPayment(orders) {
 async function _enrichFromShipment(orders) {
   await Promise.all(orders.map(async o => {
     if (!o.shipping?.id) return;
-    try {
-      const token = await _meliGetToken(o._account);
-      if (!token) return;
-      const s = await _meliGet(`/shipments/${o.shipping.id}`, token);
-      if (s.receiver_address) o.shipping.receiver_address = s.receiver_address;
-      if (s.logistic_type) o.shipping.logistic_type = s.logistic_type;
-      if (s.mode)          o.shipping.mode          = s.mode;
-      if (s.tags)          o.shipping.tags          = s.tags;
-    } catch(e) { /* enrich failed — skip silently */ }
+    const sid  = String(o.shipping.id);
+    const ckey = 'ship:' + sid;
+    let s = _meliEnrichCache.get(ckey);
+    if (!s) {
+      try {
+        const token = await _meliGetToken(o._account);
+        if (!token) return;
+        s = await _meliGet(`/shipments/${sid}`, token);
+        _meliEnrichCache.set(ckey, s);
+      } catch(e) { return; }
+    }
+    if (s.receiver_address) o.shipping.receiver_address = s.receiver_address;
+    if (s.logistic_type)    o.shipping.logistic_type    = s.logistic_type;
+    if (s.mode)             o.shipping.mode             = s.mode;
+    if (s.tags)             o.shipping.tags             = s.tags;
   }));
 }
 
@@ -912,6 +930,28 @@ function _notifyNewOrders(newOnes) {
     `${newOnes} pedido${newOnes > 1 ? 's' : ''} sin cargar`,
     'meli-new-orders'
   );
+}
+
+// ─── BACKGROUND STATE — persiste info para el SW cuando la app está cerrada ──
+async function _saveBgState() {
+  try {
+    const capiUserId  = meliTokens.capi?.userId  || '';
+    const enanoUserId = meliTokens.enano?.userId || '';
+    if (!capiUserId && !enanoUserId) return;
+    const loadedIds = typeof orders !== 'undefined'
+      ? orders.filter(o => o.meliOrderId).map(o => String(o.meliOrderId))
+      : [];
+    const state = {
+      capiUserId, enanoUserId,
+      knownIds:   [...new Set([...loadedIds, ...meliSuggestions.map(s => s.meliOrderId)])],
+      ignoredIds: [...meliIgnoredIds],
+      savedAt:    Date.now(),
+    };
+    const c = await caches.open('meli-bg-state-v1');
+    await c.put('state.json', new Response(JSON.stringify(state), {
+      headers: { 'Content-Type': 'application/json' },
+    }));
+  } catch(e) {}
 }
 
 // ─── POLLING ──────────────────────────────────────────────────────────────────
@@ -1166,68 +1206,72 @@ async function meliCheckDispatch(pendOrders) {
 window.meliCheckDispatch = meliCheckDispatch;
 
 // ─── TRACKING ────────────────────────────────────────────────────────────────
-async function _updateTracking(freshMeliOrders) {
-  const inTransit = orders.filter(o => o.status === 'camino' && o.meliOrderId);
-  if (!inTransit.length) return;
-  let changed = false;
-  for (const order of inTransit) {
-    let mo = freshMeliOrders.find(m =>
-      String(m.id) === String(order.meliOrderId) ||
-      (order.meliPackOrderIds?.some(pid => String(m.id) === pid))
-    );
-    // Si el pedido es más viejo que la ventana del fetch, consultarlo directamente.
-    // Si no hay cuenta definida, prueba ambas (pedidos cargados antes de la integración MELI).
-    if (!mo) {
-      const acctsTry = order.cuenta ? [order.cuenta] : ['capi', 'enano'];
-      for (const acct of acctsTry) {
-        try {
-          const token = await _meliGetToken(acct);
-          if (token) {
-            const trackId = order.meliPackOrderIds?.[0] || order.meliOrderId;
-            const fetched = await _meliGet(`/orders/${trackId}`, token);
-            mo = { ...fetched, _account: acct };
-            break;
-          }
-        } catch(e) {}
-      }
-    }
-    if (!mo) continue;
-
-    if (mo.shipping?.status === 'delivered') {
-      const f = new Date().toLocaleDateString('es-AR');
-      mutateOrder(order.id, { status: 'entregado', fechaEntrega: f, deliveredAt: Date.now() });
-      try { await db.collection('orders').doc(order.id).update({ status: 'entregado', deliveredAt: TS(), fechaEntrega: f }); } catch(e) {}
-      const cuenta = order.cuenta || mo._account;
-      if (cuenta === 'capi') {
-        _notify('✅ Entregado — CAPI', `${order.nombreComprador} recibió su pedido`, `capi-delivered-${order.id}`);
-      }
-      changed = true;
-      continue;
-    }
-
-    // Actualizar fecha estimada de entrega desde MELI en tiempo real
-    if (mo.shipping?.id) {
+async function _trackOne(order, freshMeliOrders) {
+  let mo = freshMeliOrders.find(m =>
+    String(m.id) === String(order.meliOrderId) ||
+    (order.meliPackOrderIds?.some(pid => String(m.id) === pid))
+  );
+  if (!mo) {
+    const acctsTry = order.cuenta ? [order.cuenta] : ['capi', 'enano'];
+    for (const acct of acctsTry) {
       try {
-        const acct = mo._account || order.cuenta;
         const token = await _meliGetToken(acct);
         if (token) {
-          const s = await _meliGet(`/shipments/${mo.shipping.id}`, token);
-          const etaRaw = s.shipping_option?.estimated_delivery_time?.date
-            || s.estimated_delivery_limit?.date
-            || null;
-          if (etaRaw) {
-            const etaDate = new Date(etaRaw).toLocaleDateString('es-AR');
-            if (etaDate !== order.fechaEstimada) {
-              mutateOrder(order.id, { fechaEstimada: etaDate });
-              try { await db.collection('orders').doc(order.id).update({ fechaEstimada: etaDate }); } catch(e) {}
-              changed = true;
-            }
-          }
+          const trackId = order.meliPackOrderIds?.[0] || order.meliOrderId;
+          const fetched = await _meliGet(`/orders/${trackId}`, token);
+          mo = { ...fetched, _account: acct };
+          break;
         }
       } catch(e) {}
     }
   }
-  if (changed) renderPedidos();
+  if (!mo) return false;
+
+  if (mo.shipping?.status === 'delivered') {
+    const f = new Date().toLocaleDateString('es-AR');
+    mutateOrder(order.id, { status: 'entregado', fechaEntrega: f, deliveredAt: Date.now() });
+    try { await db.collection('orders').doc(order.id).update({ status: 'entregado', deliveredAt: TS(), fechaEntrega: f }); } catch(e) {}
+    const cuenta = order.cuenta || mo._account;
+    if (cuenta === 'capi') {
+      _notify('✅ Entregado — CAPI', `${order.nombreComprador} recibió su pedido`, `capi-delivered-${order.id}`);
+    }
+    return true;
+  }
+
+  if (mo.shipping?.id) {
+    try {
+      const acct  = mo._account || order.cuenta;
+      const token = await _meliGetToken(acct);
+      if (token) {
+        const sid = String(mo.shipping.id);
+        // Reusar cache de enrichment si ya fue consultado en este sync
+        let s = _meliEnrichCache.get('ship:' + sid);
+        if (!s) {
+          s = await _meliGet(`/shipments/${sid}`, token);
+          _meliEnrichCache.set('ship:' + sid, s);
+        }
+        const etaRaw = s.shipping_option?.estimated_delivery_time?.date
+          || s.estimated_delivery_limit?.date
+          || null;
+        if (etaRaw) {
+          const etaDate = new Date(etaRaw).toLocaleDateString('es-AR');
+          if (etaDate !== order.fechaEstimada) {
+            mutateOrder(order.id, { fechaEstimada: etaDate });
+            try { await db.collection('orders').doc(order.id).update({ fechaEstimada: etaDate }); } catch(e) {}
+            return true;
+          }
+        }
+      }
+    } catch(e) {}
+  }
+  return false;
+}
+
+async function _updateTracking(freshMeliOrders) {
+  const inTransit = orders.filter(o => o.status === 'camino' && o.meliOrderId);
+  if (!inTransit.length) return;
+  const results = await Promise.all(inTransit.map(o => _trackOne(o, freshMeliOrders)));
+  if (results.some(Boolean)) renderPedidos();
 }
 
 // ─── SETTINGS UI ─────────────────────────────────────────────────────────────

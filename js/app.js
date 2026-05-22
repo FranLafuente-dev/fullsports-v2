@@ -1650,7 +1650,7 @@ function setupLocalidadSearch() {
     });
   }
   let _locTimer;
-  inp.addEventListener('input', () => { clearTimeout(_locTimer); _locTimer = setTimeout(buildResults, 120); });
+  inp.addEventListener('input', () => { clearTimeout(_locTimer); _locTimer = setTimeout(buildResults, 250); });
   document.addEventListener('scroll',()=>{ if(res.classList.contains('show')) positionDropdown(); },true);
   document.addEventListener('click',e=>{ if(!e.target.closest('.search-wrap')&&!res.contains(e.target)) res.classList.remove('show'); });
 }

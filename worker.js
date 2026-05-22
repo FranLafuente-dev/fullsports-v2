@@ -156,6 +156,23 @@ export default {
 
     const url = new URL(request.url);
 
+    // POST /api/meli-notification — webhook de MELI: venta nueva registrada
+    // MELI llama a esta URL en segundos cuando entra un pago. Necesita respuesta 200 en < 10s.
+    if (url.pathname === '/api/meli-notification' && request.method === 'POST') {
+      const body = await request.json().catch(() => null);
+      if (body?.topic === 'orders' || body?.topic === 'orders_v2' ||
+          String(body?.resource || '').includes('/orders/')) {
+        await kvPut(kv, 'pending_orders', { at: Date.now(), userId: body?.user_id || null }, { expirationTtl: 900 });
+      }
+      return json({ ok: true });
+    }
+
+    // GET /api/pending — chequeo liviano: ¿hay pedidos nuevos desde el último sync?
+    if (url.pathname === '/api/pending' && request.method === 'GET') {
+      const flag = await kvGet(kv, 'pending_orders');
+      return json({ pending: !!flag, at: flag?.at || null });
+    }
+
     // POST /api/config — guarda appId y secret del Worker
     if (url.pathname === '/api/config' && request.method === 'POST') {
       const body = await request.json().catch(() => null);

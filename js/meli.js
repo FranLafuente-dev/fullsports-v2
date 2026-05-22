@@ -30,6 +30,8 @@ let _meliRetryCount = 0;   // contador de fallos consecutivos para backoff expon
 const _meliInvalidCount = { capi: 0, enano: 0 };
 // IDs de pedidos MELI que están siendo guardados ahora mismo (entre el add() y el onSnapshot)
 const _meliPendingSaves = new Set();
+// Timestamp del último sync exitoso — para comparar con la flag del Worker
+let _meliLastSyncAt = 0;
 // Cache de enriquecimiento por sesión — evita refetch de shipment/payment ya consultados
 const _meliEnrichCache = new Map();
 
@@ -646,6 +648,7 @@ async function syncMeli(showToast = true) {
       }
     } else {
       _meliRetryCount = 0; // reset backoff en éxito
+      _meliLastSyncAt = Date.now(); // marca para el poll de webhooks
       if (showToast) toast(suggestions.length > 0
         ? `${suggestions.length} pedido${suggestions.length > 1 ? 's' : ''} nuevo${suggestions.length > 1 ? 's' : ''} en MELI ✓`
         : '✓ Sin pedidos pendientes de carga'
@@ -959,6 +962,24 @@ function startMeliPolling() {
   if (meliPollTimer) clearInterval(meliPollTimer);
   meliPollTimer = setInterval(() => syncMeli(false), MELI_POLL_MS);
   _meliStartTokenKeepAlive();
+  _meliStartWebhookPoll();
+}
+
+// Poll liviano cada 30s: solo chequea una flag en KV, no consulta MELI directamente.
+// Cuando MELI dispara el webhook (venta nueva), el Worker guarda la flag y este poll la detecta.
+// Resultado: sync automático en < 30s desde que MELI registra el pago.
+function _meliStartWebhookPoll() {
+  setInterval(async () => {
+    if (!meliTokens.capi && !meliTokens.enano) return; // sin cuentas conectadas, no chequear
+    try {
+      const res = await fetch(`${MELI_WORKER_BASE}/api/pending`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.pending && (data.at || 0) > _meliLastSyncAt) {
+        syncMeli(false);
+      }
+    } catch(e) {}
+  }, 30 * 1000);
 }
 
 // Refresca tokens proactivamente antes de que expiren

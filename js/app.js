@@ -14,8 +14,8 @@ const PRODUCTOS_FIJO = {
 };
 const TALLES      = [38,39,40,41,42,43,44,45];
 const TALLES_ESP  = [43,44,45];
-const COSTO_COMUN             = 22400;
-const COSTO_ESP               = 22900;
+const COSTO_COMUN             = 23150;
+const COSTO_ESP               = 23650;
 const COSTO_REMERA_COLAPINTO  = 7500;
 const COSTO_BANDERA_60X90     = 2700;
 const COSTO_BANDERA_90X150    = 4200;
@@ -1246,8 +1246,7 @@ window.despacharTodos = async tipo => {
   pedidosTab='despacho'; renderPedidos(); renderCorte();
   if (typeof meliCheckDispatch === 'function') setTimeout(() => meliCheckDispatch(pend), 1500);
   try {
-    for(const o of pend)
-      await db.collection('orders').doc(o.id).update({status:'camino',despachadoAt:TS(),fechaEstimada:fecha});
+    await Promise.all(pend.map(o => db.collection('orders').doc(o.id).update({status:'camino',despachadoAt:TS(),fechaEstimada:fecha})));
     toast(`${pend.length} pedidos ${tipo} despachados ✓`);
   } catch(e){toast('📶 Sin red — se sincronizará');}
 };

@@ -212,6 +212,19 @@ function connectFirestore() {
       }
     }, e => console.warn('flexRecords:', e))
   );
+
+  _fsUnsubs.push(
+    db.collection('meta').doc('iibbPeriods').onSnapshot(snap => {
+      if (snap.exists && snap.data().periods) {
+        iibbPeriods = snap.data().periods; saveIibbPeriods(); renderCorte();
+        _iibbAlertShown = false; checkIibbMonth();
+        if (!_iibbAlertShown) $alert.classList.remove('show');
+      } else if (!snap.exists && iibbPeriods.length) {
+        // Migrar datos locales a Firestore en el primer sync
+        db.collection('meta').doc('iibbPeriods').set({ periods: iibbPeriods }).catch(() => {});
+      }
+    }, e => console.warn('iibbPeriods:', e))
+  );
 }
 
 function initNewProductStock() {
@@ -3240,6 +3253,7 @@ window.closeIibbMonth = async function(periodId) {
     iibbPeriods.push({ ...curPeriod, closed: true, closedAt: Date.now(), rows });
   }
   saveIibbPeriods();
+  db.collection('meta').doc('iibbPeriods').set({ periods: iibbPeriods }).catch(() => {});
   renderCorte();
   toast('Período IIBB cerrado ✓');
 };

@@ -1006,6 +1006,9 @@ function renderPedidos(animDir='') {
       const n = _recuentoChecked.size;
       counter.textContent = n > 0 ? `${n}/${sorted.length} rev.` : '';
     }
+    // Dep-box siempre actualizado si está visible (refleja cambios de estado en tiempo real)
+    const depBox = document.getElementById('dep-box');
+    if (depBox && depBox.style.display !== 'none') _renderDepBox(depBox);
   }
 
   updateAppBadge();

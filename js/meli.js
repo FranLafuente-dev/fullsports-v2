@@ -621,6 +621,7 @@ async function syncMeli(showToast = true) {
       await Promise.all([
         _enrichFromShipment(candidates),
         _enrichFromPayment(candidates),
+        _enrichFromBuyer(candidates),
       ]);
     }
     const suggestions = candidates.map(o => _buildSuggestion(o));
@@ -736,6 +737,33 @@ async function _enrichFromPayment(orders) {
 }
 
 // ─── ENRIQUECIMIENTO DE NOMBRES ──────────────────────────────────────────────
+async function _enrichFromBuyer(orders) {
+  const byId = new Map();
+  for (const o of orders) {
+    const bid = o.buyer?.id;
+    if (!bid || o.buyer?.first_name) continue;
+    if (!byId.has(bid)) byId.set(bid, []);
+    byId.get(bid).push(o);
+  }
+  await Promise.all([...byId.entries()].map(async ([buyerId, group]) => {
+    const ckey = 'user:' + buyerId;
+    let user = _meliEnrichCache.get(ckey);
+    if (!user) {
+      try {
+        const token = await _meliGetToken(group[0]._account);
+        if (!token) return;
+        user = await _meliGet(`/users/${buyerId}`, token);
+        _meliEnrichCache.set(ckey, user);
+      } catch(e) { return; }
+    }
+    if (user?.first_name) {
+      for (const o of group) {
+        o.buyer = { ...o.buyer, first_name: user.first_name, last_name: user.last_name || '' };
+      }
+    }
+  }));
+}
+
 async function _enrichFromShipment(orders) {
   await Promise.all(orders.map(async o => {
     if (!o.shipping?.id) return;

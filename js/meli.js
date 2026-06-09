@@ -6,17 +6,20 @@
 const MELI_AUTH_URL    = 'https://auth.mercadolibre.com.ar/authorization';
 const MELI_WORKER_BASE = 'https://meli-test.lafuentefranciscolucas.workers.dev';
 const MELI_POLL_MS     = 5 * 60 * 1000;
-const LS_MELI_TOKENS   = 'fs_meli_tokens_v1';
-const LS_MELI_IGNORED  = 'fs_meli_ignored_v1';
-const LS_MELI_APPID    = 'fs_meli_appid_v1';
-const LS_MELI_SECRET   = 'fs_meli_secret_v1';
+const LS_MELI_TOKENS        = 'fs_meli_tokens_v1';
+const LS_MELI_IGNORED       = 'fs_meli_ignored_v1';
+const LS_MELI_IGNORED_SUGS  = 'fs_meli_ignored_sugs_v1';
+const LS_MELI_APPID         = 'fs_meli_appid_v1';
+const LS_MELI_SECRET        = 'fs_meli_secret_v1';
 
 // ─── ESTADO ───────────────────────────────────────────────────────────────────
 let meliAppId       = '';
 let meliSecret      = '';
 let meliTokens      = { capi: null, enano: null };
-let meliIgnoredIds  = new Set();
-let meliSuggestions = [];
+let meliIgnoredIds   = new Set();
+let meliIgnoredSugs  = [];   // objetos completos de sugerencias descartadas
+let _meliIgnoredOpen = false; // panel descartados expandido
+let meliSuggestions  = [];
 let meliPollTimer   = null;
 let meliSelectedSug = null;
 let meliAuthPopup   = null;
@@ -130,6 +133,10 @@ function _meliLoadLocal() {
     const ig = JSON.parse(localStorage.getItem(LS_MELI_IGNORED) || 'null');
     if (ig) meliIgnoredIds = new Set(ig);
   } catch(e) {}
+  try {
+    const is = JSON.parse(localStorage.getItem(LS_MELI_IGNORED_SUGS) || 'null');
+    if (Array.isArray(is)) meliIgnoredSugs = is;
+  } catch(e) {}
 }
 
 async function _meliLoadFirestore() {
@@ -166,9 +173,15 @@ async function _meliLoadFirestore() {
   } catch(e) {}
   try {
     const s = await db.collection('meta').doc('meliIgnored').get();
-    if (s.exists && Array.isArray(s.data().ids)) {
-      meliIgnoredIds = new Set(s.data().ids);
-      localStorage.setItem(LS_MELI_IGNORED, JSON.stringify([...meliIgnoredIds]));
+    if (s.exists) {
+      if (Array.isArray(s.data().ids)) {
+        meliIgnoredIds = new Set(s.data().ids);
+        localStorage.setItem(LS_MELI_IGNORED, JSON.stringify([...meliIgnoredIds]));
+      }
+      if (Array.isArray(s.data().sug)) {
+        meliIgnoredSugs = s.data().sug;
+        try { localStorage.setItem(LS_MELI_IGNORED_SUGS, JSON.stringify(meliIgnoredSugs)); } catch(e) {}
+      }
     }
   } catch(e) {}
 }
@@ -214,8 +227,9 @@ function _meliSaveMeta() {
 }
 
 function _meliSaveIgnored() {
-  try { localStorage.setItem(LS_MELI_IGNORED, JSON.stringify([...meliIgnoredIds])); } catch(e) {}
-  db.collection('meta').doc('meliIgnored').set({ ids: [...meliIgnoredIds] }).catch(() => {});
+  try { localStorage.setItem(LS_MELI_IGNORED,      JSON.stringify([...meliIgnoredIds])); } catch(e) {}
+  try { localStorage.setItem(LS_MELI_IGNORED_SUGS, JSON.stringify(meliIgnoredSugs));     } catch(e) {}
+  db.collection('meta').doc('meliIgnored').set({ ids: [...meliIgnoredIds], sug: meliIgnoredSugs }).catch(() => {});
 }
 
 window.meliClearIgnored = async function() {
@@ -1053,13 +1067,16 @@ window.renderMeliSuggestions = function() {
   const cuenta   = document.querySelector('[data-cuenta].active')?.dataset.cuenta || null;
   const filtered = cuenta ? meliSuggestions.filter(s => s.account === cuenta) : meliSuggestions;
 
-  if (!filtered.length) { chipWrap.classList.add('hidden'); return; }
+  if (!filtered.length && !meliIgnoredSugs.length) { chipWrap.classList.add('hidden'); return; }
 
-  const n = filtered.length;
   chipWrap.classList.remove('hidden');
   chipWrap.dataset.cuenta = cuenta || '';
-  chipCount.textContent = n;
-  chipLabel.textContent = `pedido${n > 1 ? 's' : ''} pendiente${n > 1 ? 's' : ''} de carga`;
+  const n = filtered.length;
+  chipCount.textContent   = n || '';
+  chipCount.style.display = n ? '' : 'none';
+  chipLabel.textContent   = n
+    ? `pedido${n > 1 ? 's' : ''} pendiente${n > 1 ? 's' : ''} de carga`
+    : `↩ ver descartados`;
 
   list.innerHTML = filtered.map(sug => {
     const itemsTxt = sug.items.length
@@ -1084,6 +1101,33 @@ window.renderMeliSuggestions = function() {
         <button class="meli-sug-dismiss" onclick="event.stopPropagation();meliDismiss('${sug.meliOrderId}')" title="Descartar">✕</button>
       </div>`;
   }).join('');
+
+  // Sección descartados
+  const ignoredSection = document.getElementById('meli-ignored-section');
+  if (ignoredSection) {
+    if (meliIgnoredSugs.length) {
+      ignoredSection.innerHTML = `<div class="meli-ignored-sep"></div>
+        <button class="meli-ignored-toggle" onclick="toggleMeliIgnoredPanel()">
+          ↩ ${meliIgnoredSugs.length} descartado${meliIgnoredSugs.length !== 1 ? 's' : ''} <span style="opacity:.6">${_meliIgnoredOpen ? '▲' : '▼'}</span>
+        </button>
+        ${_meliIgnoredOpen ? `<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+          ${meliIgnoredSugs.slice().reverse().map(s => `
+          <div class="meli-sug-item">
+            <div class="meli-sug-body" style="cursor:default">
+              <div class="meli-sug-row1">
+                <span class="meli-sug-account ${s.account}">${s.account.toUpperCase()}</span>
+                <span class="meli-sug-name">${s.nombre || '—'}</span>
+                <span class="meli-sug-tag ${(s.tipoEnvio||'pe').toLowerCase()}">${s.tipoEnvio||'PE'}</span>
+              </div>
+              ${s.items?.length ? `<div class="meli-sug-items">${s.items.map(i=>`${i.producto}${i.talle?' T'+i.talle:''}`).join(', ')}</div>` : ''}
+            </div>
+            <button class="meli-sug-dismiss" style="color:var(--green)" onclick="meliRecover('${s.meliOrderId}')" title="Recuperar">↩</button>
+          </div>`).join('')}
+        </div>` : ''}`;
+    } else {
+      ignoredSection.innerHTML = '';
+    }
+  }
 };
 
 window.meliSelectSuggestion = function(meliOrderId) {
@@ -1179,10 +1223,34 @@ function _fillFormFromSuggestion(sug) {
 }
 
 window.meliDismiss = function(meliOrderId) {
-  meliIgnoredIds.add(String(meliOrderId));
+  const id  = String(meliOrderId);
+  const sug = meliSuggestions.find(s => s.meliOrderId === id);
+  meliIgnoredIds.add(id);
+  if (sug) {
+    meliIgnoredSugs = meliIgnoredSugs.filter(s => s.meliOrderId !== id);
+    meliIgnoredSugs.push(sug);
+    if (meliIgnoredSugs.length > 30) meliIgnoredSugs = meliIgnoredSugs.slice(-30);
+  }
   _meliSaveIgnored();
-  meliSuggestions = meliSuggestions.filter(s => s.meliOrderId !== String(meliOrderId));
+  meliSuggestions = meliSuggestions.filter(s => s.meliOrderId !== id);
   updateMeliBadge();
+  window.renderMeliSuggestions();
+};
+
+window.meliRecover = function(meliOrderId) {
+  const id  = String(meliOrderId);
+  const sug = meliIgnoredSugs.find(s => s.meliOrderId === id);
+  if (!sug) return;
+  meliIgnoredIds.delete(id);
+  meliIgnoredSugs = meliIgnoredSugs.filter(s => s.meliOrderId !== id);
+  meliSuggestions.push(sug);
+  _meliSaveIgnored();
+  updateMeliBadge();
+  window.renderMeliSuggestions();
+};
+
+window.toggleMeliIgnoredPanel = function() {
+  _meliIgnoredOpen = !_meliIgnoredOpen;
   window.renderMeliSuggestions();
 };
 

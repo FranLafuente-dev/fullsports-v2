@@ -1381,6 +1381,13 @@ input:-webkit-autofill:focus {
   display: flex; align-items: center; justify-content: center;
 }
 .meli-sug-dismiss:active { background: var(--red-light); color: var(--red); }
+.meli-ignored-sep { height: 1px; background: var(--sep); margin: 6px 8px; }
+.meli-ignored-toggle {
+  width: 100%; background: none; border: none; cursor: pointer;
+  color: var(--text-2); font-size: 12px; text-align: left;
+  padding: 4px 10px 6px; display: flex; align-items: center; gap: 4px;
+}
+.meli-ignored-toggle:active { opacity: 0.7; }
 
 /* ── MELI SETTINGS SHEET ─────────────────────────────────────────────────── */
 .meli-accounts-grid { display: flex; gap: 10px; }

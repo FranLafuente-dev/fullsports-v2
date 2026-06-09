@@ -1196,7 +1196,9 @@ window.meliMarkLoaded = meliMarkLoaded;
 
 function meliGetSelectedId()    { return meliSelectedSug?.meliOrderId  || null; }
 function meliGetPackOrderIds()  { return meliSelectedSug?.packOrderIds || null; }
+function meliGetNickname()      { return meliSelectedSug?.nickname     || null; }
 window.meliGetPackOrderIds = meliGetPackOrderIds;
+window.meliGetNickname     = meliGetNickname;
 function meliResetSelected() {
   meliSelectedSug = null;
   const tag = document.getElementById('meli-order-tag');

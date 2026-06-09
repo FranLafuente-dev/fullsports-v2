@@ -68,6 +68,8 @@ const LS_FLEX_MANUAL = 'fs_flexmanual_v1';
 let prepSort = 'default'; // 'default' = FLEX→PE más nuevo primero | 'modelo' = por modelo+talle
 let prepSortDir = 'asc';
 let _prepProdFilter = null;
+let _prepEtiquetaFilter = false;
+let _closingSheet = false;
 let _iibbExpandPeriods = new Set();
 let _savingVenta = false;
 let _stockExpandZeroTalles = new Set();
@@ -439,6 +441,7 @@ function setupNav() {
   );
   history.replaceState({ view:'pedidos' }, '');
   window.addEventListener('popstate', () => {
+    if (_closingSheet) { _closingSheet = false; return; }
     const i = TABS.indexOf(curView);
     navInternal(i > 0 ? TABS[i-1] : 'pedidos');
   });
@@ -811,6 +814,7 @@ function _patchCardList(pedBody, cards) {
     const newEl = tpl.content.firstElementChild;
     let el = existing.get(card.id);
     if (el) {
+      if (el.className !== newEl.className) el.className = newEl.className;
       if (el.innerHTML !== newEl.innerHTML) el.innerHTML = newEl.innerHTML;
       existing.delete(card.id);
     } else {
@@ -820,6 +824,37 @@ function _patchCardList(pedBody, cards) {
     if (el !== atPos) pedBody.insertBefore(el, atPos || null);
   });
   existing.forEach(el => el.remove()); // sacar cards eliminadas
+}
+
+function _renderGlobalSearch(v) {
+  const q = normalizeStr(pedidosSearch);
+  const cutoff = Date.now() - 60 * H24;
+  const results = orders.filter(o => {
+    if (o.createdAt && ms(o.createdAt) < cutoff) return false;
+    return (
+      normalizeStr(o.nombreComprador || '').includes(q) ||
+      (o.meliOrderId && String(o.meliOrderId).includes(q)) ||
+      (o.meliNickname && normalizeStr(o.meliNickname).includes(q)) ||
+      (o.items||[]).some(i => normalizeStr(i.producto).includes(q))
+    );
+  });
+  let main = v.querySelector('.ped-main-content');
+  if (!main || main.dataset.tab !== '_search_') {
+    v.innerHTML = `<div class="ped-main-content" data-tab="_search_"><div class="ped-body"></div></div>`;
+    main = v.querySelector('.ped-main-content');
+  }
+  if (!results.length) {
+    main.querySelector('.ped-body')?.remove();
+    if (!main.querySelector('.search-empty')) {
+      main.innerHTML = `<div class="empty-state search-empty"><span>🔍</span><p>Sin resultados para "${pedidosSearch}"</p></div>`;
+    }
+  } else {
+    main.querySelector('.search-empty')?.remove();
+    if (!main.querySelector('.ped-body')) { const pb=document.createElement('div'); pb.className='ped-body'; main.appendChild(pb); }
+    const pedBody = main.querySelector('.ped-body');
+    if (pedBody) _patchCardList(pedBody, results.map(o => ({id:o.id, html:orderCard(o)})));
+  }
+  updateAppBadge();
 }
 
 function renderPedidos(animDir='') {
@@ -854,6 +889,9 @@ function renderPedidos(animDir='') {
     if (pedTabbar.innerHTML !== th) pedTabbar.innerHTML = th;
   }
 
+  // Búsqueda global ≥2 chars — bypassea el render de tabs
+  if (pedidosSearch.length >= 2) { _renderGlobalSearch(v); return; }
+
   // Computar lista de cards y HTML estático según pestaña activa
   let sorted=[], emptyHtml='', staticHtml='';
   if (pedidosTab==='preparar') {
@@ -873,7 +911,7 @@ function renderPedidos(animDir='') {
     const _filterBar = _prepProds.length > 1
       ? `<div class="prep-prod-filter">${_prepProds.map(p=>`<button class="prep-prod-chip${_prepProdFilter===p?' active':''}" onclick="setPrepProdFilter('${p.replace(/'/g,"\\'")}')">${p}</button>`).join('')}</div>`
       : '';
-    staticHtml = `<div style="display:flex;flex-direction:column;gap:8px"><div class="home-bar">${mkDispBtn('FLEX','🚚',nFlexP)}${mkDispBtn('PE','📦',nPEP)}</div><button class="btn-dep" id="btn-dep" onclick="toggleDep()">🏪 Depósito</button><div style="display:flex;align-items:center;gap:6px"><button class="prep-sort-link${prepSort==='modelo'?' active':''}" onclick="togglePrepSort()">Orden: ${prepSort==='modelo'?'Modelo/Talle ✓':'Tiempo · FLEX→PE'}</button><button class="prep-sort-dir" onclick="togglePrepSortDir()" title="Invertir orden">${prepSortDir==='asc'?'↑':'↓'}</button><span id="recuento-counter" class="recuento-counter"></span></div>${_filterBar}</div><div id="dep-box" style="display:none" class="dep-box"></div>`;
+    staticHtml = `<div style="display:flex;flex-direction:column;gap:8px"><div class="home-bar">${mkDispBtn('FLEX','🚚',nFlexP)}${mkDispBtn('PE','📦',nPEP)}</div><button class="btn-dep" id="btn-dep" onclick="toggleDep()">🏪 Depósito</button><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><button class="prep-sort-link${prepSort==='modelo'?' active':''}" onclick="togglePrepSort()">Orden: ${prepSort==='modelo'?'Modelo/Talle ✓':'Tiempo · FLEX→PE'}</button><button class="prep-sort-dir" onclick="togglePrepSortDir()" title="Invertir orden">${prepSortDir==='asc'?'↑':'↓'}</button><button id="btn-etiqueta-filter" class="prep-sort-link${_prepEtiquetaFilter?' active':''}" onclick="togglePrepEtiquetaFilter()">🏷️ Sin imprimir</button><span id="recuento-counter" class="recuento-counter"></span></div>${_filterBar}</div><div id="dep-box" style="display:none" class="dep-box"></div>`;
     emptyHtml = `<div class="empty-state empty-preparar"><div class="empty-check-circle">✓</div><p>¡Estás al día!</p></div>`;
   } else if (pedidosTab==='despacho') {
     sorted = [...pendiente,...camino].sort((a,b)=>{
@@ -909,6 +947,8 @@ function renderPedidos(animDir='') {
     }
     const sd = main.querySelector('.prep-sort-dir');
     if (sd) sd.textContent = prepSortDir==='asc'?'↑':'↓';
+    const bef = document.getElementById('btn-etiqueta-filter');
+    if (bef) bef.className = `prep-sort-link${_prepEtiquetaFilter?' active':''}`;
     // Transición entre lista y estado vacío
     if (!sorted.length) {
       main.querySelector('.ped-body')?.remove();
@@ -919,15 +959,20 @@ function renderPedidos(animDir='') {
     }
   }
 
-  // Filtrar por producto (solo tab preparar) y por búsqueda
+  // Filtrar por producto, etiqueta (solo tab preparar) y por búsqueda
   let displayed = sorted;
   if (pedidosTab === 'preparar' && _prepProdFilter) {
     displayed = displayed.filter(o => (o.items||[]).some(i => i.producto === _prepProdFilter));
+  }
+  if (pedidosTab === 'preparar' && _prepEtiquetaFilter) {
+    displayed = displayed.filter(o => !o.etiqueta);
   }
   if (pedidosSearch) {
     const q = normalizeStr(pedidosSearch);
     displayed = displayed.filter(o =>
       normalizeStr(o.nombreComprador).includes(q) ||
+      (o.meliOrderId && String(o.meliOrderId).includes(q)) ||
+      (o.meliNickname && normalizeStr(o.meliNickname).includes(q)) ||
       (o.items||[]).some(i => normalizeStr(i.producto).includes(q))
     );
   }
@@ -967,8 +1012,11 @@ function renderPedidos(animDir='') {
 }
 window.toggleRecuento = id => {
   if (_recuentoChecked.has(id)) _recuentoChecked.delete(id); else _recuentoChecked.add(id);
+  const box = document.getElementById('dep-box');
+  if (box && box.style.display !== 'none') _renderDepBox(box);
   renderPedidos();
 };
+window.togglePrepEtiquetaFilter = () => { _prepEtiquetaFilter = !_prepEtiquetaFilter; renderPedidos(); };
 window.setTab = t => {
   const tabs=['preparar','despacho','entregados'];
   const dir = tabs.indexOf(t) > tabs.indexOf(pedidosTab) ? 'slide-in-right' : 'slide-in-left';
@@ -1014,7 +1062,7 @@ function _prodSalesOrder() {
 // Depósito — solo muestra pedidos en estado 'preparar' (pendientes de buscar en depósito)
 function calcDep() {
   const g={};
-  orders.filter(o=>o.status==='preparar'&&!o.separado).forEach(o=>(o.items||[]).forEach(item=>{
+  orders.filter(o=>o.status==='preparar'&&!o.separado&&!_recuentoChecked.has(o.id)).forEach(o=>(o.items||[]).forEach(item=>{
     const k=`${item.producto}||${item.talle}`; g[k]=(g[k]||0)+1;
   }));
   return Object.entries(g)
@@ -1122,7 +1170,7 @@ function orderCard(o) {
     </div>`;
   }
 
-  const meliRef = o.meliOrderId ? `<span class="order-meli-ref">#${o.meliOrderId}</span>` : '';
+  const meliRef = (o.meliOrderId || o.meliNickname) ? `<span class="order-meli-ref">${o.meliOrderId?`#${o.meliOrderId}`:''}${o.meliOrderId&&o.meliNickname?' · ':''}${o.meliNickname?`@${o.meliNickname}`:''}</span>` : '';
   const flexCls = ['preparar','pendiente'].includes(o.status)&&o.tipoEnvio==='FLEX'?' flex-active':'';
   if (o.status==='preparar') {
     return `<div class="order-card${flexCls}" data-oid="${o.id}">
@@ -1829,15 +1877,17 @@ async function _guardarVentaInner() {
     })) return;
   }
 
-  const _meliId     = (!editingId && typeof meliGetSelectedId   === 'function') ? meliGetSelectedId()   : null;
+  const _meliId      = (!editingId && typeof meliGetSelectedId   === 'function') ? meliGetSelectedId()   : null;
   const _meliPackIds = (!editingId && typeof meliGetPackOrderIds === 'function') ? meliGetPackOrderIds() : null;
+  const _meliNick    = (!editingId && typeof meliGetNickname     === 'function') ? meliGetNickname()     : null;
 
   const base={
     cuenta:curCuenta, nombreComprador:nombre, tipoEnvio:curEnvio, items:formItems,
     status:editingId?(orders.find(o=>o.id===editingId)?.status||'preparar'):'preparar',
     corteDone:editingId?(orders.find(o=>o.id===editingId)?.corteDone||false):false,
-    ...(_meliId     ? { meliOrderId:      _meliId     } : {}),
+    ...(_meliId      ? { meliOrderId:      _meliId      } : {}),
     ...(_meliPackIds ? { meliPackOrderIds: _meliPackIds } : {}),
+    ...(_meliNick    ? { meliNickname:     _meliNick    } : {}),
   };
   if (curCuenta==='enano') {
     base.provincia=V('f-provincia').value.trim();
@@ -3101,12 +3151,14 @@ function closeSheet(sh) {
   if (!document.querySelectorAll('.sheet.open').length) $overlay.classList.remove('open');
   if (_sheetHistoryActive) {
     _sheetHistoryActive = false;
+    _closingSheet = true;
     history.back();
   }
 }
 window.addEventListener('popstate', () => {
   if (_sheetHistoryActive) {
     _sheetHistoryActive = false;
+    _closingSheet = true;
     document.querySelectorAll('.sheet.open').forEach(s => s.classList.remove('open'));
     $overlay.classList.remove('open');
   }
@@ -3195,7 +3247,38 @@ function renderIibbCorteBody() {
         </div>` : ''}
       </div>`;
 
-  return `${actionCard}${tableCard}
+  // Card del mes anterior si no está cerrado
+  const _now = new Date();
+  const _prevD = new Date(_now.getFullYear(), _now.getMonth() - 1, 1);
+  const _prevY = _prevD.getFullYear(), _prevM = _prevD.getMonth() + 1;
+  const _prevId = `${_prevY}-${String(_prevM).padStart(2,'0')}`;
+  const _prevExisting = iibbPeriods.find(p => p.id === _prevId);
+  let prevMonthCard = '';
+  if (!_prevExisting?.closed) {
+    const _prevLabel = _iibbPeriodLabel(_prevY, _prevM);
+    const _prevFromMs = _prevD.getTime();
+    const _prevToMs = new Date(_prevY, _prevM, 0, 23, 59, 59, 999).getTime();
+    const _prevOrders = orders.filter(o => o.cuenta==='enano'&&o.createdAt&&ms(o.createdAt)>=_prevFromMs&&ms(o.createdAt)<=_prevToMs);
+    const _prevRows = _prevOrders.map(o => ({
+      fecha: new Date(ms(o.createdAt)).toLocaleDateString('es-AR'),
+      cliente: o.nombreComprador, provincia: o.provincia||'—',
+      importeBruto: o.importeBruto||0, iibb: o.iibb||0,
+    }));
+    const _pBruto = _prevRows.reduce((s,r)=>s+r.importeBruto,0);
+    const _pIibb  = _prevRows.reduce((s,r)=>s+r.iibb,0);
+    prevMonthCard = `<div class="card" style="padding:12px 16px;border-left:3px solid var(--orange)">
+      <div class="section-title" style="color:var(--orange);margin-bottom:${_prevRows.length?'8px':'0'}">⚠️ IIBB — ${_prevLabel} (sin cerrar)</div>
+      ${_prevRows.length ? `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600;margin-bottom:8px">
+        <span>Bruto: $${fmt(_pBruto)}</span><span>IIBB: $${fmtDec(_pIibb)}</span>
+      </div>` : `<div style="font-size:13px;color:var(--text-3);margin-bottom:8px">Sin ventas ENANO en ${_prevLabel}</div>`}
+      <div style="display:flex;gap:8px">
+        ${_prevRows.length ? `<button class="btn btn-ghost btn-sm" style="flex:1" onclick="printIibbReport(${esc(JSON.stringify({id:_prevId,label:_prevLabel,fromMs:_prevFromMs,toMs:_prevToMs}))},${esc(JSON.stringify(_prevRows))})">🖨️ Imprimir</button>` : ''}
+        <button class="btn btn-primary btn-sm" style="flex:1" onclick="closeIibbMonth(${esc(_prevId)})">📁 Cerrar ${_prevLabel}</button>
+      </div>
+    </div>`;
+  }
+
+  return `${actionCard}${tableCard}${prevMonthCard}
   ${closedPeriods.length ? `<div class="section-title" style="margin-top:0">Períodos anteriores</div>
   ${closedPeriods.slice().reverse().map(p => {
     const pRows = p.rows || [];
@@ -3232,14 +3315,20 @@ window.toggleIibbPeriod = id => {
 };
 
 window.closeIibbMonth = async function(periodId) {
-  const curPeriod = getCurrentIibbMonth();
-  const ok = await showConfirm(`¿Cerrar IIBB de ${curPeriod.label}?`, {
+  const [py, pm] = periodId.split('-').map(Number);
+  const targetPeriod = iibbPeriods.find(p => p.id === periodId) || {
+    id: periodId,
+    label: _iibbPeriodLabel(py, pm),
+    fromMs: new Date(py, pm - 1, 1).getTime(),
+    toMs:   new Date(py, pm, 0, 23, 59, 59, 999).getTime(),
+    closed: false,
+  };
+  const ok = await showConfirm(`¿Cerrar IIBB de ${targetPeriod.label}?`, {
     icon: '📁', confirmText: 'Cerrar mes', confirmClass: 'btn-primary', cancelText: 'Cancelar',
   });
   if (!ok) return;
-  // Save snapshot of current rows
   const periodOrders = orders.filter(o =>
-    o.cuenta === 'enano' && o.createdAt && ms(o.createdAt) >= curPeriod.fromMs && ms(o.createdAt) <= curPeriod.toMs
+    o.cuenta === 'enano' && o.createdAt && ms(o.createdAt) >= targetPeriod.fromMs && ms(o.createdAt) <= targetPeriod.toMs
   );
   const rows = periodOrders.map(o => ({
     fecha: new Date(ms(o.createdAt)).toLocaleDateString('es-AR'),
@@ -3250,7 +3339,7 @@ window.closeIibbMonth = async function(periodId) {
   if (existing) {
     existing.closed = true; existing.closedAt = Date.now(); existing.rows = rows;
   } else {
-    iibbPeriods.push({ ...curPeriod, closed: true, closedAt: Date.now(), rows });
+    iibbPeriods.push({ ...targetPeriod, closed: true, closedAt: Date.now(), rows });
   }
   saveIibbPeriods();
   db.collection('meta').doc('iibbPeriods').set({ periods: iibbPeriods }).catch(() => {});

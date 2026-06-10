@@ -744,6 +744,17 @@ function dispTarget(tipo) {
   nextBusinessDay(t);
   return t;
 }
+function _orderDispatchDeadline(o) {
+  const createdMs = ms(o.createdAt);
+  if (!createdMs) return dispTarget(o.tipoEnvio);
+  const hr = o.tipoEnvio === 'FLEX' ? 13 : 14;
+  const created = new Date(createdMs);
+  const cutoff  = new Date(created);
+  cutoff.setHours(hr, 0, 0, 0);
+  if (cutoff <= created) cutoff.setDate(cutoff.getDate() + 1);
+  nextBusinessDay(cutoff);
+  return cutoff;
+}
 function fmtDiff(diff) {
   if (diff <= 0) return 'Ya!';
   const h=Math.floor(diff/3600000), m=Math.floor(diff/60000);
@@ -790,9 +801,12 @@ function checkCorteThreshold() {
 function updateCountdowns() {
   const isWeekend=[0,6].includes(new Date().getDay());
   document.querySelectorAll('[data-cd]').forEach(el => {
-    const tipo=el.dataset.cd;
-    const diff=dispTarget(tipo)-new Date(), min=Math.floor(diff/60000);
-    el.textContent=fmtDiff(diff);
+    const tipo = el.dataset.cd;
+    const isDispBtn = !!el.closest('.dispatch-btn');
+    // Botones globales de despacho usan target global; cards usan su propio deadline
+    const target = (!isDispBtn && el.dataset.cdTs) ? new Date(Number(el.dataset.cdTs)) : dispTarget(tipo);
+    const diff = target - new Date(), min = Math.floor(diff / 60000);
+    el.textContent = fmtDiff(diff);
     const nPend=orders.filter(o=>(o.status==='pendiente'||o.status==='preparar')&&o.tipoEnvio===tipo).length;
     const urg=(isWeekend||nPend===0)?'':min<=15?'urgent':min<=60?'warn':'';
     el.className='countdown'+(urg?' '+urg:'');
@@ -1102,8 +1116,9 @@ function orderCard(o) {
 
   let cd='';
   if (['preparar','pendiente'].includes(o.status)) {
-    const diff=dispTarget(o.tipoEnvio)-new Date(), min=Math.floor(diff/60000);
-    cd=`<span class="countdown${min<=15?' urgent':min<=60?' warn':''}" data-cd="${o.tipoEnvio}">${fmtDiff(diff)}</span>`;
+    const deadline = _orderDispatchDeadline(o);
+    const diff = deadline - new Date(), min = Math.floor(diff / 60000);
+    cd=`<span class="countdown${min<=15?' urgent':min<=60?' warn':''}" data-cd="${o.tipoEnvio}" data-cd-ts="${deadline.getTime()}">${fmtDiff(diff)}</span>`;
   }
 
   let monto='';

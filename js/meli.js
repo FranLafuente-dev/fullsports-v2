@@ -778,10 +778,20 @@ async function _enrichFromShipment(orders) {
         _meliEnrichCache.set(ckey, s);
       } catch(e) { return; }
     }
-    if (s.receiver_address) o.shipping.receiver_address = s.receiver_address;
-    if (s.logistic_type)    o.shipping.logistic_type    = s.logistic_type;
-    if (s.mode)             o.shipping.mode             = s.mode;
-    if (s.tags)             o.shipping.tags             = s.tags;
+    if (s.receiver_address) {
+      o.shipping.receiver_address = s.receiver_address;
+      // Nombre real del comprador desde el destinatario del envío (más confiable que /users)
+      if (!o.buyer?.first_name && s.receiver_address.receiver_name) {
+        const full = titleCase(s.receiver_address.receiver_name.trim());
+        const sp   = full.indexOf(' ');
+        if (!o.buyer) o.buyer = {};
+        o.buyer.first_name = sp > 0 ? full.slice(0, sp) : full;
+        o.buyer.last_name  = sp > 0 ? full.slice(sp + 1) : '';
+      }
+    }
+    if (s.logistic_type) o.shipping.logistic_type = s.logistic_type;
+    if (s.mode)          o.shipping.mode          = s.mode;
+    if (s.tags)          o.shipping.tags          = s.tags;
   }));
 }
 

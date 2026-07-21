@@ -480,6 +480,9 @@ body {
 .order-items  { font-size: 14px; color: var(--text-2); }
 .order-fecha  { font-size: 13px; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
 .order-iibb   { font-size: 12px; color: var(--text-3); }
+.corte-excluidos { font-size: 12px; color: #f5a623; margin-top: 10px; font-weight: 600; }
+.order-desp-pe { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+.order-desp-pe b { color: var(--text-1); font-weight: 600; }
 .order-monto  { font-size: 14px; font-weight: 600; }
 
 .countdown {

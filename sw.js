@@ -1,5 +1,5 @@
-// FullSports SW v25 — background MELI check directo cuando la app está cerrada
-const CACHE       = 'fs-v25';
+// FullSports SW v26 — tarifas FLEX 1/7, fix selección de corte, despacho PE
+const CACHE       = 'fs-v26';
 const BG_STATE    = 'meli-bg-state-v1';
 const WORKER_BASE = 'https://meli-test.lafuentefranciscolucas.workers.dev';
 

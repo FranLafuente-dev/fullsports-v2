@@ -14,12 +14,24 @@ const PRODUCTOS_FIJO = {
 };
 const TALLES      = [38,39,40,41,42,43,44,45];
 const TALLES_ESP  = [43,44,45];
-const COSTO_COMUN             = 23150;
-const COSTO_ESP               = 23650;
+const COSTO_COMUN             = 23450;
+const COSTO_ESP               = 23950;
 const COSTO_REMERA_COLAPINTO  = 7500;
 const COSTO_BANDERA_60X90     = 2700;
 const COSTO_BANDERA_90X150    = 4200;
 const H24         = 86400000;
+// Ventana de historial que se trae de Firestore. Cubre con margen todo lo que las
+// vistas miran hacia atrás (lo más lejano es el mes anterior de IIBB y la búsqueda
+// global de 60 días). Los pedidos sin cortar y los no entregados se traen aparte,
+// sin límite de fecha, así que ninguno se pierde por antigüedad.
+const ORDERS_WINDOW_DAYS = 180;
+// Tarifas FLEX vigentes desde el 1/7/2026. Al cambiar los valores hay que subir
+// TARIFAS_VERSION: el doc meta/flexZones de Firestore pisa a flex-zones.js, así que
+// la migración de abajo es la única forma de que los precios nuevos lleguen a los
+// dispositivos ya sincronizados. Solo afecta pedidos nuevos — los ya cargados
+// guardan su propio flexImporte y no se tocan.
+const TARIFAS_VERSION = '2026-07-01';
+const TARIFAS_ZONA    = { 'Zona 1': 3500, 'Zona 2': 4600, 'Zona 3': 5800, 'Zona 4': 8000 };
 const LS_ORDERS        = 'fs_orders_v4';
 const LS_STOCK         = 'fs_stock_v3';
 const LS_ZONES         = 'fs_zones_v1';
@@ -43,7 +55,11 @@ const STOCK_DEFAULTS = {
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let orders = [], stock = {}, zones = [...FLEX_ZONES], flexPeriods = [], flexManualRecords = [], iibbPeriods = [];
 let curView = 'pedidos', pedidosTab = 'preparar', corteCuenta = 'capi', flexFilter = null;
-let _corteSelectedIds = null;
+// Selección del corte por exclusión: guardamos los IDs que el usuario DESTILDÓ,
+// no los que están tildados. Así todo pedido que entra después del primer render
+// (sync de MELI, guardado optimista con id temporal, snapshot tardío de Firestore)
+// queda seleccionado por defecto en vez de perderse del corte.
+let _corteDeselected = { capi: new Set(), enano: new Set() };
 let _corteConfirmTimer = null;
 let pedidosSearch = '';
 let _recuentoChecked = new Set();
@@ -160,7 +176,23 @@ function loadCache() {
   try { const r = localStorage.getItem(LS_FLEX_MANUAL);  if (r) flexManualRecords = JSON.parse(r); } catch(e) { flexManualRecords = []; }
   try { const r = localStorage.getItem(LS_IIBB_PERIODS); if (r) iibbPeriods       = JSON.parse(r); } catch(e) { iibbPeriods = []; }
 }
-function saveOrders()        { try { localStorage.setItem(LS_ORDERS,       JSON.stringify(orders));            } catch(e) {} }
+// saveOrders se llama una vez por pedido mutado (corte masivo, despachar todos),
+// y cada llamada serializa el historial entero. Se agrupa en un solo write por
+// tanda: Firestore ya tiene la verdad, esto es solo caché de arranque offline.
+let _saveOrdersTimer = null;
+function saveOrders() {
+  clearTimeout(_saveOrdersTimer);
+  _saveOrdersTimer = setTimeout(_saveOrdersNow, 400);
+}
+function _saveOrdersNow() {
+  clearTimeout(_saveOrdersTimer); _saveOrdersTimer = null;
+  try { localStorage.setItem(LS_ORDERS, JSON.stringify(orders)); } catch(e) {}
+}
+// Flush inmediato al perder visibilidad: si el usuario cierra la app dentro de la
+// ventana del debounce, el caché igual queda al día.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && _saveOrdersTimer) _saveOrdersNow();
+});
 function saveStock()         { try { localStorage.setItem(LS_STOCK,        JSON.stringify(stock));             } catch(e) {} }
 function saveZones()         { try { localStorage.setItem(LS_ZONES,        JSON.stringify(zones));             } catch(e) {} }
 function saveFlexPeriods()   { try { localStorage.setItem(LS_FLEX_PERIODS, JSON.stringify(flexPeriods));       } catch(e) {} }
@@ -172,14 +204,40 @@ function connectFirestore() {
   if (fsConectado) return;
   fsConectado = true;
 
+  // La colección orders se traía entera y crecía sin techo. Ahora se piden tres
+  // conjuntos que, unidos, cubren todo lo que la app consulta:
+  //   RECENT → ventana temporal (stats del mes, IIBB, quincena FLEX, búsqueda 60d,
+  //            ranking de productos, historial visible)
+  //   PEND   → todo lo que falta cortar, sin importar antigüedad (corte)
+  //   ACTIVE → todo lo no entregado, sin importar antigüedad (preparar/despacho/depósito)
+  // Un pedido viejo, ya cortado y ya entregado es el único que queda fuera: ninguna
+  // vista lo necesita. Las tres son consultas de campo simple → no requieren índices
+  // compuestos en Firestore.
   let _snapTimer = null;
+  const _buckets = { recent: [], pend: [], active: [] };
+  const _cutoff = firebase.firestore.Timestamp.fromMillis(Date.now() - ORDERS_WINDOW_DAYS * H24);
+
+  function _mergeOrders(bucket, snap) {
+    _buckets[bucket] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const m = new Map();
+    for (const o of [..._buckets.recent, ..._buckets.pend, ..._buckets.active]) m.set(o.id, o);
+    orders = [...m.values()].sort((a, b) => ms(b.createdAt) - ms(a.createdAt));
+    saveOrders();
+    clearTimeout(_snapTimer);
+    _snapTimer = setTimeout(() => { renderPedidos(); renderCorte(); checkAutoArchiveEnano(); checkCorteThreshold(); checkIibbMonth(); }, 200);
+  }
+
   _fsUnsubs.push(
-    db.collection('orders').orderBy('createdAt','desc').onSnapshot(snap => {
-      orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      saveOrders();
-      clearTimeout(_snapTimer);
-      _snapTimer = setTimeout(() => { renderPedidos(); renderCorte(); checkAutoArchiveEnano(); checkCorteThreshold(); checkIibbMonth(); }, 200);
-    }, e => console.warn('orders:', e))
+    db.collection('orders').where('createdAt','>=',_cutoff).orderBy('createdAt','desc')
+      .onSnapshot(s => _mergeOrders('recent', s), e => console.warn('orders recent:', e))
+  );
+  _fsUnsubs.push(
+    db.collection('orders').where('corteDone','==',false)
+      .onSnapshot(s => _mergeOrders('pend', s), e => console.warn('orders pend:', e))
+  );
+  _fsUnsubs.push(
+    db.collection('orders').where('status','in',['preparar','pendiente','camino'])
+      .onSnapshot(s => _mergeOrders('active', s), e => console.warn('orders active:', e))
   );
 
   _fsUnsubs.push(
@@ -195,7 +253,23 @@ function connectFirestore() {
 
   _fsUnsubs.push(
     db.collection('meta').doc('flexZones').onSnapshot(snap => {
-      if (snap.exists) { zones = snap.data().zones; saveZones(); renderConfig(); }
+      if (!snap.exists) return;
+      const data = snap.data();
+      zones = data.zones || []; saveZones(); renderConfig();
+      // Migración one-shot de tarifas: si el doc quedó en una versión anterior,
+      // aplicar los precios vigentes por zona y re-guardar con la versión nueva.
+      // El set() dispara otro snapshot, pero ya con tarifaVersion al día → no cicla.
+      if (data.tarifaVersion !== TARIFAS_VERSION) {
+        let changed = false;
+        zones = zones.map(z => {
+          const nuevo = TARIFAS_ZONA[parseZona(z.zona || '').zonaNum];
+          if (nuevo && z.importe !== nuevo) { changed = true; return { ...z, importe: nuevo }; }
+          return z;
+        });
+        if (changed) { saveZones(); renderConfig(); }
+        db.collection('meta').doc('flexZones')
+          .set({ zones, tarifaVersion: TARIFAS_VERSION }).catch(() => {});
+      }
     }, e => console.warn('zones:', e))
   );
 
@@ -455,6 +529,8 @@ function navInternal(name) {
   const prevIdx = TABS.indexOf(curView);
   const nextIdx = TABS.indexOf(name);
   curView = name;
+  // Render pendiente que se difirió mientras la vista estaba oculta
+  if (name === 'corte' && _corteDirty) renderCorte();
   Object.values(VIEWS).forEach(v => v.classList.remove('active','slide-right','slide-left'));
   document.querySelectorAll('[data-nav]').forEach(b => b.classList.remove('active'));
   const nv = VIEWS[name];
@@ -1132,6 +1208,10 @@ function orderCard(o) {
 
   const iibb=o.cuenta==='enano'&&o.provincia?`<div class="order-iibb">${o.provincia} — IIBB $${fmtDec(o.iibb)}</div>`:'';
 
+  // Despacho manual de Punto de Envío — visible sin abrir el pedido
+  const despPE=(o.tipoEnvio==='PE'&&o.despachoPE)
+    ?`<div class="order-desp-pe">📦 Despacho: <b>${_fmtDespacho(ms(o.despachoPE))}</b></div>`:'';
+
   let fechaLine='';
   if (o.status==='camino') {
     const diasEnCamino = o.despachadoAt ? Math.floor((Date.now()-ms(o.despachadoAt))/H24) : 0;
@@ -1201,7 +1281,7 @@ function orderCard(o) {
         ${topAct}
       </div>
       <div class="order-items">${fmtItemsShort(o.items)}</div>
-      ${fechaLine}${monto}${act}
+      ${despPE}${fechaLine}${monto}${act}
     </div>`;
   }
   return `<div class="order-card${flexCls}" data-oid="${o.id}">
@@ -1209,7 +1289,7 @@ function orderCard(o) {
     <div class="order-name">${o.nombreComprador}</div>
     ${meliRef}
     <div class="order-items">${fmtItemsShort(o.items)}</div>
-    ${fechaLine}${monto}${act}
+    ${despPE}${fechaLine}${monto}${act}
   </div>`;
 }
 
@@ -1556,6 +1636,10 @@ function openNuevaSheet(data=null) {
   V('f-provincia').value      = data?.provincia || '';
   V('f-iibb').value           = data?.iibb ? fmtDec(data.iibb) : '';
   V('f-importe-pe').value     = data?.importeAcreditado || '';
+  // Despacho PE: al editar respeta lo guardado; en pedido nuevo sugiere el último.
+  // Se setea siempre (no condicional) para no arrastrar el valor de una apertura previa.
+  const _fdp = V('f-despacho-pe');
+  if (_fdp) _fdp.value = data?.despachoPE ? _toDatetimeLocal(ms(data.despachoPE)) : _sugerirDespachoPE();
   V('f-importe-flex').value   = data?.importeVenta || '';
   const _fib = V('f-importe-bruto'); if (_fib) _fib.value = data?.importeBruto ? fmt(data.importeBruto) : '';
   V('btn-stock-override').textContent = '✏️ Manual';
@@ -1596,6 +1680,38 @@ function openNuevaSheet(data=null) {
   }
 }
 
+// ─── DESPACHO PE (fecha y hora manual) ───────────────────────────────────────
+// Formato que espera <input type="datetime-local">: YYYY-MM-DDTHH:MM (hora local)
+function _toDatetimeLocal(msVal) {
+  const d = new Date(msVal), p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+// Sugerencia = despacho del último pedido PE cargado. orders viene ordenado por
+// createdAt desc, así que el primero con despachoPE es el más reciente.
+// Sin antecedentes, cae en hoy a las 14:00 (horario de corte del Punto de Envío).
+function _sugerirDespachoPE() {
+  const last = orders.find(o => o.tipoEnvio==='PE' && o.despachoPE);
+  if (last) return _toDatetimeLocal(ms(last.despachoPE));
+  const d = new Date(); d.setHours(14,0,0,0);
+  return _toDatetimeLocal(d.getTime());
+}
+// "Hoy 14:00" / "Mañana 14:00" / "23/07 14:00" según cercanía
+function _fmtDespacho(msVal) {
+  if (!msVal) return '';
+  const d=new Date(msVal), p=n=>String(n).padStart(2,'0');
+  const hora=`${p(d.getHours())}:${p(d.getMinutes())}`;
+  const dia=n=>new Date(n).setHours(0,0,0,0);
+  const diff=Math.round((dia(msVal)-dia(Date.now()))/H24);
+  if (diff===0) return `Hoy ${hora}`;
+  if (diff===1) return `Mañana ${hora}`;
+  if (diff===-1) return `Ayer ${hora}`;
+  return `${p(d.getDate())}/${p(d.getMonth()+1)} ${hora}`;
+}
+function _fillDespachoPE(force=false) {
+  const inp = V('f-despacho-pe'); if (!inp) return;
+  if (force || !inp.value) inp.value = _sugerirDespachoPE();
+}
+
 function setCuenta(c) {
   curCuenta=c;
   document.querySelectorAll('[data-cuenta]').forEach(b=>b.classList.toggle('active',b.dataset.cuenta===c));
@@ -1612,6 +1728,7 @@ function setEnvio(t) {
   V('flex-fields').style.display=t==='FLEX'?'flex':'none';
   V('pe-fields').style.display=t==='PE'?'flex':'none';
   if (t==='PE' && prev==='FLEX') { const fv=V('f-importe-flex').value; if (fv) V('f-importe-pe').value=fv; }
+  if (t==='PE') _fillDespachoPE();
 }
 
 function _formEnterNext(id) {
@@ -1653,6 +1770,10 @@ function setupFormListeners() {
     curProducto=null;
     renderProdBtns();
     V('talle-wrap').style.display='none';
+  });
+
+  document.getElementById('btn-despacho-reset')?.addEventListener('click', () => {
+    _fillDespachoPE(true); haptic([12]);
   });
 
   V('btn-guardar-venta').addEventListener('click', guardarVenta);
@@ -1920,6 +2041,11 @@ async function _guardarVentaInner() {
   } else {
     const m=parseNum(V('f-importe-pe').value); if (!m) { toast('⚠️ Ingresá el importe'); _flashInvalid(V('f-importe-pe')); return; }
     base.importeAcreditado=m;
+    // Fecha y hora de despacho, solo para Punto de Envío
+    const dRaw=V('f-despacho-pe')?.value;
+    const dMs=dRaw?new Date(dRaw).getTime():NaN;
+    if (!dRaw || isNaN(dMs)) { toast('⚠️ Ingresá la fecha y hora de despacho'); _flashInvalid(V('f-despacho-pe')); return; }
+    base.despachoPE=dMs;
   }
   if (!editingId) {
     const hoy=new Date(), man=new Date(hoy); man.setDate(hoy.getDate()+1);
@@ -1991,8 +2117,14 @@ async function _guardarVentaInner() {
 }
 
 // ─── CORTE VIEW ───────────────────────────────────────────────────────────────
+let _corteDirty = false;
 function renderCorte(animDir='') {
   const v=VIEWS.corte; if (!v) return;
+  // La vista de Corte recorre todo el historial varias veces (pendientes por cuenta,
+  // stats del mes, cards). Se dispara en cada snapshot de Firestore aunque estés en
+  // Pedidos: se difiere hasta que realmente se muestre.
+  if (curView !== 'corte') { _corteDirty = true; return; }
+  _corteDirty = false;
   const nC=orders.filter(o=>!o.corteDone&&o.cuenta==='capi').length;
   const nE=orders.filter(o=>!o.corteDone&&o.cuenta==='enano').length;
   if (corteCuenta==='deposito') corteCuenta='capi';
@@ -2009,7 +2141,7 @@ function renderCorte(animDir='') {
   v.innerHTML = `<div class="ped-main-content${animDir?' '+animDir:''}">${renderCorteBody()}</div>`;
   if (prevBanner) v.prepend(prevBanner);
 }
-window.setCorte = (c, dir='') => { corteCuenta=c; flexFilter=null; _corteSelectedIds=null; document.getElementById('corte-confirm-banner')?.remove(); renderCorte(dir); };
+window.setCorte = (c, dir='') => { corteCuenta=c; flexFilter=null; document.getElementById('corte-confirm-banner')?.remove(); renderCorte(dir); };
 window.setFlexFilter = cuenta => { flexFilter = (flexFilter === cuenta ? null : cuenta); renderCorte(); };
 
 function _calcMonthStats(cuenta) {
@@ -2050,10 +2182,8 @@ function renderCorteBody() {
   </div>` : '';
   if (!pend.length) return statsHtml+`<div class="empty-state"><span>✂️</span><p>Sin ventas pendientes de corte</p></div>`;
   // Inicializar selección con todos los pedidos si es null
-  if (_corteSelectedIds===null) _corteSelectedIds=new Set(pend.map(o=>o.id));
-  // Limpiar IDs que ya no existen
-  _corteSelectedIds=new Set([..._corteSelectedIds].filter(id=>pend.some(o=>o.id===id)));
-  const sel=pend.filter(o=>_corteSelectedIds.has(o.id));
+  const desel=_corteDesel(corteCuenta);
+  const sel=pend.filter(o=>!desel.has(o.id));
   const allSel=sel.length===pend.length;
   const noneSel=sel.length===0;
   const tV=sel.length?(corteCuenta==='capi'?textoCapi(sel):textoEnano(sel)):'';
@@ -2065,9 +2195,10 @@ function renderCorteBody() {
       ${noneSel?'':
         `<div style="margin-top:8px;border-top:1px solid var(--sep);padding-top:8px"></div>
         ${renderWA(tC)}
+        ${sel.length<pend.length?`<div class="corte-excluidos">⚠️ ${pend.length-sel.length} pedido${pend.length-sel.length>1?'s quedan':' queda'} fuera de este corte</div>`:''}
         <div style="display:flex;gap:8px;margin-top:10px">
           <button class="btn btn-ghost btn-sm" style="flex:1" onclick="copyAndConfirmCorte(${esc(tV)},${esc(tC)},'${corteCuenta}')">📋 Copiar</button>
-          <button class="btn btn-primary btn-sm" style="flex:1" onclick="openCorteConfirm('${corteCuenta}',${esc(tV)},${esc(tC)})">✂️ Hacer corte</button>
+          <button class="btn btn-primary btn-sm" style="flex:1" onclick="openCorteConfirm('${corteCuenta}',${esc(tV)},${esc(tC)})">✂️ Hacer corte (${sel.length})</button>
         </div>`}
     </div>
     <div class="card" style="display:none"><!-- costos ahora van dentro del card de ventas -->
@@ -2079,7 +2210,7 @@ function renderCorteBody() {
       </button>
     </div>
     ${pend.map(o=>{
-      const isSel=_corteSelectedIds.has(o.id);
+      const isSel=!desel.has(o.id);
       return `<div class="card corte-order-card${isSel?'':' deselected'}" onclick="toggleCorteOrder('${o.id}')">
         <span class="corte-check-icon">${isSel?'☑':'☐'}</span>
         <div class="corte-order-info">
@@ -2175,31 +2306,35 @@ function renderWA(t){return t.replace(/\*(.*?)\*/g,'<b>$1</b>').replace(/\n/g,'<
 function esc(t){return JSON.stringify(t).replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 window.copyTxt = t=>navigator.clipboard.writeText(t).then(()=>toast('¡Copiado!')).catch(()=>toast('Error al copiar'));
 
+// Set de IDs destildados de una cuenta (se crea vacío = todo seleccionado)
+function _corteDesel(cuenta) {
+  if (!_corteDeselected[cuenta]) _corteDeselected[cuenta]=new Set();
+  return _corteDeselected[cuenta];
+}
+// Pedidos pendientes de una cuenta que entran al corte
+function _cortePend(cuenta) { return orders.filter(o=>!o.corteDone&&o.cuenta===cuenta); }
+function _corteSel(cuenta)  { const d=_corteDesel(cuenta); return _cortePend(cuenta).filter(o=>!d.has(o.id)); }
+
 window.toggleCorteOrder = id => {
-  if (_corteSelectedIds===null) {
-    const pend=orders.filter(o=>!o.corteDone&&o.cuenta===corteCuenta);
-    _corteSelectedIds=new Set(pend.map(o=>o.id));
-  }
-  if (_corteSelectedIds.has(id)) _corteSelectedIds.delete(id);
-  else _corteSelectedIds.add(id);
+  const d=_corteDesel(corteCuenta);
+  if (d.has(id)) d.delete(id); else d.add(id);
   renderCorte();
 };
-window.selectAllCorte = () => {
-  _corteSelectedIds=new Set(orders.filter(o=>!o.corteDone&&o.cuenta===corteCuenta).map(o=>o.id));
+window.selectAllCorte = () => { _corteDeselected[corteCuenta]=new Set(); renderCorte(); };
+window.deselectAllCorte = () => {
+  _corteDeselected[corteCuenta]=new Set(_cortePend(corteCuenta).map(o=>o.id));
   renderCorte();
 };
-window.deselectAllCorte = () => { _corteSelectedIds=new Set(); renderCorte(); };
 
 window.doCortadoSelected = async c => {
-  const ids=[...(_corteSelectedIds||[])];
+  const toCorte=_corteSel(c);
+  const ids=toCorte.map(o=>o.id);
   if (!ids.length) { toast('Ningún pedido seleccionado'); return; }
-  const allPend=orders.filter(o=>!o.corteDone&&o.cuenta===c).length;
-  const excluded=allPend-ids.length;
-  const toCorte=orders.filter(o=>ids.includes(o.id));
+  const excluded=_cortePend(c).length-ids.length;
   toCorte.forEach(o=>mutateOrder(o.id,{corteDone:true}));
   pushUndo({type:'corte', ids:[...ids], cuenta:c});
   _corteCopied[c] = false;
-  _corteSelectedIds=null;
+  _corteDeselected[c]=new Set();
   document.getElementById('corte-confirm-banner')?.remove();
   renderCorte();
   try {
@@ -2217,7 +2352,7 @@ window.copyAndConfirmCorte = async (textVentas, textCostos, cuenta) => {
 };
 
 window.openCorteConfirm = async (cuenta, textVentas='', textCostos='') => {
-  const n = _corteSelectedIds?.size || 0;
+  const n = _corteSel(cuenta).length;
   if (!n) { toast('Ningún pedido seleccionado'); return; }
   if (!_corteCopied[cuenta]) {
     const result = await new Promise(resolve => {
@@ -2260,7 +2395,7 @@ window.openCorteConfirm = async (cuenta, textVentas='', textCostos='') => {
 window.doCortado = async c=>{
   const pend=orders.filter(o=>!o.corteDone&&o.cuenta===c);
   pend.forEach(o=>mutateOrder(o.id,{corteDone:true}));
-  _corteSelectedIds=null;
+  _corteDeselected[c]=new Set();
   document.getElementById('corte-confirm-banner')?.remove();
   renderCorte();
   try{for(const o of pend) await db.collection('orders').doc(o.id).update({corteDone:true}); toast('Cortado ✓');}
@@ -3142,7 +3277,7 @@ function setupZoneSheets() {
       return zonaNum===editZonePriceLabel ? {...z,importe:precio} : z;
     });
     saveZones();
-    try{ await db.collection('meta').doc('flexZones').set({zones}); toast(`${editZonePriceLabel} actualizada ✓`); }
+    try{ await db.collection('meta').doc('flexZones').set({zones, tarifaVersion:TARIFAS_VERSION}); toast(`${editZonePriceLabel} actualizada ✓`); }
     catch(e){ toast('📶 Sin red — se sincronizará'); }
     closeSheet($shZoneP); renderConfig();
   });
@@ -3151,7 +3286,7 @@ function setupZoneSheets() {
     if(editZoneIdx===null)return;
     zones[editZoneIdx]={localidad:V('ez-localidad').value.trim(),zona:V('ez-zona').value.trim(),importe:parseInt(V('ez-importe').value)||0};
     saveZones();
-    try{ await db.collection('meta').doc('flexZones').set({zones}); }catch(e){}
+    try{ await db.collection('meta').doc('flexZones').set({zones, tarifaVersion:TARIFAS_VERSION}); }catch(e){}
     closeSheet($shZone); renderConfig();
   });
 }

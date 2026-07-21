@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FullSports">
   <title>FullSports Panel</title>
-  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/main.css?v=26">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
 </head>
@@ -225,6 +225,13 @@
       <div class="form-group">
         <div class="form-label">Importe acreditado</div>
         <input class="form-input" id="f-importe-pe" type="text" placeholder="Importe acreditado" inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <div class="form-label-row">
+          <span class="form-label">Fecha y hora de despacho</span>
+          <button id="btn-despacho-reset" class="btn-pencil" type="button" title="Volver a la sugerencia">↺ Sugerido</button>
+        </div>
+        <input class="form-input" id="f-despacho-pe" type="datetime-local">
       </div>
     </div>
     <div id="edit-status-wrap" class="form-group" style="display:none">
@@ -479,8 +486,8 @@ const FIREBASE_CONFIG = {
 };
 </script>
 
-<script src="js/flex-zones.js"></script>
-<script src="js/app.js"></script>
+<script src="js/flex-zones.js?v=26"></script>
+<script src="js/app.js?v=26"></script>
 <script src="js/meli.js?v=4"></script>
 
 <script>

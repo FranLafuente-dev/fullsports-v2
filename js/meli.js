@@ -184,6 +184,8 @@ async function _meliLoadFirestore() {
       }
     }
   } catch(e) {}
+  // Descarta los vencidos al arrancar, sin depender de que se abra el panel
+  _meliPurgeIgnored();
 }
 
 function _meliSaveTokensLocal() {
@@ -1143,13 +1145,21 @@ window.renderMeliSuggestions = function() {
   // Sección descartados
   const ignoredSection = document.getElementById('meli-ignored-section');
   if (ignoredSection) {
+    _meliPurgeIgnored();
     if (meliIgnoredSugs.length) {
       ignoredSection.innerHTML = `<div class="meli-ignored-sep"></div>
         <button class="meli-ignored-toggle" onclick="toggleMeliIgnoredPanel()">
           ↩ ${meliIgnoredSugs.length} descartado${meliIgnoredSugs.length !== 1 ? 's' : ''} <span style="opacity:.6">${_meliIgnoredOpen ? '▲' : '▼'}</span>
         </button>
         ${_meliIgnoredOpen ? `<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
-          ${meliIgnoredSugs.slice().reverse().map(s => `
+          ${meliIgnoredSugs.slice().reverse().map(s => {
+            const left = s.dismissedAt
+              ? Math.max(0, Math.ceil((s.dismissedAt + MELI_IGNORED_TTL - Date.now()) / 86400000))
+              : null;
+            const ttl = left !== null
+              ? `<span class="meli-sug-ttl">${left === 0 ? 'se borra hoy' : left === 1 ? 'queda 1 día' : `quedan ${left} días`}</span>`
+              : '';
+            return `
           <div class="meli-sug-item">
             <div class="meli-sug-body" style="cursor:default">
               <div class="meli-sug-row1">
@@ -1158,9 +1168,11 @@ window.renderMeliSuggestions = function() {
                 <span class="meli-sug-tag ${(s.tipoEnvio||'pe').toLowerCase()}">${s.tipoEnvio||'PE'}</span>
               </div>
               ${s.items?.length ? `<div class="meli-sug-items">${s.items.map(i=>`${i.producto}${i.talle?' T'+i.talle:''}`).join(', ')}</div>` : ''}
+              ${ttl}
             </div>
             <button class="meli-sug-dismiss" style="color:var(--green)" onclick="meliRecover('${s.meliOrderId}')" title="Recuperar">↩</button>
-          </div>`).join('')}
+            <button class="meli-sug-dismiss" onclick="meliForget('${s.meliOrderId}')" title="Eliminar de la lista">✕</button>
+          </div>`;}).join('')}
         </div>` : ''}`;
     } else {
       ignoredSection.innerHTML = '';
@@ -1271,7 +1283,7 @@ window.meliDismiss = function(meliOrderId) {
   meliIgnoredIds.add(id);
   if (sug) {
     meliIgnoredSugs = meliIgnoredSugs.filter(s => s.meliOrderId !== id);
-    meliIgnoredSugs.push(sug);
+    meliIgnoredSugs.push({ ...sug, dismissedAt: Date.now() });
     if (meliIgnoredSugs.length > 30) meliIgnoredSugs = meliIgnoredSugs.slice(-30);
   }
   _meliSaveIgnored();
@@ -1296,6 +1308,28 @@ window.toggleMeliIgnoredPanel = function() {
   _meliIgnoredOpen = !_meliIgnoredOpen;
   window.renderMeliSuggestions();
 };
+
+// Borrado definitivo de un descartado (el ID sigue en meliIgnoredIds, así que la
+// orden no vuelve a aparecer como sugerencia; solo se saca de la lista visible).
+window.meliForget = function(meliOrderId) {
+  const id = String(meliOrderId);
+  meliIgnoredSugs = meliIgnoredSugs.filter(s => s.meliOrderId !== id);
+  _meliSaveIgnored();
+  window.renderMeliSuggestions();
+};
+
+// Los descartados se muestran 3 días y después se limpian solos. Se conserva el
+// ID en meliIgnoredIds para que la sugerencia no reaparezca en el próximo sync.
+const MELI_IGNORED_TTL = 3 * 86400000;
+function _meliPurgeIgnored() {
+  if (!meliIgnoredSugs.length) return false;
+  const now = Date.now();
+  const keep = meliIgnoredSugs.filter(s => !s.dismissedAt || now - s.dismissedAt < MELI_IGNORED_TTL);
+  if (keep.length === meliIgnoredSugs.length) return false;
+  meliIgnoredSugs = keep;
+  _meliSaveIgnored();
+  return true;
+}
 
 function meliMarkLoaded(meliOrderId) {
   if (!meliOrderId) return;

@@ -1684,9 +1684,12 @@ function openNuevaSheet(data=null) {
 // Retención fija para provincia de Buenos Aires. Es solo una sugerencia: se
 // escribe únicamente si el campo está vacío, nunca pisa un valor tipeado a mano.
 const IIBB_BS_AS = 17.75;
+// Aplica a CABA y a provincia de Buenos Aires, en cualquiera de las formas en que
+// llega el nombre (del dropdown, de la zona FLEX o de la API de MELI).
+const IIBB_PROV_AUTO = ['buenos aires', 'caba', 'ciudad autonoma de buenos aires'];
 function _autoIibb(prov) {
   const inp = V('f-iibb'); if (!inp) return;
-  if (normalizeStr(prov||'').trim() !== 'buenos aires') return;
+  if (!IIBB_PROV_AUTO.includes(normalizeStr(prov||'').trim())) return;
   if (inp.value.trim()) return;
   inp.value = fmtDec(IIBB_BS_AS);
   const prev = V('f-iibb-preview'), prevVal = V('f-iibb-preview-val');

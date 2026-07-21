@@ -1,5 +1,5 @@
-// FullSports SW v28 — IIBB auto BsAs, jerarquia de badges, refinamiento de animaciones
-const CACHE       = 'fs-v28';
+// FullSports SW v29 — IIBB CABA+BsAs, descartados con TTL 3d, identidad visual iOS
+const CACHE       = 'fs-v29';
 const BG_STATE    = 'meli-bg-state-v1';
 const WORKER_BASE = 'https://meli-test.lafuentefranciscolucas.workers.dev';
 

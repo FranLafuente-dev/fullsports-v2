@@ -17,7 +17,7 @@
   --input-ph:  #4d516a;
   --input-bdr: rgba(255,255,255,0.12);
 
-  --accent:  #6c63ff;
+  --accent:  #007AFF;
   --blue:    #007AFF;
   --green:   #34C759;
   --orange:  #FF9500;
@@ -32,7 +32,7 @@
   --purple-light: rgba(175,82,222,0.15);
   --teal-light:   rgba(48,176,199,0.15);
   --gray-light:   rgba(255,255,255,0.08);
-  --accent-light: rgba(108,99,255,0.15);
+  --accent-light: rgba(0,122,255,0.15);
 
   --text:   #f0f2ff;
   --text-1: #f0f2ff;
@@ -73,7 +73,7 @@
     --purple-light: rgba(175,82,222,0.10);
     --teal-light:   rgba(48,176,199,0.10);
     --gray-light:   rgba(0,0,0,0.06);
-    --accent-light: rgba(108,99,255,0.10);
+    --accent-light: rgba(0,122,255,0.10);
 
     --text:   #1d1d1f;
     --text-1: #1d1d1f;
@@ -89,9 +89,46 @@
   -webkit-font-smoothing: antialiased;
 }
 html, body { height: 100%; overflow: hidden; background: var(--bg); }
+/* Los emojis se resuelven con la fuente nativa de cada sistema: Apple Color Emoji
+   en iOS/Mac, Segoe UI Emoji en Windows, Noto en Android. Sin esto el navegador
+   podía caer en una fuente de emoji ajena a la plataforma y los íconos se veían
+   fuera de contexto respecto del resto del sistema. */
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif,
+               'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'Segoe UI Symbol';
   color: var(--text); font-size: 16px; line-height: 1.4;
+  font-variant-emoji: unicode;
+}
+
+/* ── TIPOGRAFÍA ──────────────────────────────────────────────────────────────
+   Dos ajustes que son la firma de las apps de Apple:
+
+   1. Tracking óptico. SF Pro aprieta las letras a medida que crece el cuerpo.
+      Inter no lo hace solo, así que se compensa por escalón. Sin esto los
+      títulos grandes se ven despegados y "de plantilla".
+
+   2. Cifras tabulares. En una app de ventas la columna de importes es lo que
+      más se lee: con cifras proporcionales el "1" es más angosto que el "8" y
+      los montos bailan de fila en fila. tabular-nums les da ancho fijo y la
+      columna queda a plomo. */
+h1, .sheet-title, .login-title, .flex-stat-val, .empty-state p {
+  letter-spacing: -0.022em;
+}
+.order-monto, .order-monto-detail, .neto-val, .flex-neto, .flex-selected-importe,
+.flex-stat-val, .cms-val, .corte-count, .tab-badge, .dep-q, .dep-r, .deposito-qty,
+.countdown, .iibb-table td, .iibb-table th, .stepper-val, .order-desp-pe {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Hairlines. En pantallas retina iOS dibuja los separadores a medio punto: a 1px
+   se ven como un trazo grueso y ensucian la lista. Solo aplica donde hay densidad
+   suficiente para resolverlo. */
+@media (min-resolution: 2dppx) {
+  .card, .order-card, .sheet, #topbar, #bottom-nav,
+  .iibb-table td, .iibb-table th, .fiscal-row, .stock-row {
+    border-width: 0.5px;
+  }
 }
 
 /* ── LAYOUT ──────────────────────────────────────────────────────────────── */
@@ -129,14 +166,16 @@ body {
 .btn-google:active { transform: scale(0.97); box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
 .login-error { color: var(--red); font-size: 13px; min-height: 20px; margin-top: 8px; }
 
-/* ── CARD — liquid glass ─────────────────────────────────────────────────── */
+/* ── CARD ────────────────────────────────────────────────────────────────────
+   Superficie plana. El degradado blanco simulaba un brillo inexistente y, sobre
+   una lista larga, cada tarjeta pagaba un pintado extra. La separación la dan el
+   borde y la sombra, que es como se resuelve en iOS. El backdrop-filter tampoco
+   hacía nada: la tarjeta es opaca, no hay nada que desenfocar detrás. */
 .card {
-  background: linear-gradient(160deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.008) 60%), var(--card);
-  border: 1px solid rgba(255,255,255,0.12);
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.10);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
 }
 @media (prefers-color-scheme: light) {
   .card { background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); }
@@ -204,7 +243,7 @@ body {
 
 .avatar {
   width: 32px; height: 32px; border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), var(--purple));
+  background: linear-gradient(140deg, #0A84FF, #0060DF);
   display: flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 800; overflow: hidden;
   border: 1px solid var(--border-hi);
@@ -253,7 +292,7 @@ body {
 .nav-btn.active::after {
   content: ''; position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
   width: 18px; height: 3px; border-radius: 2px;
-  background: var(--accent); box-shadow: 0 0 8px rgba(108,99,255,0.7);
+  background: var(--accent); box-shadow: 0 0 8px rgba(0,122,255,0.7);
 }
 .nav-btn svg  { width: 20px; height: 20px; stroke-width: 2; }
 .nav-btn span { font-size: 9px; font-weight: 600; letter-spacing: 0.3px; }
@@ -342,7 +381,7 @@ body {
 /* ── SECTION TITLE ───────────────────────────────────────────────────────── */
 .section-title {
   font-size: 10px; font-weight: 800; text-transform: uppercase;
-  letter-spacing: 1px; color: var(--text-3); padding: 2px 4px; margin-top: 6px;
+  letter-spacing: 0.05em; color: var(--text-3); padding: 2px 4px; margin-top: 6px;
 }
 
 /* ── PEDIDOS TABS — dentro de .global-tabbar ─────────────────────────────── */
@@ -453,20 +492,15 @@ body {
 .dep-check-btn.active { background: var(--teal); border-color: var(--teal); color: #fff; }
 .dep-row-checked .dep-n { opacity: 0.45; text-decoration: line-through; }
 
-/* ── ORDER CARD — glass ──────────────────────────────────────────────────── */
+/* ── ORDER CARD ──────────────────────────────────────────────────────────── */
 .order-card {
-  background: linear-gradient(160deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.005) 55%), var(--card);
-  border: 1px solid rgba(255,255,255,0.10);
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 14px 16px; display: flex; flex-direction: column; gap: 9px;
   transition: transform 0.14s var(--ease-out);
   backface-visibility: hidden;
-}
-/* En claro el borde blanco translúcido quedaba invisible sobre la tarjeta blanca:
-   las cards perdían definición y se leían como un bloque continuo. */
-@media (prefers-color-scheme: light) {
-  .order-card { background: var(--card); border: 1px solid var(--border); }
 }
 .order-card:active { transform: scale(0.97); }
 .order-card.flex-active {
@@ -480,22 +514,19 @@ body {
   font-size: 10px; font-weight: 700; padding: 3px 8px;
   border-radius: 6px; text-transform: uppercase; letter-spacing: 0.5px;
 }
-/* Jerarquía: los tres badges convivían con el mismo peso y cuatro colores
-   saturados por tarjeta. Ahora la cuenta mantiene su pill (es la identidad),
-   el tipo de despacho baja a texto plano (es contexto, se repite en toda la
-   lista) y "Sin corte" es el único con relleno fuerte porque es lo accionable. */
-.badge-capi      { background: var(--blue-light);   color: var(--blue); }
-.badge-enano     { background: var(--purple-light); color: var(--purple); }
+/* Jerarquía: FLEX y PE mantienen pill sólido y contraste alto — definen el
+   horario de despacho, es el dato que hay que leer de un vistazo. La cuenta
+   queda un escalón abajo (identidad, se repite) y "Sin corte" es el más tenue:
+   el pendiente de corte ya se controla desde la pestaña Corte. */
+.badge-flex  { background: var(--green-light); color: var(--green); box-shadow: inset 0 0 0 1px rgba(52,199,89,0.30); }
+.badge-pe    { background: var(--teal-light);  color: var(--teal);  box-shadow: inset 0 0 0 1px rgba(48,176,199,0.30); }
+.badge-capi  { background: var(--blue-light);   color: var(--blue);   font-weight: 600; }
+.badge-enano { background: var(--purple-light); color: var(--purple); font-weight: 600; }
 .badge-sin-corte {
-  background: rgba(255,190,0,0.22); color: #F0B429;
-  border: 1px solid rgba(255,190,0,0.38);
+  background: none; color: #C99A2E;
+  box-shadow: inset 0 0 0 1px rgba(255,190,0,0.28);
+  font-weight: 600;
 }
-.badge-flex, .badge-pe {
-  background: none; border: none; padding: 3px 2px;
-  font-weight: 600; letter-spacing: 0.4px;
-}
-.badge-flex      { color: var(--green); }
-.badge-pe        { color: var(--teal); }
 
 .order-name   { font-size: 16px; font-weight: 700; }
 .order-items  { font-size: 14px; color: var(--text-2); }
@@ -542,7 +573,7 @@ body {
   font-family: inherit; transition: transform 0.15s var(--spring), opacity 0.12s;
 }
 .btn:active   { transform: scale(0.95); opacity: 0.88; }
-.btn-primary  { background: var(--accent); color: #fff; box-shadow: 0 4px 16px rgba(108,99,255,0.4); }
+.btn-primary  { background: var(--accent); color: #fff; box-shadow: 0 4px 16px rgba(0,122,255,0.4); }
 .btn-green    { background: var(--green);  color: #fff; box-shadow: 0 4px 14px rgba(52,199,89,0.35); }
 .btn-ghost    { background: var(--gray-light); color: var(--text-2); border: 1px solid var(--border); }
 .btn-danger   { background: var(--red-light);  color: var(--red); }
@@ -590,7 +621,10 @@ body {
 
 /* ── FORM ─────────────────────────────────────────────────────────────────── */
 .form-group  { display: flex; flex-direction: column; gap: 7px; }
-.form-label  { font-size: 11px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.8px; }
+/* Los labels de campo iban en mayúsculas con 0.8px de tracking: se leían como
+   grito y a 11px costaban. En iOS el uppercase se reserva para encabezados de
+   grupo, no para etiquetas de campo. */
+.form-label  { font-size: 13px; font-weight: 500; color: var(--text-2); letter-spacing: -0.01em; }
 .form-label-row { display: flex; justify-content: space-between; align-items: center; }
 .btn-pencil {
   background: none; border: none; cursor: pointer; font-size: 12px;
@@ -696,7 +730,7 @@ input:-webkit-autofill:focus {
 }
 .producto-btn.active {
   background: var(--accent-light); color: var(--accent);
-  border-color: rgba(108,99,255,0.35); font-weight: 700;
+  border-color: rgba(0,122,255,0.35); font-weight: 700;
 }
 
 .talle-grid { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -708,7 +742,7 @@ input:-webkit-autofill:focus {
   transition: color 0.18s var(--spring), background 0.18s var(--spring), border-color 0.18s var(--spring), transform 0.18s var(--spring); font-family: inherit;
   display: flex; align-items: center; justify-content: center;
 }
-.talle-btn.active { background: var(--accent-light); color: var(--accent); border-color: rgba(108,99,255,0.35); }
+.talle-btn.active { background: var(--accent-light); color: var(--accent); border-color: rgba(0,122,255,0.35); }
 .talle-btn.in-cart { border-color: rgba(52,199,89,0.5); color: var(--green); background: rgba(52,199,89,0.08); }
 .talle-btn.stock-zero { opacity: 0.42; }
 .talle-btn.stock-zero::after,
@@ -795,7 +829,7 @@ input:-webkit-autofill:focus {
   transition: background 0.1s; color: var(--text);
 }
 .search-result-item:last-child { border-bottom: none; }
-.search-result-item:active     { background: rgba(108,99,255,0.12); }
+.search-result-item:active     { background: rgba(0,122,255,0.12); }
 .sri-name   { font-size: 14px; color: var(--text); font-weight: 500; }
 .search-result-zona { font-size: 12px; color: var(--text-3); }
 .sri-precio { font-weight: 700; color: var(--text); font-size: 14px; }
@@ -817,11 +851,11 @@ input:-webkit-autofill:focus {
 
 /* ── MULTI CARD ──────────────────────────────────────────────────────────── */
 .multi-card {
-  background: var(--accent-light); border: 1px solid rgba(108,99,255,0.2);
+  background: var(--accent-light); border: 1px solid rgba(0,122,255,0.2);
   border-radius: var(--radius); padding: 14px 16px;
   display: flex; flex-direction: column; gap: 14px;
 }
-.multi-title { font-size: 13px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; }
+.multi-title { font-size: 14px; font-weight: 600; color: var(--accent); letter-spacing: -0.01em; }
 
 /* ── CORTE VIEW ──────────────────────────────────────────────────────────── */
 .corte-tabs { display: flex; gap: 8px; width: 100%; }
@@ -832,7 +866,7 @@ input:-webkit-autofill:focus {
   background: var(--card); color: var(--text-2); cursor: pointer;
   transition: all 0.2s var(--spring); font-family: inherit;
 }
-.corte-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 4px 14px rgba(108,99,255,0.4); }
+.corte-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 4px 14px rgba(0,122,255,0.4); }
 .corte-count {
   display: inline-block; margin-left: 5px;
   background: rgba(255,255,255,0.22); border-radius: 10px; padding: 1px 6px; font-size: 11px;
@@ -901,7 +935,7 @@ input:-webkit-autofill:focus {
 /* ── DEPÓSITO ────────────────────────────────────────────────────────────── */
 .deposito-modelo { padding: 10px 0; border-bottom: 1px solid var(--sep); }
 .deposito-modelo:last-child { border-bottom: none; }
-.deposito-modelo-name { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.4px; }
+.deposito-modelo-name { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 8px; letter-spacing: -0.01em; }
 .deposito-talles  { display: flex; flex-wrap: wrap; gap: 8px; }
 .deposito-item    { display: flex; align-items: center; gap: 4px; background: var(--blue-light); border-radius: 8px; padding: 5px 10px; }
 .deposito-talle   { font-size: 13px; font-weight: 600; color: var(--blue); }
@@ -976,7 +1010,7 @@ input:-webkit-autofill:focus {
   font-weight: 700;
   border: none;
   cursor: pointer;
-  box-shadow: 0 4px 20px rgba(108,99,255,0.5), inset 0 1px 0 rgba(255,255,255,0.2);
+  box-shadow: 0 4px 20px rgba(0,122,255,0.5), inset 0 1px 0 rgba(255,255,255,0.2);
   font-family: inherit;
   transition: transform 0.2s var(--spring), opacity 0.2s;
 }
@@ -1273,7 +1307,7 @@ input:-webkit-autofill:focus {
 /* Input focus */
 .form-input:focus {
   transform: translateY(-1px);
-  box-shadow: 0 0 0 3px rgba(108,99,255,0.18), 0 4px 14px rgba(108,99,255,0.10);
+  box-shadow: 0 0 0 3px rgba(0,122,255,0.18), 0 4px 14px rgba(0,122,255,0.10);
   border-color: var(--accent);
 }
 
@@ -1396,10 +1430,19 @@ input:-webkit-autofill:focus {
   font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px;
   text-transform: uppercase;
 }
-.meli-sug-tag.flex { background: var(--orange-light); color: var(--orange); }
-.meli-sug-tag.pe   { background: var(--green-light);  color: var(--green);  }
+/* Mismo código de color que los badges de la tarjeta: FLEX verde, PE teal.
+   Estaban invertidos (FLEX naranja / PE verde) y el mismo dato cambiaba de color
+   según dónde se mirara. */
+.meli-sug-tag.flex { background: var(--green-light); color: var(--green); }
+.meli-sug-tag.pe   { background: var(--teal-light);  color: var(--teal);  }
 .meli-sug-row2 { display: flex; gap: 10px; font-size: 12px; color: var(--text-2); flex-wrap: wrap; }
 .meli-sug-items { font-size: 11px; color: var(--text-3); padding-top: 2px; }
+/* Cuenta regresiva del descartado: se borra solo a los 3 días */
+.meli-sug-ttl {
+  display: inline-block; margin-top: 4px;
+  font-size: 10px; font-weight: 600; color: var(--text-3);
+  letter-spacing: 0.02em;
+}
 .meli-sug-dismiss {
   width: 38px; flex-shrink: 0; background: none; border: none; border-left: 1px solid var(--border);
   color: var(--text-3); font-size: 13px; cursor: pointer;
@@ -1604,4 +1647,4 @@ input:-webkit-autofill:focus {
   cursor: pointer; transition: all 0.14s; font-family: inherit;
 }
 .prep-prod-chip:active { transform: scale(0.92); }
-.prep-prod-chip.active { background: var(--accent-light); color: var(--accent); border-color: rgba(108,99,255,0.35); }
+.prep-prod-chip.active { background: var(--accent-light); color: var(--accent); border-color: rgba(0,122,255,0.35); }

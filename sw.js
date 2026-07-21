@@ -1,5 +1,5 @@
-// FullSports SW v27 — tarifas FLEX 1/7, fix corte, despacho PE, limite query, refresh visual
-const CACHE       = 'fs-v27';
+// FullSports SW v28 — IIBB auto BsAs, jerarquia de badges, refinamiento de animaciones
+const CACHE       = 'fs-v28';
 const BG_STATE    = 'meli-bg-state-v1';
 const WORKER_BASE = 'https://meli-test.lafuentefranciscolucas.workers.dev';
 

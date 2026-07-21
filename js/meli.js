@@ -1254,6 +1254,11 @@ function _fillFormFromSuggestion(sug) {
   if (sug.account === 'enano' && sug.importeBruto) {
     meliSetField('f-importe-bruto', String(sug.importeBruto), '$' + fmt(sug.importeBruto));
   }
+  // Default de Buenos Aires — corre después del IIBB de MELI a propósito: solo
+  // completa si la orden no trajo retención real (_autoIibb no pisa valores).
+  if (sug.account === 'enano' && typeof _autoIibb === 'function') {
+    _autoIibb(document.getElementById('f-provincia')?.value || '');
+  }
   const validItems = sug.items.filter(i => i.talle);
   if (validItems.length) { formItems = validItems; renderFormItems(); }
   haptic([10, 30, 10]);

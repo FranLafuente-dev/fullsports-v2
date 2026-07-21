@@ -1680,6 +1680,19 @@ function openNuevaSheet(data=null) {
   }
 }
 
+// ─── IIBB AUTOMÁTICO — Buenos Aires ──────────────────────────────────────────
+// Retención fija para provincia de Buenos Aires. Es solo una sugerencia: se
+// escribe únicamente si el campo está vacío, nunca pisa un valor tipeado a mano.
+const IIBB_BS_AS = 17.75;
+function _autoIibb(prov) {
+  const inp = V('f-iibb'); if (!inp) return;
+  if (normalizeStr(prov||'').trim() !== 'buenos aires') return;
+  if (inp.value.trim()) return;
+  inp.value = fmtDec(IIBB_BS_AS);
+  const prev = V('f-iibb-preview'), prevVal = V('f-iibb-preview-val');
+  if (prev && prevVal && !prev.classList.contains('hidden')) prevVal.textContent = `$${fmtDec(IIBB_BS_AS)}`;
+}
+
 // ─── DESPACHO PE (fecha y hora manual) ───────────────────────────────────────
 // Formato que espera <input type="datetime-local">: YYYY-MM-DDTHH:MM (hora local)
 function _toDatetimeLocal(msVal) {
@@ -1763,6 +1776,8 @@ function setupFormListeners() {
   }
   V('f-nombre')?.addEventListener('input', liveTitleCase);
   V('f-nombre')?.addEventListener('blur', e => { e.target.value = titleCase(e.target.value); });
+  // Provincia tipeada a mano (sin pasar por el dropdown)
+  V('f-provincia')?.addEventListener('blur', e => _autoIibb(e.target.value));
 
   V('btn-stock-override').addEventListener('click',()=>{
     stockAll=!stockAll;
@@ -1803,6 +1818,7 @@ function setupProvinciaSearch() {
       const pick = e => {
         e.preventDefault(); e.stopPropagation();
         inp.value = hits[i]; res.classList.remove('show'); inp.blur();
+        _autoIibb(hits[i]);
       };
       el.addEventListener('mousedown', pick);
       el.addEventListener('touchstart', pick, { passive: false });
@@ -1872,6 +1888,7 @@ function showZoneSelected() {
       const prov = formEnvio.zona.startsWith('Zona 1') ? 'CABA' : 'Buenos Aires';
       provInp.value = prov;
       if (provPrev && provPrevVal) { provPrevVal.textContent=prov; provPrev.classList.remove('hidden'); provInp.style.display='none'; }
+      _autoIibb(prov);
     }
   }
   updateNeto();

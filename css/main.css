@@ -44,7 +44,9 @@
   --radius:    18px;
   --radius-sm: 12px;
   --nav-h:     0px;
-  --spring:    cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* El overshoot de 1.56 rebotaba de más y leía como animación de plantilla.
+     1.28 conserva la vida del spring sin el efecto "juguete". */
+  --spring:    cubic-bezier(0.34, 1.28, 0.64, 1);
   --ease-out:  cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
@@ -478,11 +480,22 @@ body {
   font-size: 10px; font-weight: 700; padding: 3px 8px;
   border-radius: 6px; text-transform: uppercase; letter-spacing: 0.5px;
 }
+/* Jerarquía: los tres badges convivían con el mismo peso y cuatro colores
+   saturados por tarjeta. Ahora la cuenta mantiene su pill (es la identidad),
+   el tipo de despacho baja a texto plano (es contexto, se repite en toda la
+   lista) y "Sin corte" es el único con relleno fuerte porque es lo accionable. */
 .badge-capi      { background: var(--blue-light);   color: var(--blue); }
-.badge-enano     { background: var(--purple-light);  color: var(--purple); }
-.badge-sin-corte { background: rgba(255,190,0,0.18); color: #E6A817; border: 1px solid rgba(255,190,0,0.3); }
-.badge-flex      { background: var(--green-light);   color: var(--green); }
-.badge-pe        { background: var(--teal-light);    color: var(--teal); border: 1px solid rgba(48,176,199,0.3); font-weight: 800; }
+.badge-enano     { background: var(--purple-light); color: var(--purple); }
+.badge-sin-corte {
+  background: rgba(255,190,0,0.22); color: #F0B429;
+  border: 1px solid rgba(255,190,0,0.38);
+}
+.badge-flex, .badge-pe {
+  background: none; border: none; padding: 3px 2px;
+  font-weight: 600; letter-spacing: 0.4px;
+}
+.badge-flex      { color: var(--green); }
+.badge-pe        { color: var(--teal); }
 
 .order-name   { font-size: 16px; font-weight: 700; }
 .order-items  { font-size: 14px; color: var(--text-2); }
@@ -1203,26 +1216,28 @@ input:-webkit-autofill:focus {
   80%  { transform: scale(1.015); }
   100% { transform: scale(1); }
 }
+/* Era 0.86 → 1.08: un 22% de recorrido que se siente elástico y barato.
+   0.95 → 1.02 da la misma confirmación táctil con mucha más sobriedad. */
 @keyframes btnPop {
   0%   { transform: scale(1); }
-  35%  { transform: scale(0.86); }
-  70%  { transform: scale(1.08); }
+  35%  { transform: scale(0.95); }
+  70%  { transform: scale(1.02); }
   100% { transform: scale(1); }
 }
-.card-state-ok        { animation: cardStateOk 0.3s cubic-bezier(0.34,1.56,0.64,1) both; }
-.card-state-dispatch  { animation: cardStateDispatch 0.3s cubic-bezier(0.34,1.56,0.64,1) both; }
-.card-state-entregado { animation: cardStateEntregado 0.38s cubic-bezier(0.34,1.56,0.64,1) both; }
-.btn-pop              { animation: btnPop 0.22s cubic-bezier(0.34,1.56,0.64,1) both; }
+.card-state-ok        { animation: cardStateOk 0.3s var(--spring) both; }
+.card-state-dispatch  { animation: cardStateDispatch 0.3s var(--spring) both; }
+.card-state-entregado { animation: cardStateEntregado 0.38s var(--spring) both; }
+.btn-pop              { animation: btnPop 0.22s var(--spring) both; }
 
 /* Cards — entrada con deslizamiento y stagger */
 .ped-body .order-card { animation: cardIn 0.22s var(--ease-out) both; }
-.ped-body .order-card:nth-child(2) { animation-delay: 30ms; }
-.ped-body .order-card:nth-child(3) { animation-delay: 60ms; }
-.ped-body .order-card:nth-child(4) { animation-delay: 90ms; }
-.ped-body .order-card:nth-child(5) { animation-delay: 120ms; }
-.ped-body .order-card:nth-child(6) { animation-delay: 150ms; }
-.ped-body .order-card:nth-child(7) { animation-delay: 180ms; }
-.ped-body .order-card:nth-child(8) { animation-delay: 210ms; }
+.ped-body .order-card:nth-child(2) { animation-delay: 18ms; }
+.ped-body .order-card:nth-child(3) { animation-delay: 36ms; }
+.ped-body .order-card:nth-child(4) { animation-delay: 54ms; }
+.ped-body .order-card:nth-child(5) { animation-delay: 72ms; }
+.ped-body .order-card:nth-child(6) { animation-delay: 90ms; }
+.ped-body .order-card:nth-child(7) { animation-delay: 108ms; }
+.ped-body .order-card:nth-child(8) { animation-delay: 126ms; }
 
 /* Filas FLEX — fade rápido */
 .flex-order-row { animation: fadeIn 0.14s ease-out both; }

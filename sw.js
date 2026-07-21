@@ -1,5 +1,5 @@
-// FullSports SW v26 — tarifas FLEX 1/7, fix selección de corte, despacho PE
-const CACHE       = 'fs-v26';
+// FullSports SW v27 — tarifas FLEX 1/7, fix corte, despacho PE, limite query, refresh visual
+const CACHE       = 'fs-v27';
 const BG_STATE    = 'meli-bg-state-v1';
 const WORKER_BASE = 'https://meli-test.lafuentefranciscolucas.workers.dev';
 

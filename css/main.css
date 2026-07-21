@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+/* La fuente se carga desde index.html con preconnect. Un @import acá serializaba
+   la descarga (CSS → descubrir @import → fuente) y retrasaba el primer pintado. */
 
 /* ── VARIABLES — Dark (default) ─────────────────────────────────────────── */
 :root {
@@ -36,7 +37,9 @@
   --text:   #f0f2ff;
   --text-1: #f0f2ff;
   --text-2: #8b8fad;
-  --text-3: #4d516a;
+  /* #4d516a daba 2:1 de contraste sobre la tarjeta — fechas e importes secundarios
+     se perdían con luz de día. #6f7496 sube a ~3.5:1 sin romper la jerarquía. */
+  --text-3: #6f7496;
 
   --radius:    18px;
   --radius-sm: 12px;
@@ -455,8 +458,13 @@ body {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 14px 16px; display: flex; flex-direction: column; gap: 9px;
-  transition: transform 0.1s;
-  will-change: transform; backface-visibility: hidden;
+  transition: transform 0.14s var(--ease-out);
+  backface-visibility: hidden;
+}
+/* En claro el borde blanco translúcido quedaba invisible sobre la tarjeta blanca:
+   las cards perdían definición y se leían como un bloque continuo. */
+@media (prefers-color-scheme: light) {
+  .order-card { background: var(--card); border: 1px solid var(--border); }
 }
 .order-card:active { transform: scale(0.97); }
 .order-card.flex-active {

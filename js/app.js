@@ -7,16 +7,22 @@ db.enablePersistence({synchronizeTabs: false}).catch(() => {});
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
-const PRODUCTOS = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo','Banderas','Remeras Colapinto'];
+const PRODUCTOS = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo','Banderas','Remeras Colapinto','Estrellas Malvinas Negro','Estrellas Malvinas Gris','Estrellas Malvinas Blanco','Estrellas Malvinas Azul'];
 const PRODUCTOS_FIJO = {
   'Banderas': ['60x90','90x150'],
   'Remeras Colapinto': ['L'],
+  'Estrellas Malvinas Negro':  ['S','M','L','XL','XXL'],
+  'Estrellas Malvinas Gris':   ['S','M','L','XL','XXL'],
+  'Estrellas Malvinas Blanco': ['S','M','L','XL','XXL'],
+  'Estrellas Malvinas Azul':   ['S','M','L','XL','XXL'],
 };
 const TALLES      = [38,39,40,41,42,43,44,45];
 const TALLES_ESP  = [43,44,45];
+const TALLE_LETRA_ORDER = ['S','M','L','XL','XXL'];
 const COSTO_COMUN             = 23450;
 const COSTO_ESP               = 23950;
 const COSTO_REMERA_COLAPINTO  = 7500;
+const COSTO_REMERA_MALVINAS   = 8500;
 const COSTO_BANDERA_60X90     = 2700;
 const COSTO_BANDERA_90X150    = 4200;
 const H24         = 86400000;
@@ -1298,6 +1304,8 @@ function sortIt(items) {
     if (a.producto!==b.producto) return a.producto.localeCompare(b.producto);
     const na=parseInt(a.talle), nb=parseInt(b.talle);
     if (!isNaN(na)&&!isNaN(nb)) return na-nb;
+    const la=TALLE_LETRA_ORDER.indexOf(String(a.talle)), lb=TALLE_LETRA_ORDER.indexOf(String(b.talle));
+    if (la!==-1&&lb!==-1) return la-lb;
     return String(a.talle).localeCompare(String(b.talle));
   });
 }
@@ -2177,6 +2185,8 @@ function _calcMonthStats(cuenta) {
         costo += i.talle==='60x90' ? COSTO_BANDERA_60X90 : COSTO_BANDERA_90X150;
       } else if (i.producto==='Remeras Colapinto') {
         costo += COSTO_REMERA_COLAPINTO;
+      } else if (i.producto && i.producto.startsWith('Estrellas Malvinas')) {
+        costo += COSTO_REMERA_MALVINAS;
       } else {
         pares++;
         costo += TALLES_ESP.includes(i.talle) ? COSTO_ESP : COSTO_COMUN;
@@ -2292,12 +2302,14 @@ function textoEnano(pend) {
   L.push('',`*Total acreditado a mp enano $${fmt(tot)}*`); return L.join('\n');
 }
 function textoCostos(pend,c) {
-  let e=0,n=0,b60=0,b90=0,rc=0;
+  let e=0,n=0,b60=0,b90=0,rc=0,em=0;
   pend.forEach(o=>(o.items||[]).forEach(i=>{
     if(i.producto==='Banderas'){
       if(i.talle==='60x90')b60++; else if(i.talle==='90x150')b90++;
     } else if(i.producto==='Remeras Colapinto'){
       rc++;
+    } else if(i.producto && i.producto.startsWith('Estrellas Malvinas')){
+      em++;
     } else {
       TALLES_ESP.includes(i.talle)?e++:n++;
     }
@@ -2308,7 +2320,8 @@ function textoCostos(pend,c) {
   if(b60>0)L.push(`${b60} bandera 60x90 $${fmt(COSTO_BANDERA_60X90)}`);
   if(b90>0)L.push(`${b90} bandera 90x150 $${fmt(COSTO_BANDERA_90X150)}`);
   if(rc>0) L.push(`${rc} remera Colapinto $${fmt(COSTO_REMERA_COLAPINTO)}`);
-  const tot=e*COSTO_ESP+n*COSTO_COMUN+b60*COSTO_BANDERA_60X90+b90*COSTO_BANDERA_90X150+rc*COSTO_REMERA_COLAPINTO;
+  if(em>0) L.push(`${em} remera Estrellas Malvinas $${fmt(COSTO_REMERA_MALVINAS)}`);
+  const tot=e*COSTO_ESP+n*COSTO_COMUN+b60*COSTO_BANDERA_60X90+b90*COSTO_BANDERA_90X150+rc*COSTO_REMERA_COLAPINTO+em*COSTO_REMERA_MALVINAS;
   L.push('',`*Total costos $${fmt(tot)}*`); return L.join('\n');
 }
 function fmtItemsCorte(items) {

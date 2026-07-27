@@ -902,6 +902,16 @@ function _parseSku(sku) {
   else if (/BORCEG/.test(c))           product = 'Borcegos';
   else if (/BANDERA/.test(c))          product = 'Banderas';
   else if (/COLAP/.test(c))            product = 'Remeras Colapinto';
+  else if (/ESTRELLASMALVINAS/.test(c)) {
+    if      (/NEGRO/.test(c))  product = 'Estrellas Malvinas Negro';
+    else if (/GRIS/.test(c))   product = 'Estrellas Malvinas Gris';
+    else if (/BLANCO/.test(c)) product = 'Estrellas Malvinas Blanco';
+    else if (/AZUL/.test(c))   product = 'Estrellas Malvinas Azul';
+    if (product) {
+      const tm = sku.match(/-(XXL|XL|L|M|S)$/i);
+      return { product, talle: tm ? tm[1].toUpperCase() : null };
+    }
+  }
   if (!product) return null;
   const numMatch = sku.match(/(\d{2})$/);
   let talle = numMatch ? parseInt(numMatch[1], 10) : null;
@@ -913,7 +923,10 @@ function _parseTalleFromVariant(name) {
   const mMatch = name.match(/(\d+x\d+)/i);
   if (mMatch) return mMatch[1];
   const nMatch = name.match(/\|\s*(\d{2})\s*AR/i) || name.match(/\b(3[89]|4[0-5])\b/);
-  return nMatch ? parseInt(nMatch[1], 10) : null;
+  if (nMatch) return parseInt(nMatch[1], 10);
+  const lMatch = name.match(/\b(XXL|XL|L|M|S)\b/i);
+  if (lMatch) return lMatch[1].toUpperCase();
+  return null;
 }
 function _parseProductFromTitle(title) {
   const c = (title || '').replace(/-/g, '').toUpperCase();
@@ -924,6 +937,12 @@ function _parseProductFromTitle(title) {
   if (/BORCEG/.test(c)) return 'Borcegos';
   if (/BANDERA/.test(c))return 'Banderas';
   if (/COLAP/.test(c))  return 'Remeras Colapinto';
+  if (/ESTRELLASMALVINAS/.test(c)) {
+    if (/NEGRO/.test(c))  return 'Estrellas Malvinas Negro';
+    if (/GRIS/.test(c))   return 'Estrellas Malvinas Gris';
+    if (/BLANCO/.test(c)) return 'Estrellas Malvinas Blanco';
+    if (/AZUL/.test(c))   return 'Estrellas Malvinas Azul';
+  }
   return null;
 }
 function _parseItems(orderItems) {

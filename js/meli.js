@@ -891,9 +891,32 @@ function _getAmount(order) {
 }
 
 // ─── PARSEO DE ÍTEMS ─────────────────────────────────────────────────────────
+// Remeras con talle de letra (S/M/L/XL/XXL) por modelo+color. Se detectan ANTES
+// que las banderas físicas: "BanderaMalvinas" contiene "BANDERA" y colisionaría.
+function _parseRemera(c) {
+  if (/ESTRELLASMALVINAS/.test(c)) {
+    if      (/NEGRO/.test(c))  return 'Estrellas Malvinas Negro';
+    else if (/GRIS/.test(c))   return 'Estrellas Malvinas Gris';
+    else if (/BLANCO/.test(c)) return 'Estrellas Malvinas Blanco';
+    else if (/AZUL/.test(c))   return 'Estrellas Malvinas Azul';
+  }
+  if (/BANDERAMALVINAS/.test(c)) {
+    if      (/BLANCO/.test(c)) return 'Bandera Malvinas Blanco';
+    else if (/NEGRO/.test(c))  return 'Bandera Malvinas Negro';
+  }
+  if (/ENZO/.test(c)) {
+    if (/NEGRO/.test(c)) return 'Enzo Festejo Negro';
+  }
+  return null;
+}
 function _parseSku(sku) {
   if (!sku) return null;
   const c = sku.replace(/-/g, '').toUpperCase();
+  const remera = _parseRemera(c);
+  if (remera) {
+    const tm = sku.match(/-(XXL|XL|L|M|S)$/i);
+    return { product: remera, talle: tm ? tm[1].toUpperCase() : null };
+  }
   let product = null;
   if (/MEDIAMOST|MEDIAMOSTAZA/.test(c)) product = 'Media caña';
   else if (/MOST/.test(c))             product = 'Mostaza';
@@ -902,16 +925,6 @@ function _parseSku(sku) {
   else if (/BORCEG/.test(c))           product = 'Borcegos';
   else if (/BANDERA/.test(c))          product = 'Banderas';
   else if (/COLAP/.test(c))            product = 'Remeras Colapinto';
-  else if (/ESTRELLASMALVINAS/.test(c)) {
-    if      (/NEGRO/.test(c))  product = 'Estrellas Malvinas Negro';
-    else if (/GRIS/.test(c))   product = 'Estrellas Malvinas Gris';
-    else if (/BLANCO/.test(c)) product = 'Estrellas Malvinas Blanco';
-    else if (/AZUL/.test(c))   product = 'Estrellas Malvinas Azul';
-    if (product) {
-      const tm = sku.match(/-(XXL|XL|L|M|S)$/i);
-      return { product, talle: tm ? tm[1].toUpperCase() : null };
-    }
-  }
   if (!product) return null;
   const numMatch = sku.match(/(\d{2})$/);
   let talle = numMatch ? parseInt(numMatch[1], 10) : null;
@@ -930,6 +943,8 @@ function _parseTalleFromVariant(name) {
 }
 function _parseProductFromTitle(title) {
   const c = (title || '').replace(/-/g, '').toUpperCase();
+  const remera = _parseRemera(c);
+  if (remera) return remera;
   if (/MEDIAMOST|MEDIAMOSTAZA/.test(c)) return 'Media caña';
   if (/TOTAL/.test(c))  return 'Total Black';
   if (/MOST/.test(c))   return 'Mostaza';
@@ -937,12 +952,6 @@ function _parseProductFromTitle(title) {
   if (/BORCEG/.test(c)) return 'Borcegos';
   if (/BANDERA/.test(c))return 'Banderas';
   if (/COLAP/.test(c))  return 'Remeras Colapinto';
-  if (/ESTRELLASMALVINAS/.test(c)) {
-    if (/NEGRO/.test(c))  return 'Estrellas Malvinas Negro';
-    if (/GRIS/.test(c))   return 'Estrellas Malvinas Gris';
-    if (/BLANCO/.test(c)) return 'Estrellas Malvinas Blanco';
-    if (/AZUL/.test(c))   return 'Estrellas Malvinas Azul';
-  }
   return null;
 }
 function _parseItems(orderItems) {

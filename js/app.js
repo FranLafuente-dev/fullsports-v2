@@ -7,15 +7,24 @@ db.enablePersistence({synchronizeTabs: false}).catch(() => {});
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
-const PRODUCTOS = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo','Banderas','Remeras Colapinto','Estrellas Malvinas Negro','Estrellas Malvinas Gris','Estrellas Malvinas Blanco','Estrellas Malvinas Azul'];
+const PRODUCTOS = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo','Banderas','Estrellas Malvinas Negro','Estrellas Malvinas Gris','Estrellas Malvinas Blanco','Estrellas Malvinas Azul','Bandera Malvinas Blanco','Bandera Malvinas Negro','Enzo Festejo Negro'];
 const PRODUCTOS_FIJO = {
   'Banderas': ['60x90','90x150'],
-  'Remeras Colapinto': ['L'],
   'Estrellas Malvinas Negro':  ['S','M','L','XL','XXL'],
   'Estrellas Malvinas Gris':   ['S','M','L','XL','XXL'],
   'Estrellas Malvinas Blanco': ['S','M','L','XL','XXL'],
   'Estrellas Malvinas Azul':   ['S','M','L','XL','XXL'],
+  'Bandera Malvinas Blanco':   ['S','M','L','XL','XXL'],
+  'Bandera Malvinas Negro':    ['S','M','L','XL','XXL'],
+  'Enzo Festejo Negro':        ['S','M','L','XL','XXL'],
 };
+// Agrupación de remeras por modelo para la vista de Stock (modelo → productos por color)
+const REMERAS_MODELOS = {
+  'Estrellas Malvinas': ['Estrellas Malvinas Negro','Estrellas Malvinas Gris','Estrellas Malvinas Blanco','Estrellas Malvinas Azul'],
+  'Bandera Malvinas':   ['Bandera Malvinas Blanco','Bandera Malvinas Negro'],
+  'Enzo Festejo':       ['Enzo Festejo Negro'],
+};
+const REMERAS_SET = new Set(Object.values(REMERAS_MODELOS).flat());
 const TALLES      = [38,39,40,41,42,43,44,45];
 const TALLES_ESP  = [43,44,45];
 const TALLE_LETRA_ORDER = ['S','M','L','XL','XXL'];
@@ -55,7 +64,6 @@ const PROVINCIAS = [
 const STOCK_DEFAULTS = {
   'Banderas_60x90': 5,
   'Banderas_90x150': 5,
-  'Remeras Colapinto_L': 5,
 };
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
@@ -96,6 +104,7 @@ let _iibbExpandPeriods = new Set();
 let _savingVenta = false;
 let _stockExpandZeroTalles = new Set();
 let _stockExpandZeroProds = new Set();
+let _stockExpandModelo = new Set();
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const $loginScreen = document.getElementById('login-screen');
@@ -2185,7 +2194,7 @@ function _calcMonthStats(cuenta) {
         costo += i.talle==='60x90' ? COSTO_BANDERA_60X90 : COSTO_BANDERA_90X150;
       } else if (i.producto==='Remeras Colapinto') {
         costo += COSTO_REMERA_COLAPINTO;
-      } else if (i.producto && i.producto.startsWith('Estrellas Malvinas')) {
+      } else if (REMERAS_SET.has(i.producto)) {
         costo += COSTO_REMERA_MALVINAS;
       } else {
         pares++;
@@ -2308,7 +2317,7 @@ function textoCostos(pend,c) {
       if(i.talle==='60x90')b60++; else if(i.talle==='90x150')b90++;
     } else if(i.producto==='Remeras Colapinto'){
       rc++;
-    } else if(i.producto && i.producto.startsWith('Estrellas Malvinas')){
+    } else if(REMERAS_SET.has(i.producto)){
       em++;
     } else {
       TALLES_ESP.includes(i.talle)?e++:n++;
@@ -2320,7 +2329,7 @@ function textoCostos(pend,c) {
   if(b60>0)L.push(`${b60} bandera 60x90 $${fmt(COSTO_BANDERA_60X90)}`);
   if(b90>0)L.push(`${b90} bandera 90x150 $${fmt(COSTO_BANDERA_90X150)}`);
   if(rc>0) L.push(`${rc} remera Colapinto $${fmt(COSTO_REMERA_COLAPINTO)}`);
-  if(em>0) L.push(`${em} remera Estrellas Malvinas $${fmt(COSTO_REMERA_MALVINAS)}`);
+  if(em>0) L.push(`${em} remera${em>1?'s':''} $${fmt(COSTO_REMERA_MALVINAS)}`);
   const tot=e*COSTO_ESP+n*COSTO_COMUN+b60*COSTO_BANDERA_60X90+b90*COSTO_BANDERA_90X150+rc*COSTO_REMERA_COLAPINTO+em*COSTO_REMERA_MALVINAS;
   L.push('',`*Total costos $${fmt(tot)}*`); return L.join('\n');
 }
@@ -3117,10 +3126,44 @@ window.toggleStockZeroProd = p => {
   if (_stockExpandZeroProds.has(p)) _stockExpandZeroProds.delete(p); else _stockExpandZeroProds.add(p);
   renderStock();
 };
+window.toggleStockModelo = m => {
+  if (_stockExpandModelo.has(m)) _stockExpandModelo.delete(m); else _stockExpandModelo.add(m);
+  renderStock();
+};
+// Sección "Remeras": todas las remeras juntas, un desplegable por modelo → color → talles
+function renderRemerasSection() {
+  const talles=['S','M','L','XL','XXL'];
+  const body=Object.entries(REMERAS_MODELOS).map(([modelo,prods])=>{
+    const total=prods.reduce((s,p)=>s+talles.reduce((s2,t)=>s2+(stock[`${p}_${t}`]??0),0),0);
+    const totCls=total<0?'negativo':'';
+    const open=_stockExpandModelo.has(modelo);
+    const me=esc(modelo);
+    const inner=open?prods.map(p=>{
+      const color=p.replace(modelo,'').trim()||p;
+      const cTot=talles.reduce((s,t)=>s+(stock[`${p}_${t}`]??0),0);
+      return `<div class="stock-remera-color">
+        <div class="stock-remera-color-name">${color}<span class="stock-product-total ${cTot<0?'negativo':''}">${cTot}</span></div>
+        ${talles.map(t=>renderStockRow(p,t)).join('')}
+      </div>`;
+    }).join(''):'';
+    return `<div class="card stock-product-card">
+      <div class="stock-product-name stock-name-toggle" onclick="toggleStockModelo(${me})">
+        ${modelo}
+        <span style="display:flex;align-items:center;gap:6px">
+          <span class="stock-product-total ${totCls}">${total}</span>
+          <span style="font-size:11px;color:var(--text-3)">${open?'▲':'▼'}</span>
+        </span>
+      </div>
+      ${inner}
+    </div>`;
+  }).join('');
+  return `<div class="stock-remeras-section"><div class="stock-section-header">👕 Remeras</div>${body}</div>`;
+}
 function renderStock() {
   const v=VIEWS.stock; if (!v) return;
   const conStockProds=[], sinStockProds=[];
   PRODUCTOS.forEach(p=>{
+    if (REMERAS_SET.has(p)) return; // las remeras van en su propia sección agrupada
     const talles=PRODUCTOS_FIJO[p]?PRODUCTOS_FIJO[p]:TALLES;
     talles.some(t=>(stock[`${p}_${t}`]??0)>0) ? conStockProds.push(p) : sinStockProds.push(p);
   });
@@ -3157,7 +3200,8 @@ function renderStock() {
     </div>`;
   };
   v.innerHTML=conStockProds.map(renderProd).join('')+
-    (sinStockProds.length?`<div class="stock-zero-separator"></div>${sinStockProds.map(renderProd).join('')}`:'');
+    (sinStockProds.length?`<div class="stock-zero-separator"></div>${sinStockProds.map(renderProd).join('')}`:'')+
+    renderRemerasSection();
 }
 
 function renderStockRow(p,t) {

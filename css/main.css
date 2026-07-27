@@ -993,6 +993,20 @@ input:-webkit-autofill:focus {
 .stock-name-toggle { cursor: pointer; }
 .stock-zero-separator { height: 1px; background: var(--sep); margin: 4px 0 8px; }
 
+/* Sección Remeras — agrupadas por modelo (desplegable) → color → talles */
+.stock-remeras-section { display: flex; flex-direction: column; }
+.stock-section-header {
+  font-size: 13px; font-weight: 700; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: .04em; margin: 10px 2px 6px;
+}
+.stock-remera-color { padding: 2px 0; }
+.stock-remera-color:not(:last-child) { border-bottom: 1px solid var(--sep); }
+.stock-remera-color-name {
+  font-size: 13px; font-weight: 700; color: var(--text-2);
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 0 2px;
+}
+
 /* Stock FAB — aparece sobre la nueva-fab en vista stock */
 .stock-fab {
   position: fixed;

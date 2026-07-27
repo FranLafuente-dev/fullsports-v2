@@ -994,10 +994,10 @@ input:-webkit-autofill:focus {
 .stock-zero-separator { height: 1px; background: var(--sep); margin: 4px 0 8px; }
 
 /* Sección Remeras — agrupadas por modelo (desplegable) → color → talles */
-.stock-remeras-section { display: flex; flex-direction: column; }
+.stock-remeras-section { display: flex; flex-direction: column; gap: 10px; }
 .stock-section-header {
   font-size: 13px; font-weight: 700; color: var(--text-3);
-  text-transform: uppercase; letter-spacing: .04em; margin: 10px 2px 6px;
+  text-transform: uppercase; letter-spacing: .04em; margin: 2px 2px 0;
 }
 .stock-remera-color { padding: 2px 0; }
 .stock-remera-color:not(:last-child) { border-bottom: 1px solid var(--sep); }

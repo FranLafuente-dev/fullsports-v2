@@ -3130,33 +3130,74 @@ window.toggleStockModelo = m => {
   if (_stockExpandModelo.has(m)) _stockExpandModelo.delete(m); else _stockExpandModelo.add(m);
   renderStock();
 };
-// Sección "Remeras": todas las remeras juntas, un desplegable por modelo → color → talles
-function renderRemerasSection() {
+// Un color de remera dentro de un modelo. Mismo criterio que el calzado:
+// muestra los talles con stock y esconde los que están en 0 tras un toggle;
+// si el color entero está en 0, queda colapsado. Reutiliza el estado de toggles.
+function renderRemeraColor(modelo, p) {
   const talles=['S','M','L','XL','XXL'];
-  const body=Object.entries(REMERAS_MODELOS).map(([modelo,prods])=>{
-    const total=prods.reduce((s,p)=>s+talles.reduce((s2,t)=>s2+(stock[`${p}_${t}`]??0),0),0);
-    const totCls=total<0?'negativo':'';
-    const open=_stockExpandModelo.has(modelo);
-    const me=esc(modelo);
-    const inner=open?prods.map(p=>{
-      const color=p.replace(modelo,'').trim()||p;
-      const cTot=talles.reduce((s,t)=>s+(stock[`${p}_${t}`]??0),0);
-      return `<div class="stock-remera-color">
-        <div class="stock-remera-color-name">${color}<span class="stock-product-total ${cTot<0?'negativo':''}">${cTot}</span></div>
-        ${talles.map(t=>renderStockRow(p,t)).join('')}
-      </div>`;
-    }).join(''):'';
-    return `<div class="card stock-product-card">
-      <div class="stock-product-name stock-name-toggle" onclick="toggleStockModelo(${me})">
-        ${modelo}
+  const color=p.replace(modelo,'').trim()||p;
+  const conStock=talles.filter(t=>(stock[`${p}_${t}`]??0)>0);
+  const sinStock=talles.filter(t=>(stock[`${p}_${t}`]??0)<=0);
+  const total=talles.reduce((s,t)=>s+(stock[`${p}_${t}`]??0),0);
+  const totCls=total<0?'negativo':'';
+  const pe=esc(p);
+  if (conStock.length===0) {
+    const open=_stockExpandZeroProds.has(p);
+    return `<div class="stock-remera-color stock-zero-prod">
+      <div class="stock-remera-color-name stock-name-toggle" onclick="toggleStockZeroProd(${pe})">
+        ${color}
         <span style="display:flex;align-items:center;gap:6px">
           <span class="stock-product-total ${totCls}">${total}</span>
           <span style="font-size:11px;color:var(--text-3)">${open?'▲':'▼'}</span>
         </span>
       </div>
-      ${inner}
+      ${open?sinStock.map(t=>renderStockRow(p,t)).join(''):''}
     </div>`;
-  }).join('');
+  }
+  const showZero=_stockExpandZeroTalles.has(p);
+  return `<div class="stock-remera-color">
+    <div class="stock-remera-color-name">${color}<span class="stock-product-total ${totCls}">${total}</span></div>
+    ${conStock.map(t=>renderStockRow(p,t)).join('')}
+    ${sinStock.length?`
+      <button class="btn-link stock-zero-toggle" onclick="toggleStockZeroTalles(${pe})">
+        ${showZero?'▲ Ocultar sin stock':'▼ Mostrar sin stock ('+sinStock.length+')'}
+      </button>
+      ${showZero?`<div class="zero-section">${sinStock.map(t=>renderStockRow(p,t)).join('')}</div>`:''}
+    `:''}
+  </div>`;
+}
+// Sección "Remeras": agrupadas por modelo. Como el calzado, los modelos con stock
+// van arriba y expandidos; los que están en 0 van abajo como desplegable colapsado.
+function renderRemerasSection() {
+  const talles=['S','M','L','XL','XXL'];
+  const hasStock=prods=>prods.some(p=>talles.some(t=>(stock[`${p}_${t}`]??0)>0));
+  const colorHasStock=p=>talles.some(t=>(stock[`${p}_${t}`]??0)>0);
+  const modelTotal=prods=>prods.reduce((s,p)=>s+talles.reduce((s2,t)=>s2+(stock[`${p}_${t}`]??0),0),0);
+  const renderModelo=([modelo,prods])=>{
+    const total=modelTotal(prods);
+    const totCls=total<0?'negativo':'';
+    const con=hasStock(prods);
+    const open=con||_stockExpandModelo.has(modelo);
+    const me=esc(modelo);
+    // Colores con stock primero
+    const cols=open?[...prods].sort((a,b)=>(colorHasStock(a)?0:1)-(colorHasStock(b)?0:1))
+      .map(p=>renderRemeraColor(modelo,p)).join(''):'';
+    return `<div class="card stock-product-card${con?'':' stock-zero-prod'}">
+      <div class="stock-product-name${con?'':' stock-name-toggle'}"${con?'':` onclick="toggleStockModelo(${me})"`}>
+        ${modelo}
+        <span style="display:flex;align-items:center;gap:6px">
+          <span class="stock-product-total ${totCls}">${total}</span>
+          ${con?'':`<span style="font-size:11px;color:var(--text-3)">${open?'▲':'▼'}</span>`}
+        </span>
+      </div>
+      ${cols}
+    </div>`;
+  };
+  const modelos=Object.entries(REMERAS_MODELOS);
+  const con=modelos.filter(([,prods])=>hasStock(prods));
+  const sin=modelos.filter(([,prods])=>!hasStock(prods));
+  const body=con.map(renderModelo).join('')+
+    (sin.length?`<div class="stock-zero-separator"></div>${sin.map(renderModelo).join('')}`:'');
   return `<div class="stock-remeras-section"><div class="stock-section-header">👕 Remeras</div>${body}</div>`;
 }
 function renderStock() {

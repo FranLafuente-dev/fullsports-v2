@@ -998,16 +998,19 @@ input:-webkit-autofill:focus {
   padding: 1px 8px; min-width: 28px; text-align: center;
 }
 .stock-product-total.negativo { color: var(--red); background: rgba(239,68,68,.12); }
-/* Cada talle ocupa dos renglones: arriba el stock del depósito y pegado abajo el
-   de MELI Full. El separador va recién después del par, así se leen como uno. */
+/* Un talle con stock en Full ocupa dos renglones: arriba el depósito y pegado
+   abajo el de MELI Full. El separador va después del par (por eso .has-full lo
+   suelta); los talles sin Full quedan en un solo renglón, como siempre. */
 .stock-row {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 9px 0 3px; border-bottom: none;
+  padding: 9px 0; border-bottom: 1px solid var(--sep);
 }
+.stock-row.has-full { padding: 9px 0 3px; border-bottom: none; }
 .stock-row-full {
   padding: 0 0 8px; border-bottom: 1px solid var(--sep);
 }
-.stock-row-full:last-of-type { border-bottom: none; }
+.stock-row:last-of-type, .stock-row-full:last-of-type { border-bottom: none; }
+.stock-full-link { color: var(--green); font-weight: 600; }
 .stock-full-lbl {
   color: var(--green) !important; font-weight: 800; font-style: italic;
   text-transform: uppercase; letter-spacing: .04em; font-size: 12px;

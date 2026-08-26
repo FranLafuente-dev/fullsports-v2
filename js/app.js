@@ -212,6 +212,7 @@ let _savingVenta = false;
 let _stockExpandZeroTalles = new Set();
 let _stockExpandZeroProds = new Set();
 let _stockExpandModelo = new Set();
+let _stockExpandFull = new Set();
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const $loginScreen = document.getElementById('login-screen');
@@ -3367,6 +3368,11 @@ window.toggleStockModelo = m => {
   if (_stockExpandModelo.has(m)) _stockExpandModelo.delete(m); else _stockExpandModelo.add(m);
   renderStock();
 };
+// Muestra las filas FULL en cero de un producto para poder cargarlas
+window.toggleStockFull = p => {
+  if (_stockExpandFull.has(p)) _stockExpandFull.delete(p); else _stockExpandFull.add(p);
+  renderStock();
+};
 // Un color de remera dentro de un modelo. Mismo criterio que el calzado:
 // muestra los talles con stock y esconde los que están en 0 tras un toggle;
 // si el color entero está en 0, queda colapsado. Reutiliza el estado de toggles.
@@ -3378,6 +3384,7 @@ function renderRemeraColor(modelo, p) {
   const total=sumaTalles(p);
   const totCls=total<0?'negativo':'';
   const pe=esc(p);
+  const verFull=_stockExpandFull.has(p);
   if (conStock.length===0) {
     const open=_stockExpandZeroProds.has(p);
     return `<div class="stock-remera-color stock-zero-prod">
@@ -3389,19 +3396,20 @@ function renderRemeraColor(modelo, p) {
           <span style="font-size:11px;color:var(--text-3)">${open?'▲':'▼'}</span>
         </span>
       </div>
-      ${open?sinStock.map(t=>renderStockRow(p,t)).join(''):''}
+      ${open?sinStock.map(t=>renderStockRow(p,t,verFull)).join('')+_fullToggleLink(p,talles):''}
     </div>`;
   }
   const showZero=_stockExpandZeroTalles.has(p);
   return `<div class="stock-remera-color">
     <div class="stock-remera-color-name">${color}<span style="display:flex;align-items:center;gap:6px"><span class="stock-product-total ${totCls}">${total}</span>${_fullTotalChip(p)}${_prodGearBtn(p)}</span></div>
-    ${conStock.map(t=>renderStockRow(p,t)).join('')}
+    ${conStock.map(t=>renderStockRow(p,t,verFull)).join('')}
     ${sinStock.length?`
       <button class="btn-link stock-zero-toggle" onclick="toggleStockZeroTalles(${pe})">
         ${showZero?'▲ Ocultar sin stock':'▼ Mostrar sin stock ('+sinStock.length+')'}
       </button>
-      ${showZero?`<div class="zero-section">${sinStock.map(t=>renderStockRow(p,t)).join('')}</div>`:''}
+      ${showZero?`<div class="zero-section">${sinStock.map(t=>renderStockRow(p,t,verFull)).join('')}</div>`:''}
     `:''}
+    ${_fullToggleLink(p,talles)}
   </div>`;
 }
 // Sección "Remeras": agrupadas por modelo. Como el calzado, los modelos con stock
@@ -3451,6 +3459,7 @@ function renderStock() {
     const total=sumaTalles(p);
     const totCls=total<0?'negativo':'';
     const pe=esc(p);
+    const verFull=_stockExpandFull.has(p);
     if (conStock.length===0) {
       const open=_stockExpandZeroProds.has(p);
       return `<div class="card stock-product-card stock-zero-prod">
@@ -3462,19 +3471,20 @@ function renderStock() {
             <span style="font-size:11px;color:var(--text-3)">${open?'▲':'▼'}</span>
           </span>
         </div>
-        ${open?sinStock.map(t=>renderStockRow(p,t)).join(''):''}
+        ${open?sinStock.map(t=>renderStockRow(p,t,verFull)).join('')+_fullToggleLink(p,talles):''}
       </div>`;
     }
     const showZero=_stockExpandZeroTalles.has(p);
     return `<div class="card stock-product-card">
       <div class="stock-product-name">${p}<span style="display:flex;align-items:center;gap:6px"><span class="stock-product-total ${totCls}">${total}</span>${_fullTotalChip(p)}${_prodGearBtn(p)}</span></div>
-      ${conStock.map(t=>renderStockRow(p,t)).join('')}
+      ${conStock.map(t=>renderStockRow(p,t,verFull)).join('')}
       ${sinStock.length?`
         <button class="btn-link stock-zero-toggle" onclick="toggleStockZeroTalles(${pe})">
           ${showZero?'▲ Ocultar sin stock':'▼ Mostrar sin stock ('+sinStock.length+')'}
         </button>
-        ${showZero?`<div class="zero-section">${sinStock.map(t=>renderStockRow(p,t)).join('')}</div>`:''}
+        ${showZero?`<div class="zero-section">${sinStock.map(t=>renderStockRow(p,t,verFull)).join('')}</div>`:''}
       `:''}
+      ${_fullToggleLink(p,talles)}
     </div>`;
   };
   v.innerHTML=`<div class="stock-toolbar">
@@ -3489,16 +3499,20 @@ function _prodGearBtn(p) {
   return `<button class="stock-gear-btn" onclick="event.stopPropagation();openEditProdSheet(${esc(p)})" title="Editar producto">⚙️</button>`;
 }
 
-// Cada talle son dos renglones: el stock presencial y, debajo, el de MELI Full.
-// Son dos números independientes — el pedido FULL descuenta solo del de abajo.
-function renderStockRow(p,t) {
+// Cada talle puede ocupar dos renglones: el stock presencial y, debajo, el de
+// MELI Full. Son dos números independientes — el pedido FULL descuenta solo del
+// de abajo. La fila FULL aparece únicamente si ese talle tiene unidades en Full,
+// para no duplicar la lista entera; el toggle del producto la muestra igual
+// cuando hay que cargarla.
+function renderStockRow(p,t,showFullAll) {
   const k=`${p}_${t}`, val=stock[k]??0;
   const cls = val<0?'negativo':val===0?'cero':val<=2?'bajo':'ok';
   const kf=k+FULL_SUFFIX, vf=stock[kf]??0;
+  const verFull = showFullAll || vf !== 0;
   const clsF = vf<0?'negativo':vf===0?'cero':vf<=2?'bajo':'ok';
   const ke=esc(k), kfe=esc(kf);
   const lbl=esc(`${p} ${displayTalle(t)}`), lblF=esc(`${p} ${displayTalle(t)} FULL`);
-  return `<div class="stock-row ${cls}">
+  return `<div class="stock-row ${cls}${verFull?' has-full':''}">
     <span class="stock-talle">${displayTalle(t)}</span>
     <div class="stock-stepper">
       <button class="stepper-btn" onclick="adjSt(${ke},-1)">−</button>
@@ -3507,7 +3521,7 @@ function renderStockRow(p,t) {
       <button class="stepper-btn stepper-pencil" onclick="editSt(${ke},${lbl})">✏️</button>
     </div>
   </div>
-  <div class="stock-row stock-row-full ${clsF}">
+  ${verFull?`<div class="stock-row stock-row-full ${clsF}">
     <span class="stock-talle stock-full-lbl">FULL</span>
     <div class="stock-stepper">
       <button class="stepper-btn" onclick="adjSt(${kfe},-1)">−</button>
@@ -3515,7 +3529,16 @@ function renderStockRow(p,t) {
       <button class="stepper-btn" onclick="adjSt(${kfe},1)">+</button>
       <button class="stepper-btn stepper-pencil" onclick="editSt(${kfe},${lblF})">✏️</button>
     </div>
-  </div>`;
+  </div>`:''}`;
+}
+// Enlace al pie del producto para cargar Full en talles que hoy están en cero
+function _fullToggleLink(p, talles) {
+  const ocultos = talles.filter(t => (stock[stockKey(p,t,true)] ?? 0) === 0).length;
+  if (!ocultos) return '';
+  const abierto = _stockExpandFull.has(p);
+  return `<button class="btn-link stock-zero-toggle stock-full-link" onclick="toggleStockFull(${esc(p)})">
+    ${abierto ? '▲ Ocultar FULL vacíos' : `＋ Cargar FULL (${ocultos})`}
+  </button>`;
 }
 
 function animNumPop(el) {

@@ -1,5 +1,5 @@
-// FullSports SW v30 — stock FULL, alta/baja de productos, fechas de despacho
-const CACHE       = 'fs-v30';
+// FullSports SW v31 — filas FULL solo en talles con stock
+const CACHE       = 'fs-v31';
 const BG_STATE    = 'meli-bg-state-v1';
 const WORKER_BASE = 'https://meli-test.lafuentefranciscolucas.workers.dev';
 

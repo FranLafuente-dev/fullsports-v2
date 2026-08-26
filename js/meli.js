@@ -909,8 +909,26 @@ function _parseRemera(c) {
   }
   return null;
 }
+// Productos dados de alta desde la app: el SKU base queda fijo y el talle va
+// después del guion ("camuflado-38"). Con eso alcanza para reconocer las ventas
+// nuevas sin tocar el código.
+function _parseCustomSku(sku) {
+  const lista = window.customProducts || [];
+  if (!lista.length || !sku) return null;
+  const plano = String(sku).replace(/-/g, '').toUpperCase();
+  for (const p of lista) {
+    const pref = String(p.sku || '').replace(/-/g, '').toUpperCase();
+    if (!pref || !plano.startsWith(pref)) continue;
+    const resto = plano.slice(pref.length); // lo que sigue al prefijo = talle
+    const talle = (p.talles || []).find(t => String(t).toUpperCase() === resto);
+    return { product: p.nombre, talle: talle !== undefined ? talle : null };
+  }
+  return null;
+}
 function _parseSku(sku) {
   if (!sku) return null;
+  const custom = _parseCustomSku(sku);
+  if (custom) return custom;
   const c = sku.replace(/-/g, '').toUpperCase();
   const remera = _parseRemera(c);
   if (remera) {
@@ -943,6 +961,11 @@ function _parseTalleFromVariant(name) {
 }
 function _parseProductFromTitle(title) {
   const c = (title || '').replace(/-/g, '').toUpperCase();
+  // Los productos propios se buscan por su SKU base dentro del título
+  for (const p of (window.customProducts || [])) {
+    const pref = String(p.sku || '').replace(/-/g, '').toUpperCase();
+    if (pref && c.includes(pref)) return p.nombre;
+  }
   const remera = _parseRemera(c);
   if (remera) return remera;
   if (/MEDIAMOST|MEDIAMOSTAZA/.test(c)) return 'Media caña';

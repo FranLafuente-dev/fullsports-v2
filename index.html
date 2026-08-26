@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
-  <link rel="stylesheet" href="css/main.css?v=29">
+  <link rel="stylesheet" href="css/main.css?v=30">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
 </head>
@@ -145,6 +145,12 @@
         <button class="toggle-btn" data-cuenta="enano">ENANO</button>
       </div>
     </div>
+    <!-- FULL — venta despachada por MELI: no se prepara, no se despacha, no descuenta envío -->
+    <button type="button" id="btn-full-toggle" class="full-toggle" aria-pressed="false" onclick="toggleFull()">
+      <span class="full-toggle-check">✓</span>
+      <span class="full-toggle-label">FULL</span>
+      <span class="full-toggle-hint">Lo despacha MELI — sin preparar ni envío</span>
+    </button>
     <!-- SECCIÓN FISCAL — solo ENANO -->
     <div id="info-fiscal" style="display:none;flex-direction:column;gap:5px">
       <div class="fiscal-section-hdr">📊 Información fiscal</div>
@@ -204,11 +210,18 @@
         </div>
       </div>
     </div>
-    <div class="form-group">
+    <div class="form-group" id="envio-group-wrap">
       <div class="form-label">Tipo de despacho</div>
       <div class="toggle-group">
         <button class="toggle-btn active" data-envio="FLEX">FLEX (13:00hs)</button>
-        <button class="toggle-btn" data-envio="PE">Punto de Envío (14:00hs)</button>
+        <button class="toggle-btn" data-envio="PE">Punto de Envío (13:00hs)</button>
+      </div>
+    </div>
+    <div id="full-fields" style="display:none;flex-direction:column;gap:12px">
+      <div class="form-group">
+        <div class="form-label">Importe acreditado</div>
+        <input class="form-input" id="f-importe-full" type="text" placeholder="Importe acreditado" inputmode="numeric" autocomplete="off">
+        <div class="hint-text" style="margin-top:6px">Pedido FULL: no descuenta costo de envío</div>
       </div>
     </div>
     <div id="flex-fields" style="display:flex;flex-direction:column;gap:12px">
@@ -416,6 +429,82 @@
   </button>
 </div>
 
+<!-- SHEET: NUEVO PRODUCTO -->
+<div class="sheet" id="sheet-nuevo-prod">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Nuevo producto</div>
+  <div class="sheet-body">
+    <div class="form-group">
+      <div class="form-label">Nombre del producto</div>
+      <input class="form-input" id="np-nombre" type="text" placeholder="Ej: Camuflado" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <div class="form-label">Talles</div>
+      <div class="toggle-group">
+        <button class="toggle-btn active" data-np-tipo="letra" onclick="npSetTipo('letra')">Letras (S a XXL)</button>
+        <button class="toggle-btn" data-np-tipo="numero" onclick="npSetTipo('numero')">Números</button>
+      </div>
+    </div>
+    <div class="form-group" id="np-rango-wrap" style="display:none;flex-direction:row;gap:10px">
+      <div style="flex:1">
+        <div class="form-label">Desde</div>
+        <input class="form-input" id="np-desde" type="number" inputmode="numeric" placeholder="34" oninput="npRangoChanged()">
+      </div>
+      <div style="flex:1">
+        <div class="form-label">Hasta</div>
+        <input class="form-input" id="np-hasta" type="number" inputmode="numeric" placeholder="39" oninput="npRangoChanged()">
+      </div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">Tocá los talles que van</div>
+      <div id="np-talles" class="talle-grid"></div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">SKU base</div>
+      <input class="form-input" id="np-sku" type="text" placeholder="camuflado" autocomplete="off">
+      <div class="hint-text" style="margin-top:6px">El talle se agrega solo después del guion: <b>camuflado-38</b>. Con esto la app reconoce las ventas nuevas de MELI sin tocar nada más.</div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">Costo por unidad</div>
+      <input class="form-input" id="np-costo" type="text" placeholder="0" inputmode="numeric" autocomplete="off">
+      <div class="hint-text" style="margin-top:6px">Se usa en el texto de costos del corte y en la ganancia estimada del mes.</div>
+    </div>
+    <button class="btn btn-primary" onclick="doSaveNuevoProd()">Guardar producto</button>
+    <button class="btn btn-ghost" data-close-sheet>Cancelar</button>
+    <div style="height:8px"></div>
+  </div>
+</div>
+
+<!-- SHEET: EDITAR / ELIMINAR PRODUCTO -->
+<div class="sheet" id="sheet-edit-prod">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">Editar producto</div>
+  <div class="sheet-body">
+    <div class="form-group">
+      <div class="form-label">Producto</div>
+      <div id="ep-titulo" style="font-size:17px;font-weight:700"></div>
+    </div>
+    <div class="form-group">
+      <div class="form-label">Talles activos — destildá el que ya no usás</div>
+      <div id="ep-talles" class="talle-grid"></div>
+    </div>
+    <div id="ep-custom-wrap" style="display:flex;flex-direction:column;gap:12px">
+      <div class="form-group">
+        <div class="form-label">SKU base</div>
+        <input class="form-input" id="ep-sku" type="text" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <div class="form-label">Costo por unidad</div>
+        <input class="form-input" id="ep-costo" type="text" inputmode="numeric" autocomplete="off">
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="doSaveEditProd()">Guardar cambios</button>
+    <button class="btn btn-danger" onclick="doDeleteProd()">🗑 Eliminar producto</button>
+    <button class="btn btn-ghost" data-close-sheet>Cancelar</button>
+    <div style="height:8px"></div>
+  </div>
+</div>
+
 <!-- SHEET: CONFIGURACIÓN MELI -->
 <div class="sheet" id="sheet-meli">
   <div class="sheet-handle"></div>
@@ -490,9 +579,9 @@ const FIREBASE_CONFIG = {
 };
 </script>
 
-<script src="js/flex-zones.js?v=26"></script>
-<script src="js/app.js?v=29"></script>
-<script src="js/meli.js?v=29"></script>
+<script src="js/flex-zones.js?v=30"></script>
+<script src="js/app.js?v=30"></script>
+<script src="js/meli.js?v=30"></script>
 
 <script>
 if ('serviceWorker' in navigator) {

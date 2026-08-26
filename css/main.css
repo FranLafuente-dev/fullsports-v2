@@ -527,6 +527,12 @@ h1, .sheet-title, .login-title, .flex-stat-val, .empty-state p {
   box-shadow: inset 0 0 0 1px rgba(255,190,0,0.28);
   font-weight: 600;
 }
+/* FULL — lo despacha MELI. Verde, negrita y cursiva, igual que en Stock y en el corte */
+.badge-full {
+  background: var(--green-light); color: var(--green);
+  box-shadow: inset 0 0 0 1px rgba(52,199,89,0.30);
+  font-weight: 800; font-style: italic;
+}
 
 .order-name   { font-size: 16px; font-weight: 700; }
 .order-items  { font-size: 14px; color: var(--text-2); }
@@ -700,6 +706,32 @@ input:-webkit-autofill:focus {
   display: flex; background: var(--bg); border-radius: 12px; padding: 3px; gap: 2px;
   border: 1px solid var(--border);
 }
+/* Interruptor FULL del formulario — apagado es neutro, encendido pinta verde */
+.full-toggle {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 11px 13px; border-radius: 12px; cursor: pointer; font-family: inherit;
+  background: var(--bg); border: 1px solid var(--border); text-align: left;
+  transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
+}
+.full-toggle-check {
+  width: 21px; height: 21px; flex-shrink: 0; border-radius: 6px;
+  border: 1.5px solid var(--border-hi); color: transparent;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; transition: all 0.18s;
+}
+.full-toggle-label {
+  font-size: 14px; font-weight: 800; font-style: italic;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--text-2);
+  transition: color 0.18s;
+}
+.full-toggle-hint { font-size: 11px; color: var(--text-3); margin-left: auto; text-align: right; }
+.full-toggle.active {
+  background: var(--green-light); border-color: rgba(52,199,89,0.45);
+  box-shadow: inset 0 0 0 1px rgba(52,199,89,0.18);
+}
+.full-toggle.active .full-toggle-check { background: var(--green); border-color: var(--green); color: #fff; }
+.full-toggle.active .full-toggle-label { color: var(--green); }
+.full-toggle:active { transform: scale(0.985); }
 .toggle-btn {
   flex: 1; padding: 9px; text-align: center; border: none; cursor: pointer;
   border-radius: 10px; font-size: 13px; font-weight: 700;
@@ -942,6 +974,18 @@ input:-webkit-autofill:focus {
 .deposito-qty     { font-size: 13px; font-weight: 700; color: var(--blue); }
 
 /* ── STOCK ───────────────────────────────────────────────────────────────── */
+.stock-toolbar { display: flex; justify-content: flex-end; margin-bottom: 2px; }
+.stock-gear-btn {
+  background: none; border: none; cursor: pointer; padding: 2px 4px;
+  font-size: 14px; opacity: 0.55; line-height: 1;
+}
+.stock-gear-btn:active { opacity: 1; }
+/* Total en MELI Full del producto — mismo lenguaje visual que la fila FULL */
+.stock-total-full {
+  font-size: 11px; font-weight: 800; font-style: italic; color: var(--green);
+  background: var(--green-light); border-radius: 10px; padding: 1px 7px;
+  text-transform: uppercase; letter-spacing: .03em;
+}
 .stock-product-card { padding: 14px 16px; display: flex; flex-direction: column; }
 .stock-product-name {
   font-size: 15px; font-weight: 700; padding-bottom: 10px;
@@ -954,11 +998,23 @@ input:-webkit-autofill:focus {
   padding: 1px 8px; min-width: 28px; text-align: center;
 }
 .stock-product-total.negativo { color: var(--red); background: rgba(239,68,68,.12); }
+/* Cada talle ocupa dos renglones: arriba el stock del depósito y pegado abajo el
+   de MELI Full. El separador va recién después del par, así se leen como uno. */
 .stock-row {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 9px 0; border-bottom: 1px solid var(--sep);
+  padding: 9px 0 3px; border-bottom: none;
 }
-.stock-row:last-of-type { border-bottom: none; }
+.stock-row-full {
+  padding: 0 0 8px; border-bottom: 1px solid var(--sep);
+}
+.stock-row-full:last-of-type { border-bottom: none; }
+.stock-full-lbl {
+  color: var(--green) !important; font-weight: 800; font-style: italic;
+  text-transform: uppercase; letter-spacing: .04em; font-size: 12px;
+}
+.stock-row-full .stepper-val { color: var(--green); font-style: italic; font-weight: 800; }
+.stock-row-full.negativo .stepper-val { color: var(--red); font-style: italic; }
+.stock-row-full .stepper-btn { width: 30px; height: 30px; font-size: 19px; }
 .stock-talle     { font-size: 14px; font-weight: 600; min-width: 44px; color: var(--text-2); }
 .stock-row.negativo .stock-talle { color: var(--red); font-weight: 800; }
 .stock-row.cero     .stock-talle { color: var(--red); }

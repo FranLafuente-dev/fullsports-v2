@@ -7,8 +7,10 @@ db.enablePersistence({synchronizeTabs: false}).catch(() => {});
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
-const PRODUCTOS = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo','Banderas','Estrellas Malvinas Negro','Estrellas Malvinas Gris','Estrellas Malvinas Blanco','Estrellas Malvinas Azul','Bandera Malvinas Blanco','Bandera Malvinas Negro','Enzo Festejo Negro'];
-const PRODUCTOS_FIJO = {
+// Catálogo de fábrica. Es la semilla: lo que el usuario agrega o esconde desde la
+// vista Stock vive en meta/productos (Firestore) y se fusiona acá en rebuildCatalog().
+const PRODUCTOS_BASE = ['Mostaza','Total Black','Media caña','Borcegos','Caramelo','Banderas','Estrellas Malvinas Negro','Estrellas Malvinas Gris','Estrellas Malvinas Blanco','Estrellas Malvinas Azul','Bandera Malvinas Blanco','Bandera Malvinas Negro','Enzo Festejo Negro'];
+const PRODUCTOS_FIJO_BASE = {
   'Banderas': ['60x90','90x150'],
   'Estrellas Malvinas Negro':  ['S','M','L','XL','XXL'],
   'Estrellas Malvinas Gris':   ['S','M','L','XL','XXL'],
@@ -19,12 +21,19 @@ const PRODUCTOS_FIJO = {
   'Enzo Festejo Negro':        ['S','M','L','XL','XXL'],
 };
 // Agrupación de remeras por modelo para la vista de Stock (modelo → productos por color)
-const REMERAS_MODELOS = {
+const REMERAS_MODELOS_BASE = {
   'Estrellas Malvinas': ['Estrellas Malvinas Negro','Estrellas Malvinas Gris','Estrellas Malvinas Blanco','Estrellas Malvinas Azul'],
   'Bandera Malvinas':   ['Bandera Malvinas Blanco','Bandera Malvinas Negro'],
   'Enzo Festejo':       ['Enzo Festejo Negro'],
 };
-const REMERAS_SET = new Set(Object.values(REMERAS_MODELOS).flat());
+// Vistas efectivas del catálogo — las recalcula rebuildCatalog(). El resto del
+// código las sigue usando igual que cuando eran constantes.
+let PRODUCTOS       = [...PRODUCTOS_BASE];
+let PRODUCTOS_FIJO  = { ...PRODUCTOS_FIJO_BASE };
+let REMERAS_MODELOS = { ...REMERAS_MODELOS_BASE };
+let REMERAS_SET     = new Set(Object.values(REMERAS_MODELOS_BASE).flat());
+// Talles propios de productos numéricos dados de alta por el usuario
+let PRODUCTOS_TALLES = {};
 const TALLES      = [38,39,40,41,42,43,44,45];
 const TALLES_ESP  = [43,44,45];
 const TALLE_LETRA_ORDER = ['S','M','L','XL','XXL'];
@@ -53,6 +62,10 @@ const LS_ZONES         = 'fs_zones_v1';
 const LS_FLEX_PERIODS  = 'fs_flexperiods_v1';
 const LS_IIBB_PERIODS  = 'fs_iibbperiods_v1';
 const LS_SORTED_PRODS  = 'fs_sorted_prods_v1';
+const LS_CATALOG       = 'fs_catalog_v1';
+// Sufijo de las claves de stock FULL. El stock presencial sigue en `Producto_Talle`
+// y el de MELI Full en `Producto_Talle__full`: son dos números independientes.
+const FULL_SUFFIX = '__full';
 
 const PROVINCIAS = [
   'Buenos Aires','CABA','Catamarca','Chaco','Chubut','Córdoba',
@@ -65,6 +78,100 @@ const STOCK_DEFAULTS = {
   'Banderas_60x90': 5,
   'Banderas_90x150': 5,
 };
+
+// ─── CATÁLOGO EDITABLE ────────────────────────────────────────────────────────
+// Lo que el usuario da de alta o de baja desde la vista Stock. Se guarda en
+// meta/productos y se fusiona con el catálogo de fábrica en rebuildCatalog().
+//   custom       → [{ nombre, talles, sku, costo, numerico }]
+//   hiddenProds  → nombres de productos ocultos (de fábrica o propios)
+//   hiddenTalles → { producto: [talles ocultos] }
+let catalog = { custom: [], hiddenProds: [], hiddenTalles: {} };
+
+function rebuildCatalog() {
+  const hidden = new Set(catalog.hiddenProds || []);
+  const ht     = catalog.hiddenTalles || {};
+  const visible = (p, list) => list.filter(x => !(ht[p] || []).some(h => String(h) === String(x)));
+
+  PRODUCTOS_FIJO   = {};
+  PRODUCTOS_TALLES = {};
+  const nombres = [];
+
+  PRODUCTOS_BASE.forEach(p => {
+    if (hidden.has(p)) return;
+    nombres.push(p);
+    if (PRODUCTOS_FIJO_BASE[p]) {
+      const talles = visible(p, PRODUCTOS_FIJO_BASE[p]);
+      if (talles.length) PRODUCTOS_FIJO[p] = talles;
+    } else {
+      PRODUCTOS_TALLES[p] = visible(p, TALLES);
+    }
+  });
+
+  (catalog.custom || []).forEach(c => {
+    if (!c?.nombre || hidden.has(c.nombre)) return;
+    const talles = visible(c.nombre, c.talles || []);
+    if (!talles.length) return;
+    nombres.push(c.nombre);
+    // Talles de letra o medidas → se listan siempre (como remeras y banderas).
+    // Talles numéricos → se filtran por stock en el selector, como el calzado.
+    if (c.numerico) PRODUCTOS_TALLES[c.nombre] = talles;
+    else            PRODUCTOS_FIJO[c.nombre]   = talles;
+  });
+
+  PRODUCTOS = nombres;
+  // Grupos de remeras: se caen los colores ocultos y el modelo entero si queda vacío
+  REMERAS_MODELOS = {};
+  Object.entries(REMERAS_MODELOS_BASE).forEach(([modelo, prods]) => {
+    const vivos = prods.filter(p => nombres.includes(p));
+    if (vivos.length) REMERAS_MODELOS[modelo] = vivos;
+  });
+  REMERAS_SET = new Set(Object.values(REMERAS_MODELOS).flat());
+  window.customProducts = catalog.custom || []; // lo lee meli.js para parsear SKUs
+}
+
+// Lista completa de talles de un producto, sin filtrar por stock
+function tallesDe(p) {
+  return PRODUCTOS_FIJO[p] || PRODUCTOS_TALLES[p] || TALLES;
+}
+function customProd(nombre) {
+  return (catalog.custom || []).find(c => c.nombre === nombre) || null;
+}
+// Costo unitario de un ítem, para el corte y las stats del mes
+function costoItem(producto, talle) {
+  const c = customProd(producto);
+  if (c && typeof c.costo === 'number' && c.costo > 0) return c.costo;
+  if (producto === 'Banderas')           return talle === '60x90' ? COSTO_BANDERA_60X90 : COSTO_BANDERA_90X150;
+  if (producto === 'Remeras Colapinto')  return COSTO_REMERA_COLAPINTO;
+  if (REMERAS_SET.has(producto))         return COSTO_REMERA_MALVINAS;
+  return TALLES_ESP.includes(talle) ? COSTO_ESP : COSTO_COMUN;
+}
+// ¿Cuenta como "par" en las stats? Solo el calzado (talles numéricos sin lista propia)
+function esPar(producto, talle) {
+  if (PRODUCTOS_FIJO[producto]) return false;
+  if (producto === 'Banderas' || REMERAS_SET.has(producto) || producto === 'Remeras Colapinto') return false;
+  const c = customProd(producto);
+  if (c) return !!c.numerico;
+  return !isNaN(parseInt(talle, 10));
+}
+
+function saveCatalogLocal() {
+  try { localStorage.setItem(LS_CATALOG, JSON.stringify(catalog)); } catch(e) {}
+}
+async function saveCatalog() {
+  saveCatalogLocal();
+  rebuildCatalog();
+  invalidateProdSort();
+  try { await db.collection('meta').doc('productos').set(catalog); }
+  catch(e) { toast('📶 Sin red — se sincronizará'); }
+}
+
+// ─── CLAVES DE STOCK ──────────────────────────────────────────────────────────
+function stockKey(producto, talle, full) {
+  return `${producto}_${talle}${full ? FULL_SUFFIX : ''}`;
+}
+function itemKey(item, full) {
+  return stockKey(item.producto, item.talle, full);
+}
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let orders = [], stock = {}, zones = [...FLEX_ZONES], flexPeriods = [], flexManualRecords = [], iibbPeriods = [];
@@ -82,7 +189,7 @@ let _corteCopied = {};
 let _prodSortTs = 0;
 let expandFlexPeriods = new Set();
 let expandFlexQuincenas = new Set();
-let editingId = null, curCuenta = 'capi', curEnvio = 'FLEX';
+let editingId = null, curCuenta = 'capi', curEnvio = 'FLEX', curFull = false;
 let curProducto = null, formItems = [], formEnvio = null;
 let deliveryId = null, deliveryAction = 'edit';
 let fsConectado = false, stockInitialized = false;
@@ -190,6 +297,14 @@ function loadCache() {
   try { const r = localStorage.getItem(LS_FLEX_PERIODS); if (r) flexPeriods       = JSON.parse(r); } catch(e) { flexPeriods = []; }
   try { const r = localStorage.getItem(LS_FLEX_MANUAL);  if (r) flexManualRecords = JSON.parse(r); } catch(e) { flexManualRecords = []; }
   try { const r = localStorage.getItem(LS_IIBB_PERIODS); if (r) iibbPeriods       = JSON.parse(r); } catch(e) { iibbPeriods = []; }
+  try {
+    const r = localStorage.getItem(LS_CATALOG);
+    if (r) {
+      const c = JSON.parse(r);
+      catalog = { custom: c.custom || [], hiddenProds: c.hiddenProds || [], hiddenTalles: c.hiddenTalles || {} };
+    }
+  } catch(e) { catalog = { custom: [], hiddenProds: [], hiddenTalles: {} }; }
+  rebuildCatalog();
 }
 // saveOrders se llama una vez por pedido mutado (corte masivo, despachar todos),
 // y cada llamada serializa el historial entero. Se agrupa en un solo write por
@@ -286,6 +401,19 @@ function connectFirestore() {
           .set({ zones, tarifaVersion: TARIFAS_VERSION }).catch(() => {});
       }
     }, e => console.warn('zones:', e))
+  );
+
+  _fsUnsubs.push(
+    db.collection('meta').doc('productos').onSnapshot(snap => {
+      if (!snap.exists) return;
+      const d = snap.data();
+      catalog = { custom: d.custom || [], hiddenProds: d.hiddenProds || [], hiddenTalles: d.hiddenTalles || {} };
+      saveCatalogLocal();
+      rebuildCatalog();
+      invalidateProdSort();
+      renderStock();
+      if ($shNueva?.classList.contains('open')) renderProdBtns();
+    }, e => console.warn('productos:', e))
   );
 
   _fsUnsubs.push(
@@ -415,8 +543,8 @@ function getSortedProductos() {
   const fixed = Object.keys(PRODUCTOS_FIJO);
   const cats = PRODUCTOS.filter(p => !fixed.includes(p));
   cats.sort((a, b) => {
-    const sA = TALLES.reduce((s, t) => s + (stock[`${a}_${t}`] || 0), 0);
-    const sB = TALLES.reduce((s, t) => s + (stock[`${b}_${t}`] || 0), 0);
+    const sA = tallesDe(a).reduce((s, t) => s + (stock[stockKey(a,t)] || 0), 0);
+    const sB = tallesDe(b).reduce((s, t) => s + (stock[stockKey(b,t)] || 0), 0);
     return sB - sA;
   });
   const sorted = [...cats, ...fixed];
@@ -429,14 +557,21 @@ function invalidateProdSort() {
   try { localStorage.removeItem(LS_SORTED_PRODS); } catch(e) {}
 }
 
-// ─── FECHA HÁBIL FLEX (Mon-Thu = hoy, Vie/Sab/Dom = lunes) ───────────────────
-function diaHabilFlex() {
+// ─── FECHA DE DESPACHO ───────────────────────────────────────────────────────
+// Hora de corte para decidir si un pedido sale hoy o queda para el próximo día
+// hábil. Es la misma para FLEX y para Punto de Envío: lo cargado después de las
+// 13 ya no se despacha en el día.
+const HORA_CORTE_DESPACHO = 13;
+// Fecha en la que realmente sale el pedido cargado ahora: hoy si estamos antes de
+// las 13, si no el próximo día hábil (nextBusinessDay salta sábados y domingos).
+function fechaDespacho() {
   const d = new Date();
-  const dow = d.getDay(); // 0=Dom, 5=Vie, 6=Sáb
-  if (dow === 5) d.setDate(d.getDate() + 3); // Vie → Lun
-  else if (dow === 6) d.setDate(d.getDate() + 2); // Sáb → Lun
-  else if (dow === 0) d.setDate(d.getDate() + 1); // Dom → Lun
-  return d.toLocaleDateString('es-AR');
+  if (d.getHours() >= HORA_CORTE_DESPACHO) d.setDate(d.getDate() + 1);
+  nextBusinessDay(d);
+  return d;
+}
+function diaHabilFlex() {
+  return fechaDespacho().toLocaleDateString('es-AR');
 }
 
 // ─── SYNC FLEX RECORDS → FIRESTORE ───────────────────────────────────────────
@@ -830,7 +965,7 @@ function nextBusinessDay(d) {
 function dispTarget(tipo) {
   const now = new Date();
   const t = new Date(now);
-  t.setHours(tipo === 'FLEX' ? 13 : 14, 0, 0, 0);
+  t.setHours(HORA_CORTE_DESPACHO, 0, 0, 0);
   if (t <= now) t.setDate(t.getDate() + 1);
   nextBusinessDay(t);
   return t;
@@ -838,7 +973,7 @@ function dispTarget(tipo) {
 function _orderDispatchDeadline(o) {
   const createdMs = ms(o.createdAt);
   if (!createdMs) return dispTarget(o.tipoEnvio);
-  const hr = o.tipoEnvio === 'FLEX' ? 13 : 14;
+  const hr = HORA_CORTE_DESPACHO;
   const created = new Date(createdMs);
   const cutoff  = new Date(created);
   cutoff.setHours(hr, 0, 0, 0);
@@ -851,20 +986,53 @@ function fmtDiff(diff) {
   const h=Math.floor(diff/3600000), m=Math.floor(diff/60000);
   return h>0 ? `${h}h ${String(m%60).padStart(2,'0')}m` : `${m}m`;
 }
+// Pedidos que todavía hay que despachar de un tipo (los que mandan el countdown)
+function _pendientesDespacho(tipo) {
+  return orders.filter(o =>
+    (o.status === 'preparar' || o.status === 'pendiente') && o.tipoEnvio === tipo
+  );
+}
+// Vencimiento más próximo entre esos pedidos. Sin pedidos cargados no hay nada que
+// despachar: cae al horario de corte del día solo para que el botón muestre algo.
+function tipoDeadline(tipo) {
+  const pend = _pendientesDespacho(tipo);
+  if (!pend.length) return dispTarget(tipo);
+  return new Date(Math.min(...pend.map(o => _orderDispatchDeadline(o).getTime())));
+}
+
+// Las alertas ya no salen a horarios fijos: miran el vencimiento real de los
+// pedidos cargados. Un pedido que entró a las 15hs vence mañana, así que hoy no
+// alerta. Se avisa a 30 y a 10 minutos del vencimiento más próximo de cada tipo.
+const _alertedDeadlines = new Set();
+function checkDispatchAlerts() {
+  if ([0,6].includes(new Date().getDay())) return;
+  for (const tipo of ['FLEX','PE']) {
+    const pend = _pendientesDespacho(tipo);
+    if (!pend.length) continue;
+    const dl  = tipoDeadline(tipo).getTime();
+    const min = Math.round((dl - Date.now()) / 60000);
+    for (const u of [30, 10]) {
+      // Ventana de 6 min: updateCountdowns corre cada minuto, así que no se escapa
+      if (min > u || min <= u - 6) continue;
+      const key = `${tipo}|${dl}|${u}`;
+      if (_alertedDeadlines.has(key)) continue;
+      _alertedDeadlines.add(key);
+      showAlert(u === 10 ? 'urgent' : 'warning',
+        `${u === 10 ? '🚨' : '⏰'} ${u} min para despachar ${tipo}`, tipo);
+    }
+  }
+  if (_alertedDeadlines.size > 40) _alertedDeadlines.clear();
+}
+
 function setupAlerts() {
   alertTimers.forEach(clearTimeout); alertTimers=[];
   const now=new Date();
-  [
-    {h:12,m:30,t:'warning',msg:'⏰ 30 min para despachar FLEX',tipo:'FLEX'},
-    {h:12,m:50,t:'urgent', msg:'🚨 10 min para despachar FLEX',tipo:'FLEX'},
-    {h:13,m:30,t:'warning',msg:'⏰ 30 min para despachar PE',  tipo:'PE'},
-    {h:13,m:50,t:'urgent', msg:'🚨 10 min para despachar PE',  tipo:'PE'},
-    {h:14,m:0, t:'warning',msg:'✂️ 14hs — hacé el corte',      tipo:null},
-  ].forEach(({h,m,t,msg,tipo}) => {
-    const d=new Date(now); d.setHours(h,m,0,0);
-    const diff=d-now; if (diff>0) alertTimers.push(setTimeout(()=>showAlert(t,msg,tipo),diff));
-  });
-  setInterval(updateCountdowns, 60000);
+  // Único horario fijo que queda: el recordatorio del corte
+  const corte=new Date(now); corte.setHours(14,0,0,0);
+  const diff=corte-now;
+  if (diff>0) alertTimers.push(setTimeout(()=>showAlert('warning','✂️ 14hs — hacé el corte',null),diff));
+  checkDispatchAlerts();
+  setInterval(() => { updateCountdowns(); checkDispatchAlerts(); }, 60000);
 }
 function showAlert(type, msg, tipo) {
   if ([0,6].includes(new Date().getDay())) return;
@@ -894,8 +1062,9 @@ function updateCountdowns() {
   document.querySelectorAll('[data-cd]').forEach(el => {
     const tipo = el.dataset.cd;
     const isDispBtn = !!el.closest('.dispatch-btn');
-    // Botones globales de despacho usan target global; cards usan su propio deadline
-    const target = (!isDispBtn && el.dataset.cdTs) ? new Date(Number(el.dataset.cdTs)) : dispTarget(tipo);
+    // Los botones de despacho muestran el vencimiento más próximo entre los pedidos
+    // cargados de ese tipo; cada card usa el suyo propio
+    const target = (!isDispBtn && el.dataset.cdTs) ? new Date(Number(el.dataset.cdTs)) : tipoDeadline(tipo);
     const diff = target - new Date(), min = Math.floor(diff / 60000);
     el.textContent = fmtDiff(diff);
     const nPend=orders.filter(o=>(o.status==='pendiente'||o.status==='preparar')&&o.tipoEnvio===tipo).length;
@@ -977,7 +1146,7 @@ function renderPedidos(animDir='') {
   const nPrep=preparar.length, nDesp=pendiente.length+camino.length, nEntr=entregados.length;
 
   const mkDispBtn = (tipo, icon, n) => {
-    const diff = dispTarget(tipo) - new Date();
+    const diff = tipoDeadline(tipo) - new Date();
     const min  = Math.floor(diff / 60000);
     const isWeekend = [0,6].includes(new Date().getDay());
     const urg  = (n === 0 || isWeekend) ? '' : min <= 15 ? 'urgent' : min <= 60 ? 'warn' : '';
@@ -1202,7 +1371,8 @@ window.toggleDepCheck = k => {
 
 function orderCard(o) {
   const cb=`<span class="badge badge-${o.cuenta}">${o.cuenta.toUpperCase()}</span>`;
-  const eb=o.tipoEnvio==='FLEX'?`<span class="badge badge-flex">FLEX</span>`:`<span class="badge badge-pe">PE</span>`;
+  const eb=o.full?`<span class="badge badge-full">FULL</span>`
+    :o.tipoEnvio==='FLEX'?`<span class="badge badge-flex">FLEX</span>`:`<span class="badge badge-pe">PE</span>`;
   const sc=!o.corteDone?'<span class="badge badge-sin-corte">Sin corte</span>':'';
 
   let cd='';
@@ -1479,10 +1649,10 @@ window.acEliminar = async id => {
 
   if (order) pushUndo({type:'delete', id, order:JSON.parse(JSON.stringify(order))});
   orders=orders.filter(o=>o.id!==id); saveOrders(); renderPedidos(); renderCorte();
-  // Restaurar stock al eliminar el pedido
+  // Restaurar stock al eliminar el pedido (al de FULL si era FULL)
   if (order?.items) {
     const ns={...stock};
-    order.items.forEach(i=>{const k=`${i.producto}_${i.talle}`;ns[k]=(ns[k]||0)+1;});
+    order.items.forEach(i=>{const k=itemKey(i,order.full);ns[k]=(ns[k]||0)+1;});
     stock=ns; saveStock();
     db.collection('meta').doc('stock').set(ns).catch(()=>{});
   }
@@ -1646,7 +1816,11 @@ function openNuevaSheet(data=null) {
 
   $shNueva.querySelector('.sheet-title').textContent = editingId ? 'Editar pedido' : 'Nueva venta';
   setCuenta(data?.cuenta || 'capi');
-  setEnvio(data?.tipoEnvio || 'FLEX');
+  // Un pedido FULL no tiene FLEX/PE: el toggle queda en FLEX detrás del bloque oculto
+  setEnvio(data?.full ? 'FLEX' : (data?.tipoEnvio || 'FLEX'));
+  setFull(!!data?.full);
+  const _fif = V('f-importe-full');
+  if (_fif) _fif.value = data?.full ? (data?.importeAcreditado || '') : '';
 
   // Valores de inputs
   V('f-nombre').value         = data?.nombreComprador || '';
@@ -1719,13 +1893,15 @@ function _toDatetimeLocal(msVal) {
   const d = new Date(msVal), p = n => String(n).padStart(2,'0');
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
-// Sugerencia = despacho del último pedido PE cargado. orders viene ordenado por
-// createdAt desc, así que el primero con despachoPE es el más reciente.
-// Sin antecedentes, cae en hoy a las 14:00 (horario de corte del Punto de Envío).
+// La FECHA sale siempre de fechaDespacho() — hoy si cargás antes de las 13, si no
+// el próximo día hábil — así nunca sugiere un día que ya pasó. La HORA se hereda
+// del último pedido PE cargado (orders viene ordenado por createdAt desc, así que
+// el primero con despachoPE es el más reciente); sin antecedentes, las 14:00.
 function _sugerirDespachoPE() {
   const last = orders.find(o => o.tipoEnvio==='PE' && o.despachoPE);
-  if (last) return _toDatetimeLocal(ms(last.despachoPE));
-  const d = new Date(); d.setHours(14,0,0,0);
+  const prev = last ? new Date(ms(last.despachoPE)) : null;
+  const d    = fechaDespacho();
+  d.setHours(prev ? prev.getHours() : 14, prev ? prev.getMinutes() : 0, 0, 0);
   return _toDatetimeLocal(d.getTime());
 }
 // "Hoy 14:00" / "Mañana 14:00" / "23/07 14:00" según cercanía
@@ -1758,11 +1934,41 @@ function setCuenta(c) {
 function setEnvio(t) {
   const prev=curEnvio; curEnvio=t;
   document.querySelectorAll('[data-envio]').forEach(b=>b.classList.toggle('active',b.dataset.envio===t));
-  V('flex-fields').style.display=t==='FLEX'?'flex':'none';
-  V('pe-fields').style.display=t==='PE'?'flex':'none';
+  if (!curFull) {
+    V('flex-fields').style.display=t==='FLEX'?'flex':'none';
+    V('pe-fields').style.display=t==='PE'?'flex':'none';
+  }
   if (t==='PE' && prev==='FLEX') { const fv=V('f-importe-flex').value; if (fv) V('f-importe-pe').value=fv; }
   if (t==='PE') _fillDespachoPE();
 }
+
+// FULL = venta despachada por MELI. No se prepara ni se despacha y no descuenta
+// envío: se esconden el tipo de despacho, la localidad y el importe de FLEX/PE,
+// y queda solo el importe acreditado.
+function setFull(v) {
+  curFull = !!v;
+  const btn = V('btn-full-toggle');
+  if (btn) { btn.classList.toggle('active', curFull); btn.setAttribute('aria-pressed', curFull ? 'true' : 'false'); }
+  const wrap = V('envio-group-wrap'); if (wrap) wrap.style.display = curFull ? 'none' : '';
+  const ff   = V('full-fields');      if (ff)   ff.style.display   = curFull ? 'flex' : 'none';
+  if (curFull) {
+    V('flex-fields').style.display = 'none';
+    V('pe-fields').style.display   = 'none';
+    // El importe ya tipeado en FLEX/PE se arrastra para no re-escribirlo
+    const inp = V('f-importe-full');
+    if (inp && !inp.value) inp.value = V('f-importe-flex').value || V('f-importe-pe').value || '';
+  } else {
+    setEnvio(curEnvio);
+  }
+}
+window.toggleFull = () => {
+  setFull(!curFull);
+  // El filtro de talles cambia de depósito a Full (o al revés): refrescar grilla
+  curProducto = null;
+  renderProdBtns();
+  const tw = V('talle-wrap'); if (tw) tw.style.display = 'none';
+  haptic([12]);
+};
 
 function _formEnterNext(id) {
   const isEnano = curCuenta === 'enano';
@@ -1928,10 +2134,11 @@ function updateNeto() {
 }
 
 // ─── SELECTOR PRODUCTOS / TALLES ──────────────────────────────────────────────
+// En un pedido FULL el stock que importa es el de MELI Full, no el del depósito
 function getProductTalles(p) {
   const fixed=PRODUCTOS_FIJO[p];
   if (fixed) return fixed;
-  return TALLES.filter(t=>stockAll||(stock[`${p}_${t}`]??0)>0);
+  return (PRODUCTOS_TALLES[p]||TALLES).filter(t=>stockAll||(stock[stockKey(p,t,curFull)]??0)>0);
 }
 
 function renderProdBtns() {
@@ -1956,7 +2163,7 @@ window.selProd = (p, skipAuto = false) => {
     const inCart = qty > 0 ? ' in-cart' : '';
     let stockCls = '';
     if (!isFixed) {
-      const sv = stock[`${p}_${t}`] ?? 0;
+      const sv = stock[stockKey(p, t, curFull)] ?? 0;
       stockCls = sv <= 0 ? ' stock-zero' : sv <= 2 ? ' stock-low' : '';
     }
     return `<button class="talle-btn${unico ? ' talle-unico' : ''}${inCart}${stockCls}" onclick="selTalle(${js})">${displayTalle(t)}${badge}</button>`;
@@ -2057,10 +2264,11 @@ async function _guardarVentaInner() {
   const _meliPackIds = (!editingId && typeof meliGetPackOrderIds === 'function') ? meliGetPackOrderIds() : null;
   const _meliNick    = (!editingId && typeof meliGetNickname     === 'function') ? meliGetNickname()     : null;
 
+  const _prevOrder = editingId ? orders.find(o=>o.id===editingId) : null;
   const base={
-    cuenta:curCuenta, nombreComprador:nombre, tipoEnvio:curEnvio, items:formItems,
-    status:editingId?(orders.find(o=>o.id===editingId)?.status||'preparar'):'preparar',
-    corteDone:editingId?(orders.find(o=>o.id===editingId)?.corteDone||false):false,
+    cuenta:curCuenta, nombreComprador:nombre, tipoEnvio:curFull?'FULL':curEnvio, items:formItems, full:curFull,
+    status:editingId?(_prevOrder?.status||'preparar'):(curFull?'camino':'preparar'),
+    corteDone:editingId?(_prevOrder?.corteDone||false):false,
     ...(_meliId      ? { meliOrderId:      _meliId      } : {}),
     ...(_meliPackIds ? { meliPackOrderIds: _meliPackIds } : {}),
     ...(_meliNick    ? { meliNickname:     _meliNick    } : {}),
@@ -2070,7 +2278,19 @@ async function _guardarVentaInner() {
     base.iibb=parseNum(V('f-iibb').value)||0;
     base.importeBruto=parseNum(V('f-importe-bruto')?.value||'')||0;
   }
-  if (curEnvio==='FLEX') {
+  if (curFull) {
+    // FULL: envío gratis para nosotros → nunca descuenta zona FLEX, aunque el
+    // comprador sea del AMBA. Solo se registra el importe acreditado.
+    const m=parseNum(V('f-importe-full')?.value||''); if (!m) { toast('⚠️ Ingresá el importe'); _flashInvalid(V('f-importe-full')); return; }
+    base.importeAcreditado=m;
+    base.flexLocalidad=''; base.flexZona=''; base.flexImporte=0;
+    base.importeVenta=m;  base.importeNeto=m;
+    // Nace directamente en camino: no se prepara ni se despacha
+    if (!editingId || _prevOrder?.status==='preparar' || _prevOrder?.status==='pendiente') {
+      base.status='camino';
+      base.despachadoAt=ms(_prevOrder?.despachadoAt)||Date.now();
+    }
+  } else if (curEnvio==='FLEX') {
     if (!formEnvio) { toast('⚠️ Seleccioná la localidad'); _flashInvalid(V('f-localidad')); return; }
     const v=parseNum(V('f-importe-flex').value); if (!v) { toast('⚠️ Ingresá el importe'); _flashInvalid(V('f-importe-flex')); return; }
     base.importeVenta=v; base.flexLocalidad=formEnvio.localidad; base.flexZona=formEnvio.zona;
@@ -2084,9 +2304,12 @@ async function _guardarVentaInner() {
     if (!dRaw || isNaN(dMs)) { toast('⚠️ Ingresá la fecha y hora de despacho'); _flashInvalid(V('f-despacho-pe')); return; }
     base.despachoPE=dMs;
   }
-  if (!editingId) {
-    const hoy=new Date(), man=new Date(hoy); man.setDate(hoy.getDate()+1);
-    base.fechaEstimada=curEnvio==='FLEX'?hoy.toLocaleDateString('es-AR'):man.toLocaleDateString('es-AR');
+  // Fecha estimada: la de despacho (hoy antes de las 13, si no el próximo día
+  // hábil); en PE se suma un día más de tránsito. FULL la maneja MELI.
+  if (!editingId && !curFull) {
+    const d=fechaDespacho();
+    if (curEnvio!=='FLEX') d.setDate(d.getDate()+1);
+    base.fechaEstimada=d.toLocaleDateString('es-AR');
   }
 
   // Aviso de stock insuficiente (solo pedidos nuevos, no ediciones)
@@ -2094,10 +2317,10 @@ async function _guardarVentaInner() {
     const ns = {...stock};
     const negKeys = new Set();
     base.items.forEach(i => {
-      if (PRODUCTOS_FIJO[i.producto]) return;
-      const k = `${i.producto}_${i.talle}`;
+      if (!curFull && PRODUCTOS_FIJO[i.producto]) return;
+      const k = itemKey(i, curFull);
       ns[k] = (ns[k] ?? 0) - 1;
-      if (ns[k] < 0) negKeys.add(`${i.producto} ${displayTalle(i.talle)}`);
+      if (ns[k] < 0) negKeys.add(`${i.producto} ${displayTalle(i.talle)}${curFull ? ' (FULL)' : ''}`);
     });
     if (negKeys.size && !await showConfirm(
       `Stock insuficiente: ${[...negKeys].join(', ')}`,
@@ -2117,20 +2340,21 @@ async function _guardarVentaInner() {
       const oldOrder = orders.find(o=>o.id===editingId);
       await db.collection('orders').doc(editingId).update(base);
       mutateOrder(editingId,base); saveOrders(); renderPedidos(); renderCorte();
-      // Ajustar stock: revertir ítems viejos, descontar ítems nuevos
+      // Ajustar stock: revertir ítems viejos, descontar ítems nuevos. Cada uno
+      // sobre su propio stock — el viejo pudo ser presencial y el nuevo FULL.
       if (oldOrder?.items || base.items) {
         const ns={...stock};
-        (oldOrder?.items||[]).forEach(i=>{const k=`${i.producto}_${i.talle}`;ns[k]=(ns[k]||0)+1;});
-        (base.items||[]).forEach(i=>{const k=`${i.producto}_${i.talle}`;ns[k]=(ns[k]||0)-1;});
+        (oldOrder?.items||[]).forEach(i=>{const k=itemKey(i,oldOrder?.full);ns[k]=(ns[k]||0)+1;});
+        (base.items||[]).forEach(i=>{const k=itemKey(i,curFull);ns[k]=(ns[k]||0)-1;});
         stock=ns; saveStock();
         db.collection('meta').doc('stock').set(ns).catch(()=>{});
       }
       toast('Actualizado ✓');
     } else {
       base.createdAt=TS();
-      // Descontar stock al momento de guardar el pedido
+      // Descontar stock al momento de guardar el pedido (el de FULL si es FULL)
       const ns={...stock};
-      (base.items||[]).forEach(i=>{const k=`${i.producto}_${i.talle}`;ns[k]=(ns[k]||0)-1;});
+      (base.items||[]).forEach(i=>{const k=itemKey(i,curFull);ns[k]=(ns[k]||0)-1;});
       stock=ns; saveStock();
       db.collection('meta').doc('stock').set(ns).catch(()=>{});
       // Marcar el pedido MELI como "en proceso de guardado" antes del await,
@@ -2190,16 +2414,8 @@ function _calcMonthStats(cuenta) {
   mOrders.forEach(o => {
     acreditado += o.importeAcreditado||0;
     (o.items||[]).forEach(i => {
-      if (i.producto==='Banderas') {
-        costo += i.talle==='60x90' ? COSTO_BANDERA_60X90 : COSTO_BANDERA_90X150;
-      } else if (i.producto==='Remeras Colapinto') {
-        costo += COSTO_REMERA_COLAPINTO;
-      } else if (REMERAS_SET.has(i.producto)) {
-        costo += COSTO_REMERA_MALVINAS;
-      } else {
-        pares++;
-        costo += TALLES_ESP.includes(i.talle) ? COSTO_ESP : COSTO_COMUN;
-      }
+      costo += costoItem(i.producto, i.talle);
+      if (esPar(i.producto, i.talle)) pares++;
     });
   });
   return { pares, acreditado, costo, ganancia: acreditado - costo, n: mOrders.length };
@@ -2253,7 +2469,7 @@ function renderCorteBody() {
       return `<div class="card corte-order-card${isSel?'':' deselected'}" onclick="toggleCorteOrder('${o.id}')">
         <span class="corte-check-icon">${isSel?'☑':'☐'}</span>
         <div class="corte-order-info">
-          <b>${o.nombreComprador}</b>
+          <b>${o.nombreComprador}</b>${o.full?' <span class="badge badge-full">FULL</span>':''}
           <div style="font-size:13px;color:var(--text-2)">${fmtItemsShort(o.items)}</div>
           <div style="font-size:12px;color:var(--text-3)">$${fmt(o.importeAcreditado)}</div>
         </div>
@@ -2287,33 +2503,40 @@ function renderDepCorte() {
   </div>`).join('')}`;
 }
 
+// Marca al final del renglón: en WhatsApp los asteriscos lo muestran en negrita
+function _corteFullTag(o) { return o.full ? ' *FULL*' : ''; }
 function textoCapi(pend) {
   let tot=0; const L=['*Ventas Meli capi*'];
   pend.forEach((o,i)=>{
     let m;
-    if (o.tipoEnvio==='FLEX'&&o.importeVenta) {
+    if (!o.full && o.tipoEnvio==='FLEX'&&o.importeVenta) {
       m=`importe venta $${fmt(o.importeVenta)} *menos envio FLEX $${fmt(o.flexImporte)}* se acredito $${fmt(o.importeNeto)}`;
     } else {
       m=`se acredito $${fmt(o.importeAcreditado)}`;
     }
-    L.push(`${i+1}. ${o.nombreComprador} - ${fmtItemsCorte(o.items)} - ${m}`); tot+=o.importeAcreditado||0;
+    L.push(`${i+1}. ${o.nombreComprador} - ${fmtItemsCorte(o.items)} - ${m}${_corteFullTag(o)}`); tot+=o.importeAcreditado||0;
   });
   L.push('',`*Total acreditado a mp capi $${fmt(Math.round(tot/100)*100)}*`); return L.join('\n');
 }
 function textoEnano(pend) {
   let tot=0; const L=['*Ventas meli enano*'];
   pend.forEach((o,i)=>{
-    const m=o.tipoEnvio==='FLEX'&&o.importeVenta
+    const m=!o.full&&o.tipoEnvio==='FLEX'&&o.importeVenta
       ?`importe venta $${fmt(o.importeVenta)} *menos ENVIO FLEX $${fmt(o.flexImporte)}* total sin envío $${fmt(o.importeNeto)}`
       :`se acredito $${fmt(o.importeAcreditado)}`;
-    L.push(`${i+1}. ${o.nombreComprador} - ${fmtItemsCorte(o.items)} - ${m}`); tot+=o.importeAcreditado||0;
+    L.push(`${i+1}. ${o.nombreComprador} - ${fmtItemsCorte(o.items)} - ${m}${_corteFullTag(o)}`); tot+=o.importeAcreditado||0;
   });
   L.push('',`*Total acreditado a mp enano $${fmt(tot)}*`); return L.join('\n');
 }
 function textoCostos(pend,c) {
   let e=0,n=0,b60=0,b90=0,rc=0,em=0;
+  // Productos dados de alta por el usuario: se agrupan por nombre y usan su costo
+  const custom={};
   pend.forEach(o=>(o.items||[]).forEach(i=>{
-    if(i.producto==='Banderas'){
+    if(customProd(i.producto)){
+      if(!custom[i.producto]) custom[i.producto]={qty:0,costo:costoItem(i.producto,i.talle)};
+      custom[i.producto].qty++;
+    } else if(i.producto==='Banderas'){
       if(i.talle==='60x90')b60++; else if(i.talle==='90x150')b90++;
     } else if(i.producto==='Remeras Colapinto'){
       rc++;
@@ -2330,7 +2553,9 @@ function textoCostos(pend,c) {
   if(b90>0)L.push(`${b90} bandera 90x150 $${fmt(COSTO_BANDERA_90X150)}`);
   if(rc>0) L.push(`${rc} remera Colapinto $${fmt(COSTO_REMERA_COLAPINTO)}`);
   if(em>0) L.push(`${em} remera${em>1?'s':''} $${fmt(COSTO_REMERA_MALVINAS)}`);
-  const tot=e*COSTO_ESP+n*COSTO_COMUN+b60*COSTO_BANDERA_60X90+b90*COSTO_BANDERA_90X150+rc*COSTO_REMERA_COLAPINTO+em*COSTO_REMERA_MALVINAS;
+  Object.entries(custom).forEach(([nombre,v])=>L.push(`${v.qty} ${nombre.toLowerCase()} $${fmt(v.costo)}`));
+  const tot=e*COSTO_ESP+n*COSTO_COMUN+b60*COSTO_BANDERA_60X90+b90*COSTO_BANDERA_90X150+rc*COSTO_REMERA_COLAPINTO+em*COSTO_REMERA_MALVINAS
+    +Object.values(custom).reduce((s,v)=>s+v.qty*v.costo,0);
   L.push('',`*Total costos $${fmt(tot)}*`); return L.join('\n');
 }
 function fmtItemsCorte(items) {
@@ -3118,6 +3343,18 @@ function setupPedidosSearch() {
 }
 
 // ─── STOCK VIEW ───────────────────────────────────────────────────────────────
+// Un talle "tiene stock" si lo hay en el depósito o en Full: si tenés unidades en
+// MELI Full querés verlo aunque no tengas nada físico.
+function tieneStock(p,t) {
+  return (stock[stockKey(p,t)] ?? 0) > 0 || (stock[stockKey(p,t,true)] ?? 0) > 0;
+}
+function sumaTalles(p, full) {
+  return tallesDe(p).reduce((s,t)=>s+(stock[stockKey(p,t,full)]??0),0);
+}
+function _fullTotalChip(p) {
+  const n=sumaTalles(p,true);
+  return n!==0 ? `<span class="stock-total-full">FULL ${n}</span>` : '';
+}
 window.toggleStockZeroTalles = p => {
   if (_stockExpandZeroTalles.has(p)) _stockExpandZeroTalles.delete(p); else _stockExpandZeroTalles.add(p);
   renderStock();
@@ -3134,11 +3371,11 @@ window.toggleStockModelo = m => {
 // muestra los talles con stock y esconde los que están en 0 tras un toggle;
 // si el color entero está en 0, queda colapsado. Reutiliza el estado de toggles.
 function renderRemeraColor(modelo, p) {
-  const talles=['S','M','L','XL','XXL'];
+  const talles=tallesDe(p);
   const color=p.replace(modelo,'').trim()||p;
-  const conStock=talles.filter(t=>(stock[`${p}_${t}`]??0)>0);
-  const sinStock=talles.filter(t=>(stock[`${p}_${t}`]??0)<=0);
-  const total=talles.reduce((s,t)=>s+(stock[`${p}_${t}`]??0),0);
+  const conStock=talles.filter(t=>tieneStock(p,t));
+  const sinStock=talles.filter(t=>!tieneStock(p,t));
+  const total=sumaTalles(p);
   const totCls=total<0?'negativo':'';
   const pe=esc(p);
   if (conStock.length===0) {
@@ -3147,7 +3384,8 @@ function renderRemeraColor(modelo, p) {
       <div class="stock-remera-color-name stock-name-toggle" onclick="toggleStockZeroProd(${pe})">
         ${color}
         <span style="display:flex;align-items:center;gap:6px">
-          <span class="stock-product-total ${totCls}">${total}</span>
+          <span class="stock-product-total ${totCls}">${total}</span>${_fullTotalChip(p)}
+          ${_prodGearBtn(p)}
           <span style="font-size:11px;color:var(--text-3)">${open?'▲':'▼'}</span>
         </span>
       </div>
@@ -3156,7 +3394,7 @@ function renderRemeraColor(modelo, p) {
   }
   const showZero=_stockExpandZeroTalles.has(p);
   return `<div class="stock-remera-color">
-    <div class="stock-remera-color-name">${color}<span class="stock-product-total ${totCls}">${total}</span></div>
+    <div class="stock-remera-color-name">${color}<span style="display:flex;align-items:center;gap:6px"><span class="stock-product-total ${totCls}">${total}</span>${_fullTotalChip(p)}${_prodGearBtn(p)}</span></div>
     ${conStock.map(t=>renderStockRow(p,t)).join('')}
     ${sinStock.length?`
       <button class="btn-link stock-zero-toggle" onclick="toggleStockZeroTalles(${pe})">
@@ -3169,10 +3407,9 @@ function renderRemeraColor(modelo, p) {
 // Sección "Remeras": agrupadas por modelo. Como el calzado, los modelos con stock
 // van arriba y expandidos; los que están en 0 van abajo como desplegable colapsado.
 function renderRemerasSection() {
-  const talles=['S','M','L','XL','XXL'];
-  const hasStock=prods=>prods.some(p=>talles.some(t=>(stock[`${p}_${t}`]??0)>0));
-  const colorHasStock=p=>talles.some(t=>(stock[`${p}_${t}`]??0)>0);
-  const modelTotal=prods=>prods.reduce((s,p)=>s+talles.reduce((s2,t)=>s2+(stock[`${p}_${t}`]??0),0),0);
+  const hasStock=prods=>prods.some(p=>tallesDe(p).some(t=>tieneStock(p,t)));
+  const colorHasStock=p=>tallesDe(p).some(t=>tieneStock(p,t));
+  const modelTotal=prods=>prods.reduce((s,p)=>s+sumaTalles(p),0);
   const renderModelo=([modelo,prods])=>{
     const total=modelTotal(prods);
     const totCls=total<0?'negativo':'';
@@ -3205,14 +3442,13 @@ function renderStock() {
   const conStockProds=[], sinStockProds=[];
   PRODUCTOS.forEach(p=>{
     if (REMERAS_SET.has(p)) return; // las remeras van en su propia sección agrupada
-    const talles=PRODUCTOS_FIJO[p]?PRODUCTOS_FIJO[p]:TALLES;
-    talles.some(t=>(stock[`${p}_${t}`]??0)>0) ? conStockProds.push(p) : sinStockProds.push(p);
+    tallesDe(p).some(t=>tieneStock(p,t)) ? conStockProds.push(p) : sinStockProds.push(p);
   });
   const renderProd = p => {
-    const talles=PRODUCTOS_FIJO[p]?PRODUCTOS_FIJO[p]:TALLES;
-    const conStock=talles.filter(t=>(stock[`${p}_${t}`]??0)>0);
-    const sinStock=talles.filter(t=>(stock[`${p}_${t}`]??0)<=0);
-    const total=talles.reduce((s,t)=>s+(stock[`${p}_${t}`]??0),0);
+    const talles=tallesDe(p);
+    const conStock=talles.filter(t=>tieneStock(p,t));
+    const sinStock=talles.filter(t=>!tieneStock(p,t));
+    const total=sumaTalles(p);
     const totCls=total<0?'negativo':'';
     const pe=esc(p);
     if (conStock.length===0) {
@@ -3221,7 +3457,8 @@ function renderStock() {
         <div class="stock-product-name stock-name-toggle" onclick="toggleStockZeroProd(${pe})">
           ${p}
           <span style="display:flex;align-items:center;gap:6px">
-            <span class="stock-product-total ${totCls}">${total}</span>
+            <span class="stock-product-total ${totCls}">${total}</span>${_fullTotalChip(p)}
+            ${_prodGearBtn(p)}
             <span style="font-size:11px;color:var(--text-3)">${open?'▲':'▼'}</span>
           </span>
         </div>
@@ -3230,7 +3467,7 @@ function renderStock() {
     }
     const showZero=_stockExpandZeroTalles.has(p);
     return `<div class="card stock-product-card">
-      <div class="stock-product-name">${p}<span class="stock-product-total ${totCls}">${total}</span></div>
+      <div class="stock-product-name">${p}<span style="display:flex;align-items:center;gap:6px"><span class="stock-product-total ${totCls}">${total}</span>${_fullTotalChip(p)}${_prodGearBtn(p)}</span></div>
       ${conStock.map(t=>renderStockRow(p,t)).join('')}
       ${sinStock.length?`
         <button class="btn-link stock-zero-toggle" onclick="toggleStockZeroTalles(${pe})">
@@ -3240,21 +3477,43 @@ function renderStock() {
       `:''}
     </div>`;
   };
-  v.innerHTML=conStockProds.map(renderProd).join('')+
+  v.innerHTML=`<div class="stock-toolbar">
+      <button class="btn btn-ghost btn-sm" onclick="openNuevoProdSheet()">➕ Nuevo producto</button>
+    </div>`+
+    conStockProds.map(renderProd).join('')+
     (sinStockProds.length?`<div class="stock-zero-separator"></div>${sinStockProds.map(renderProd).join('')}`:'')+
     renderRemerasSection();
 }
+// Botón de gestión de cada producto (editar SKU/costo, quitar talles, eliminar)
+function _prodGearBtn(p) {
+  return `<button class="stock-gear-btn" onclick="event.stopPropagation();openEditProdSheet(${esc(p)})" title="Editar producto">⚙️</button>`;
+}
 
+// Cada talle son dos renglones: el stock presencial y, debajo, el de MELI Full.
+// Son dos números independientes — el pedido FULL descuenta solo del de abajo.
 function renderStockRow(p,t) {
   const k=`${p}_${t}`, val=stock[k]??0;
   const cls = val<0?'negativo':val===0?'cero':val<=2?'bajo':'ok';
+  const kf=k+FULL_SUFFIX, vf=stock[kf]??0;
+  const clsF = vf<0?'negativo':vf===0?'cero':vf<=2?'bajo':'ok';
+  const ke=esc(k), kfe=esc(kf);
+  const lbl=esc(`${p} ${displayTalle(t)}`), lblF=esc(`${p} ${displayTalle(t)} FULL`);
   return `<div class="stock-row ${cls}">
     <span class="stock-talle">${displayTalle(t)}</span>
     <div class="stock-stepper">
-      <button class="stepper-btn" onclick="adjSt('${k}',-1)">−</button>
+      <button class="stepper-btn" onclick="adjSt(${ke},-1)">−</button>
       <span class="stepper-val" id="sv-${k}">${val}</span>
-      <button class="stepper-btn" onclick="adjSt('${k}',1)">+</button>
-      <button class="stepper-btn stepper-pencil" onclick="editSt('${k}')">✏️</button>
+      <button class="stepper-btn" onclick="adjSt(${ke},1)">+</button>
+      <button class="stepper-btn stepper-pencil" onclick="editSt(${ke},${lbl})">✏️</button>
+    </div>
+  </div>
+  <div class="stock-row stock-row-full ${clsF}">
+    <span class="stock-talle stock-full-lbl">FULL</span>
+    <div class="stock-stepper">
+      <button class="stepper-btn" onclick="adjSt(${kfe},-1)">−</button>
+      <span class="stepper-val" id="sv-${kf}">${vf}</span>
+      <button class="stepper-btn" onclick="adjSt(${kfe},1)">+</button>
+      <button class="stepper-btn stepper-pencil" onclick="editSt(${kfe},${lblF})">✏️</button>
     </div>
   </div>`;
 }
@@ -3270,14 +3529,18 @@ window.adjSt=(k,d)=>{
   const el=document.getElementById(`sv-${k}`);
   if(el){el.textContent=stock[k];upRowCls(el,stock[k]);animNumPop(el);}
 };
-window.editSt=async k=>{
+window.editSt=async (k,label)=>{
   const el=document.getElementById(`sv-${k}`); if(!el)return;
-  const v = await showInputDialog(k.replace('_',' '), stock[k]??0);
+  const v = await showInputDialog(label || k.replace('_',' '), stock[k]??0);
   if(v===null)return; const n=parseInt(v);
   if(isNaN(n)){toast('⚠️ Número inválido');return;}
   stock[k]=n; el.textContent=n; upRowCls(el,n); animNumPop(el);
 };
-function upRowCls(el,v){const r=el.closest('.stock-row');if(r)r.className=`stock-row ${v<0?'negativo':v===0?'cero':v<=2?'bajo':'ok'}`;}
+function upRowCls(el,v){
+  const r=el.closest('.stock-row'); if(!r) return;
+  const full=r.classList.contains('stock-row-full'); // no perder el estilo de la fila FULL
+  r.className=`stock-row${full?' stock-row-full':''} ${v<0?'negativo':v===0?'cero':v<=2?'bajo':'ok'}`;
+}
 window.doSaveStock=async()=>{
   const btn=document.getElementById('stock-fab');
   if(btn){btn.disabled=true;btn.innerHTML='⏳ <span class="stock-fab-text">Guardando…</span>';}
@@ -3285,6 +3548,200 @@ window.doSaveStock=async()=>{
   try{ await db.collection('meta').doc('stock').set(stock); toast('Stock guardado ✓'); }
   catch(e){ toast('⚠️ Error al guardar stock — revisá la conexión'); }
   finally{ if(btn){btn.disabled=false;btn.innerHTML='💾 <span class="stock-fab-text">Guardar stock</span>';} }
+};
+
+// ─── ALTA / BAJA DE PRODUCTOS ────────────────────────────────────────────────
+const $shNuevoProd = document.getElementById('sheet-nuevo-prod');
+const $shEditProd  = document.getElementById('sheet-edit-prod');
+const TALLES_LETRA = ['S','M','L','XL','XXL'];
+let npTipo = 'letra';          // 'letra' | 'numero'
+let npTalles = new Set();      // talles tildados en el alta
+let epProd = null;             // producto que se está editando
+let epTalles = new Set();      // talles que quedan vivos en la edición
+
+window.openNuevoProdSheet = () => {
+  npTipo = 'letra';
+  npTalles = new Set(TALLES_LETRA);
+  V('np-nombre').value = '';
+  V('np-sku').value    = '';
+  V('np-costo').value  = '';
+  V('np-desde').value  = '';
+  V('np-hasta').value  = '';
+  _npRenderTipo();
+  openSheet($shNuevoProd);
+  setTimeout(() => V('np-nombre')?.focus(), 380);
+};
+
+window.npSetTipo = t => {
+  npTipo = t;
+  npTalles = t === 'letra' ? new Set(TALLES_LETRA) : new Set();
+  _npRenderTipo();
+};
+
+function _npRenderTipo() {
+  document.querySelectorAll('[data-np-tipo]').forEach(b => b.classList.toggle('active', b.dataset.npTipo === npTipo));
+  const rango = V('np-rango-wrap');
+  if (rango) rango.style.display = npTipo === 'numero' ? 'flex' : 'none';
+  _npRenderTalles();
+}
+
+// Chips de talles: en letras son los cinco fijos; en números, el rango que cargó
+function _npRenderTalles() {
+  const c = V('np-talles'); if (!c) return;
+  let lista;
+  if (npTipo === 'letra') {
+    lista = TALLES_LETRA;
+  } else {
+    const d = parseInt(V('np-desde').value), h = parseInt(V('np-hasta').value);
+    lista = (!isNaN(d) && !isNaN(h) && h >= d && h - d <= 40)
+      ? Array.from({ length: h - d + 1 }, (_, i) => d + i)
+      : [];
+  }
+  if (!lista.length) {
+    c.innerHTML = `<p class="hint-text">Ingresá el rango de talles (ej. 34 a 39)</p>`;
+    return;
+  }
+  c.innerHTML = lista.map(t =>
+    `<button class="talle-btn${npTalles.has(String(t)) ? ' in-cart' : ''}" onclick="npToggleTalle(${esc(String(t))})">${t}</button>`
+  ).join('');
+}
+window.npToggleTalle = t => {
+  const k = String(t);
+  if (npTalles.has(k)) npTalles.delete(k); else npTalles.add(k);
+  _npRenderTalles();
+};
+window.npRangoChanged = () => {
+  // Al cambiar el rango se tildan todos los talles nuevos por defecto
+  const d = parseInt(V('np-desde').value), h = parseInt(V('np-hasta').value);
+  if (!isNaN(d) && !isNaN(h) && h >= d && h - d <= 40) {
+    npTalles = new Set(Array.from({ length: h - d + 1 }, (_, i) => String(d + i)));
+  }
+  _npRenderTalles();
+};
+
+window.doSaveNuevoProd = async () => {
+  const nombre = titleCase(V('np-nombre').value.trim());
+  if (!nombre) { toast('⚠️ Ingresá el nombre del producto'); _flashInvalid(V('np-nombre')); return; }
+  if (PRODUCTOS.includes(nombre) || (catalog.custom||[]).some(c => c.nombre === nombre)) {
+    toast('⚠️ Ya existe un producto con ese nombre'); _flashInvalid(V('np-nombre')); return;
+  }
+  // Producto de fábrica que había sido eliminado: se reactiva en vez de duplicarlo
+  if (PRODUCTOS_BASE.includes(nombre)) {
+    catalog.hiddenProds = (catalog.hiddenProds || []).filter(n => n !== nombre);
+    delete (catalog.hiddenTalles || {})[nombre];
+    await saveCatalog();
+    renderStock();
+    closeSheet($shNuevoProd);
+    toast(`${nombre} reactivado ✓`);
+    return;
+  }
+  if (!npTalles.size) { toast('⚠️ Elegí al menos un talle'); return; }
+  // El SKU se guarda sin el guion ni el talle: "camuflado-38" → prefijo "camuflado"
+  const skuRaw = V('np-sku').value.trim();
+  const sku    = skuRaw.replace(/-+\s*(xx?s|xx?l|l|m|s|\d+)?\s*$/i, '').replace(/-+$/, '').trim();
+  const costo  = parseNum(V('np-costo').value) || 0;
+
+  const talles = npTipo === 'letra'
+    ? TALLES_LETRA.filter(t => npTalles.has(t))
+    : [...npTalles].map(Number).sort((a,b) => a-b);
+
+  catalog.custom = [...(catalog.custom || []), {
+    nombre, talles, sku, costo, numerico: npTipo === 'numero',
+  }];
+  // Si el nombre estaba en la lista de ocultos, se reactiva
+  catalog.hiddenProds = (catalog.hiddenProds || []).filter(n => n !== nombre);
+  delete (catalog.hiddenTalles || {})[nombre];
+  await saveCatalog();
+  renderStock();
+  closeSheet($shNuevoProd);
+  toast(`${nombre} agregado ✓`);
+};
+
+window.openEditProdSheet = nombre => {
+  epProd = nombre;
+  epTalles = new Set(tallesDe(nombre).map(String));
+  const c = customProd(nombre);
+  V('ep-titulo').textContent = nombre;
+  V('ep-sku').value   = c?.sku   || _skuSugerido(nombre);
+  V('ep-costo').value = c?.costo || '';
+  const cw = V('ep-custom-wrap');
+  // SKU y costo propios solo tienen sentido en productos dados de alta por el usuario
+  if (cw) cw.style.display = c ? '' : 'none';
+  _epRenderTalles();
+  openSheet($shEditProd);
+};
+
+function _skuSugerido(nombre) {
+  return nombre.toLowerCase().replace(/\s+/g, '');
+}
+
+function _epRenderTalles() {
+  const c = V('ep-talles'); if (!c || !epProd) return;
+  // Se listan todos los talles del producto, incluidos los que hoy están ocultos
+  const cp = customProd(epProd);
+  const todos = cp ? cp.talles : (PRODUCTOS_FIJO_BASE[epProd] || TALLES);
+  c.innerHTML = todos.map(t =>
+    `<button class="talle-btn${epTalles.has(String(t)) ? ' in-cart' : ''}" onclick="epToggleTalle(${esc(String(t))})">${displayTalle(t)}</button>`
+  ).join('');
+}
+window.epToggleTalle = t => {
+  const k = String(t);
+  if (epTalles.has(k)) epTalles.delete(k); else epTalles.add(k);
+  _epRenderTalles();
+};
+
+window.doSaveEditProd = async () => {
+  if (!epProd) return;
+  const cp = customProd(epProd);
+  const todos = (cp ? cp.talles : (PRODUCTOS_FIJO_BASE[epProd] || TALLES)).map(String);
+  const quitados = todos.filter(t => !epTalles.has(t));
+  if (!epTalles.size) { toast('⚠️ Tiene que quedar al menos un talle'); return; }
+
+  if (cp) {
+    cp.sku   = V('ep-sku').value.trim().replace(/-+$/, '');
+    cp.costo = parseNum(V('ep-costo').value) || 0;
+  }
+  catalog.hiddenTalles = { ...(catalog.hiddenTalles || {}) };
+  if (quitados.length) catalog.hiddenTalles[epProd] = quitados;
+  else delete catalog.hiddenTalles[epProd];
+
+  // El stock de los talles quitados se borra (presencial y FULL)
+  if (quitados.length) {
+    const ns = { ...stock };
+    quitados.forEach(t => { delete ns[stockKey(epProd,t)]; delete ns[stockKey(epProd,t,true)]; });
+    stock = ns; saveStock();
+    db.collection('meta').doc('stock').set(ns).catch(()=>{});
+  }
+  await saveCatalog();
+  renderStock();
+  closeSheet($shEditProd);
+  toast('Producto actualizado ✓');
+};
+
+window.doDeleteProd = async () => {
+  if (!epProd) return;
+  const nombre = epProd;
+  const ok = await showConfirm(`¿Eliminar "${nombre}"?`, {
+    icon: '🗑', confirmText: 'Eliminar', confirmClass: 'btn-danger', cancelText: 'Cancelar',
+    sub: 'Desaparece del selector y del stock. Los pedidos ya cargados con este producto no se tocan.',
+  });
+  if (!ok) return;
+  const cp = customProd(nombre);
+  const talles = (cp ? cp.talles : (PRODUCTOS_FIJO_BASE[nombre] || TALLES)).map(String);
+  if (cp) catalog.custom = (catalog.custom || []).filter(c => c.nombre !== nombre);
+  else    catalog.hiddenProds = [...new Set([...(catalog.hiddenProds || []), nombre])];
+  delete (catalog.hiddenTalles || {})[nombre];
+
+  const ns = { ...stock };
+  talles.forEach(t => { delete ns[stockKey(nombre,t)]; delete ns[stockKey(nombre,t,true)]; });
+  stock = ns; saveStock();
+  db.collection('meta').doc('stock').set(ns).catch(()=>{});
+
+  await saveCatalog();
+  epProd = null;
+  renderStock();
+  closeSheet($shEditProd);
+  toast(`${nombre} eliminado ✓`);
 };
 
 // ─── CONFIG / ZONAS FLEX — Zona 1 → Partido → Localidades ────────────────────

@@ -1,5 +1,5 @@
-// FullSports SW v29 — IIBB CABA+BsAs, descartados con TTL 3d, identidad visual iOS
-const CACHE       = 'fs-v29';
+// FullSports SW v30 — stock FULL, alta/baja de productos, fechas de despacho
+const CACHE       = 'fs-v30';
 const BG_STATE    = 'meli-bg-state-v1';
 const WORKER_BASE = 'https://meli-test.lafuentefranciscolucas.workers.dev';
 

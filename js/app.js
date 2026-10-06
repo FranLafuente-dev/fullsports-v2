@@ -37,16 +37,16 @@ let PRODUCTOS_TALLES = {};
 const TALLES      = [38,39,40,41,42,43,44,45];
 const TALLES_ESP  = [43,44,45];
 const TALLE_LETRA_ORDER = ['S','M','L','XL','XXL'];
-const COSTO_COMUN             = 23450;
-const COSTO_ESP               = 23950;
+const COSTO_COMUN             = 24000;
+const COSTO_ESP               = 24500;
 const COSTO_REMERA_COLAPINTO  = 7500;
 const COSTO_REMERA_MALVINAS   = 8500;
 const COSTO_BANDERA_60X90     = 2700;
 const COSTO_BANDERA_90X150    = 4200;
 const H24         = 86400000;
 // Ventana de historial que se trae de Firestore. Cubre con margen todo lo que las
-// vistas miran hacia atrás (lo más lejano es el mes anterior de IIBB y la búsqueda
-// global de 60 días). Los pedidos sin cortar y los no entregados se traen aparte,
+// vistas miran hacia atrás (lo más lejano es la búsqueda global de 60 días y las
+// stats del mes). Los pedidos sin cortar y los no entregados se traen aparte,
 // sin límite de fecha, así que ninguno se pierde por antigüedad.
 const ORDERS_WINDOW_DAYS = 180;
 // Tarifas FLEX vigentes desde el 1/7/2026. Al cambiar los valores hay que subir
@@ -60,20 +60,12 @@ const LS_ORDERS        = 'fs_orders_v4';
 const LS_STOCK         = 'fs_stock_v3';
 const LS_ZONES         = 'fs_zones_v1';
 const LS_FLEX_PERIODS  = 'fs_flexperiods_v1';
-const LS_IIBB_PERIODS  = 'fs_iibbperiods_v1';
 const LS_SORTED_PRODS  = 'fs_sorted_prods_v1';
 const LS_CATALOG       = 'fs_catalog_v1';
 // Sufijo de las claves de stock FULL. El stock presencial sigue en `Producto_Talle`
 // y el de MELI Full en `Producto_Talle__full`: son dos números independientes.
 const FULL_SUFFIX = '__full';
 
-const PROVINCIAS = [
-  'Buenos Aires','CABA','Catamarca','Chaco','Chubut','Córdoba',
-  'Corrientes','Entre Ríos','Formosa','Jujuy','La Pampa','La Rioja',
-  'Mendoza','Misiones','Neuquén','Río Negro','Salta','San Juan',
-  'San Luis','Santa Cruz','Santa Fe','Santiago del Estero',
-  'Tierra del Fuego','Tucumán',
-];
 const STOCK_DEFAULTS = {
   'Banderas_60x90': 5,
   'Banderas_90x150': 5,
@@ -174,7 +166,7 @@ function itemKey(item, full) {
 }
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
-let orders = [], stock = {}, zones = [...FLEX_ZONES], flexPeriods = [], flexManualRecords = [], iibbPeriods = [];
+let orders = [], stock = {}, zones = [...FLEX_ZONES], flexPeriods = [], flexManualRecords = [];
 let curView = 'pedidos', pedidosTab = 'preparar', corteCuenta = 'capi', flexFilter = null;
 // Selección del corte por exclusión: guardamos los IDs que el usuario DESTILDÓ,
 // no los que están tildados. Así todo pedido que entra después del primer render
@@ -207,12 +199,12 @@ let prepSortDir = 'asc';
 let _prepProdFilter = null;
 let _prepEtiquetaFilter = false;
 let _closingSheet = false;
-let _iibbExpandPeriods = new Set();
 let _savingVenta = false;
 let _stockExpandZeroTalles = new Set();
 let _stockExpandZeroProds = new Set();
 let _stockExpandModelo = new Set();
 let _stockExpandFull = new Set();
+let _topbarDateTimer = null;
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
 const $loginScreen = document.getElementById('login-screen');
@@ -284,7 +276,8 @@ function entrarApp(user) {
   renderAll();
   initUI();
   updateTopbarDate();
-  setInterval(updateTopbarDate, 60000);
+  // Un solo intervalo: entrarApp vuelve a correr si cerrás y abrís sesión
+  if (!_topbarDateTimer) _topbarDateTimer = setInterval(updateTopbarDate, 60000);
 
   connectFirestore();
   if (typeof meliInit === 'function') meliInit();
@@ -297,7 +290,6 @@ function loadCache() {
   try { const r = localStorage.getItem(LS_ZONES);        if (r) zones             = JSON.parse(r); } catch(e) { zones  = [...FLEX_ZONES]; }
   try { const r = localStorage.getItem(LS_FLEX_PERIODS); if (r) flexPeriods       = JSON.parse(r); } catch(e) { flexPeriods = []; }
   try { const r = localStorage.getItem(LS_FLEX_MANUAL);  if (r) flexManualRecords = JSON.parse(r); } catch(e) { flexManualRecords = []; }
-  try { const r = localStorage.getItem(LS_IIBB_PERIODS); if (r) iibbPeriods       = JSON.parse(r); } catch(e) { iibbPeriods = []; }
   try {
     const r = localStorage.getItem(LS_CATALOG);
     if (r) {
@@ -328,7 +320,6 @@ function saveStock()         { try { localStorage.setItem(LS_STOCK,        JSON.
 function saveZones()         { try { localStorage.setItem(LS_ZONES,        JSON.stringify(zones));             } catch(e) {} }
 function saveFlexPeriods()   { try { localStorage.setItem(LS_FLEX_PERIODS, JSON.stringify(flexPeriods));       } catch(e) {} }
 function saveFlexManual()    { try { localStorage.setItem(LS_FLEX_MANUAL,  JSON.stringify(flexManualRecords)); } catch(e) {} }
-function saveIibbPeriods()   { try { localStorage.setItem(LS_IIBB_PERIODS, JSON.stringify(iibbPeriods));       } catch(e) {} }
 
 // ─── FIRESTORE ────────────────────────────────────────────────────────────────
 function connectFirestore() {
@@ -337,7 +328,7 @@ function connectFirestore() {
 
   // La colección orders se traía entera y crecía sin techo. Ahora se piden tres
   // conjuntos que, unidos, cubren todo lo que la app consulta:
-  //   RECENT → ventana temporal (stats del mes, IIBB, quincena FLEX, búsqueda 60d,
+  //   RECENT → ventana temporal (stats del mes, quincena FLEX, búsqueda 60d,
   //            ranking de productos, historial visible)
   //   PEND   → todo lo que falta cortar, sin importar antigüedad (corte)
   //   ACTIVE → todo lo no entregado, sin importar antigüedad (preparar/despacho/depósito)
@@ -355,7 +346,7 @@ function connectFirestore() {
     orders = [...m.values()].sort((a, b) => ms(b.createdAt) - ms(a.createdAt));
     saveOrders();
     clearTimeout(_snapTimer);
-    _snapTimer = setTimeout(() => { renderPedidos(); renderCorte(); checkAutoArchiveEnano(); checkCorteThreshold(); checkIibbMonth(); }, 200);
+    _snapTimer = setTimeout(() => { renderPedidos(); renderCorte(); checkAutoArchiveEnano(); checkCorteThreshold(); }, 200);
   }
 
   _fsUnsubs.push(
@@ -433,18 +424,6 @@ function connectFirestore() {
     }, e => console.warn('flexRecords:', e))
   );
 
-  _fsUnsubs.push(
-    db.collection('meta').doc('iibbPeriods').onSnapshot(snap => {
-      if (snap.exists && snap.data().periods) {
-        iibbPeriods = snap.data().periods; saveIibbPeriods(); renderCorte();
-        _iibbAlertShown = false; checkIibbMonth();
-        if (!_iibbAlertShown) $alert.classList.remove('show');
-      } else if (!snap.exists && iibbPeriods.length) {
-        // Migrar datos locales a Firestore en el primer sync
-        db.collection('meta').doc('iibbPeriods').set({ periods: iibbPeriods }).catch(() => {});
-      }
-    }, e => console.warn('iibbPeriods:', e))
-  );
 }
 
 function initNewProductStock() {
@@ -630,7 +609,6 @@ function initUI() {
   setupOffline();
   setupAlerts();
   setupLocalidadSearch();
-  setupProvinciaSearch();
   setupFormListeners();
   setupDeliverySheet();
   setupZoneSheets();
@@ -646,7 +624,6 @@ function initUI() {
   _registerPeriodicSync();
   navigateTo('pedidos');
   setTimeout(checkAutoArchiveEnano, 1000);
-  setTimeout(checkIibbMonth, 1500);
 }
 
 function renderAll() {
@@ -971,7 +948,14 @@ function dispTarget(tipo) {
   nextBusinessDay(t);
   return t;
 }
+// Vencimiento real de despacho de un pedido, en este orden:
+//   1. La fecha y hora de despacho cargada a mano en el pedido (Punto de Envío).
+//      Es la verdad: si cargaste "mañana 14:00", el pedido vence mañana a las 14.
+//   2. Si no tiene, se deduce de la hora de corte del día en que se cargó
+//      (antes de las 13 sale hoy, si no el próximo día hábil).
 function _orderDispatchDeadline(o) {
+  const manual = ms(o.despachoPE);
+  if (manual) return new Date(manual);
   const createdMs = ms(o.createdAt);
   if (!createdMs) return dispTarget(o.tipoEnvio);
   const hr = HORA_CORTE_DESPACHO;
@@ -982,6 +966,8 @@ function _orderDispatchDeadline(o) {
   nextBusinessDay(cutoff);
   return cutoff;
 }
+// ¿El pedido tiene fecha y hora de despacho cargada a mano?
+function _tieneDespachoManual(o) { return ms(o.despachoPE) > 0; }
 function fmtDiff(diff) {
   if (diff <= 0) return 'Ya!';
   const h=Math.floor(diff/3600000), m=Math.floor(diff/60000);
@@ -995,31 +981,52 @@ function _pendientesDespacho(tipo) {
 }
 // Vencimiento más próximo entre esos pedidos. Sin pedidos cargados no hay nada que
 // despachar: cae al horario de corte del día solo para que el botón muestre algo.
+// Se prioriza el próximo vencimiento que todavía no pasó: antes, un pedido viejo
+// que quedó sin despachar dejaba el contador clavado en "Ya!" y tapaba el
+// vencimiento real de los pedidos de hoy.
 function tipoDeadline(tipo) {
   const pend = _pendientesDespacho(tipo);
   if (!pend.length) return dispTarget(tipo);
-  return new Date(Math.min(...pend.map(o => _orderDispatchDeadline(o).getTime())));
+  const now    = Date.now();
+  const times  = pend.map(o => _orderDispatchDeadline(o).getTime());
+  const futuros = times.filter(t => t > now);
+  return new Date(futuros.length ? Math.min(...futuros) : Math.min(...times));
 }
 
-// Las alertas ya no salen a horarios fijos: miran el vencimiento real de los
-// pedidos cargados. Un pedido que entró a las 15hs vence mañana, así que hoy no
-// alerta. Se avisa a 30 y a 10 minutos del vencimiento más próximo de cada tipo.
+// Las alertas no salen a horarios fijos: miran el vencimiento real de CADA pedido
+// cargado. Se avisa a 30 y a 10 minutos de cada vencimiento, y nunca antes:
+//   · Un pedido que recién se despacha mañana (o la semana que viene) no alerta
+//     hoy — se descarta todo vencimiento posterior al cierre del día.
+//   · Dos pedidos que salen a la misma hora generan un solo aviso.
+//   · Un pedido con fecha y hora cargada a mano alerta aunque caiga sábado o
+//     domingo; los que no tienen fecha propia siguen sin alertar el fin de semana.
 const _alertedDeadlines = new Set();
 function checkDispatchAlerts() {
-  if ([0,6].includes(new Date().getDay())) return;
+  const now      = Date.now();
+  const finDeHoy = new Date().setHours(23, 59, 59, 999);
   for (const tipo of ['FLEX','PE']) {
     const pend = _pendientesDespacho(tipo);
     if (!pend.length) continue;
-    const dl  = tipoDeadline(tipo).getTime();
-    const min = Math.round((dl - Date.now()) / 60000);
-    for (const u of [30, 10]) {
-      // Ventana de 6 min: updateCountdowns corre cada minuto, así que no se escapa
-      if (min > u || min <= u - 6) continue;
-      const key = `${tipo}|${dl}|${u}`;
-      if (_alertedDeadlines.has(key)) continue;
-      _alertedDeadlines.add(key);
-      showAlert(u === 10 ? 'urgent' : 'warning',
-        `${u === 10 ? '🚨' : '⏰'} ${u} min para despachar ${tipo}`, tipo);
+    // vencimiento (ms) → true si viene de una fecha de despacho cargada a mano
+    const deadlines = new Map();
+    for (const o of pend) {
+      const dl = _orderDispatchDeadline(o).getTime();
+      if (dl > finDeHoy) continue;                 // se despacha mañana o más adelante
+      const manual = _tieneDespachoManual(o);
+      if (!manual && [0,6].includes(new Date(dl).getDay())) continue; // finde sin fecha propia
+      if (!deadlines.has(dl) || manual) deadlines.set(dl, manual);
+    }
+    for (const [dl, manual] of deadlines) {
+      const min = Math.round((dl - now) / 60000);
+      for (const u of [30, 10]) {
+        // Ventana de 6 min: updateCountdowns corre cada minuto, así que no se escapa
+        if (min > u || min <= u - 6) continue;
+        const key = `${tipo}|${dl}|${u}`;
+        if (_alertedDeadlines.has(key)) continue;
+        _alertedDeadlines.add(key);
+        showAlert(u === 10 ? 'urgent' : 'warning',
+          `${u === 10 ? '🚨' : '⏰'} ${u} min para despachar ${tipo}`, tipo, manual);
+      }
     }
   }
   if (_alertedDeadlines.size > 40) _alertedDeadlines.clear();
@@ -1035,8 +1042,11 @@ function setupAlerts() {
   checkDispatchAlerts();
   setInterval(() => { updateCountdowns(); checkDispatchAlerts(); }, 60000);
 }
-function showAlert(type, msg, tipo) {
-  if ([0,6].includes(new Date().getDay())) return;
+// allowWeekend: lo pasa checkDispatchAlerts cuando el vencimiento viene de una
+// fecha de despacho cargada a mano. El recordatorio del corte sigue sin sonar
+// sábados y domingos.
+function showAlert(type, msg, tipo, allowWeekend = false) {
+  if (!allowWeekend && [0,6].includes(new Date().getDay())) return;
   const hasPending = orders.some(o =>
     (o.status==='pendiente'||o.status==='preparar') && (!tipo || o.tipoEnvio===tipo)
   );
@@ -1065,11 +1075,17 @@ function updateCountdowns() {
     const isDispBtn = !!el.closest('.dispatch-btn');
     // Los botones de despacho muestran el vencimiento más próximo entre los pedidos
     // cargados de ese tipo; cada card usa el suyo propio
-    const target = (!isDispBtn && el.dataset.cdTs) ? new Date(Number(el.dataset.cdTs)) : tipoDeadline(tipo);
+    const ownTs  = (!isDispBtn && el.dataset.cdTs) ? Number(el.dataset.cdTs) : null;
+    const target = ownTs ? new Date(ownTs) : tipoDeadline(tipo);
     const diff = target - new Date(), min = Math.floor(diff / 60000);
     el.textContent = fmtDiff(diff);
+    // El contador de una card usa su propio vencimiento: si el pedido tiene fecha
+    // cargada para un sábado, igual se pinta. El del botón de despacho (agregado)
+    // sigue apagándose los fines de semana y sin pedidos listos.
     const nPend=orders.filter(o=>(o.status==='pendiente'||o.status==='preparar')&&o.tipoEnvio===tipo).length;
-    const urg=(isWeekend||nPend===0)?'':min<=15?'urgent':min<=60?'warn':'';
+    const urg = ownTs
+      ? (min<=15?'urgent':min<=60?'warn':'')
+      : ((isWeekend||nPend===0)?'':min<=15?'urgent':min<=60?'warn':'');
     el.className='countdown'+(urg?' '+urg:'');
     const btn=el.closest('.dispatch-btn');
     if (btn) { btn.classList.remove('warn','urgent'); if (urg) btn.classList.add(urg); }
@@ -1245,7 +1261,7 @@ function renderPedidos(animDir='') {
   if (pedidosSearch) {
     const q = normalizeStr(pedidosSearch);
     displayed = displayed.filter(o =>
-      normalizeStr(o.nombreComprador).includes(q) ||
+      normalizeStr(o.nombreComprador || '').includes(q) ||
       (o.meliOrderId && String(o.meliOrderId).includes(q)) ||
       (o.meliNickname && normalizeStr(o.meliNickname).includes(q)) ||
       (o.items||[]).some(i => normalizeStr(i.producto).includes(q))
@@ -1391,8 +1407,6 @@ function orderCard(o) {
   } else {
     monto=`<div class="order-monto">Acreditado $${fmt(o.importeAcreditado)}</div>`;
   }
-
-  const iibb=o.cuenta==='enano'&&o.provincia?`<div class="order-iibb">${o.provincia} — IIBB $${fmtDec(o.iibb)}</div>`:'';
 
   // Despacho manual de Punto de Envío — visible sin abrir el pedido
   const despPE=(o.tipoEnvio==='PE'&&o.despachoPE)
@@ -1825,15 +1839,12 @@ function openNuevaSheet(data=null) {
 
   // Valores de inputs
   V('f-nombre').value         = data?.nombreComprador || '';
-  V('f-provincia').value      = data?.provincia || '';
-  V('f-iibb').value           = data?.iibb ? fmtDec(data.iibb) : '';
   V('f-importe-pe').value     = data?.importeAcreditado || '';
   // Despacho PE: al editar respeta lo guardado; en pedido nuevo sugiere el último.
   // Se setea siempre (no condicional) para no arrastrar el valor de una apertura previa.
   const _fdp = V('f-despacho-pe');
   if (_fdp) _fdp.value = data?.despachoPE ? _toDatetimeLocal(ms(data.despachoPE)) : _sugerirDespachoPE();
   V('f-importe-flex').value   = data?.importeVenta || '';
-  const _fib = V('f-importe-bruto'); if (_fib) _fib.value = data?.importeBruto ? fmt(data.importeBruto) : '';
   V('btn-stock-override').textContent = '✏️ Manual';
 
   // Zona seleccionada (si editando FLEX)
@@ -1870,22 +1881,6 @@ function openNuevaSheet(data=null) {
   if (!editingId) {
     setTimeout(() => V('f-nombre')?.focus(), 380);
   }
-}
-
-// ─── IIBB AUTOMÁTICO — Buenos Aires ──────────────────────────────────────────
-// Retención fija para provincia de Buenos Aires. Es solo una sugerencia: se
-// escribe únicamente si el campo está vacío, nunca pisa un valor tipeado a mano.
-const IIBB_BS_AS = 17.75;
-// Aplica a CABA y a provincia de Buenos Aires, en cualquiera de las formas en que
-// llega el nombre (del dropdown, de la zona FLEX o de la API de MELI).
-const IIBB_PROV_AUTO = ['buenos aires', 'caba', 'ciudad autonoma de buenos aires'];
-function _autoIibb(prov) {
-  const inp = V('f-iibb'); if (!inp) return;
-  if (!IIBB_PROV_AUTO.includes(normalizeStr(prov||'').trim())) return;
-  if (inp.value.trim()) return;
-  inp.value = fmtDec(IIBB_BS_AS);
-  const prev = V('f-iibb-preview'), prevVal = V('f-iibb-preview-val');
-  if (prev && prevVal && !prev.classList.contains('hidden')) prevVal.textContent = `$${fmtDec(IIBB_BS_AS)}`;
 }
 
 // ─── DESPACHO PE (fecha y hora manual) ───────────────────────────────────────
@@ -1925,11 +1920,6 @@ function _fillDespachoPE(force=false) {
 function setCuenta(c) {
   curCuenta=c;
   document.querySelectorAll('[data-cuenta]').forEach(b=>b.classList.toggle('active',b.dataset.cuenta===c));
-  V('info-fiscal').style.display=c==='enano'?'flex':'none';
-  ['f-provincia','f-importe-bruto','f-iibb'].forEach(id=>{
-    const inp=V(id); if(inp){inp.value='';inp.style.display='';}
-    const prev=V(id+'-preview'); if(prev) prev.classList.add('hidden');
-  });
   if (typeof renderMeliSuggestions === 'function') renderMeliSuggestions();
 }
 function setEnvio(t) {
@@ -1972,10 +1962,8 @@ window.toggleFull = () => {
 };
 
 function _formEnterNext(id) {
-  const isEnano = curCuenta === 'enano';
-  const isFlex  = curEnvio  === 'FLEX';
-  if (id === 'f-nombre')       return isEnano ? 'f-provincia' : (isFlex ? 'f-localidad' : 'f-importe-pe');
-  if (id === 'f-provincia')    return isFlex ? 'f-localidad' : 'f-importe-pe';
+  const isFlex = curEnvio === 'FLEX';
+  if (id === 'f-nombre')       return isFlex ? 'f-localidad' : 'f-importe-pe';
   if (id === 'f-importe-flex') return null;
   if (id === 'f-importe-pe')   return null;
   return null;
@@ -1986,7 +1974,7 @@ function setupFormListeners() {
   document.querySelectorAll('[data-envio]').forEach(b=>b.addEventListener('click',()=>setEnvio(b.dataset.envio)));
   V('f-importe-flex').addEventListener('input',updateNeto);
   // Enter: avanzar entre campos; en el último cerrar teclado
-  ['f-nombre','f-provincia','f-iibb','f-importe-flex','f-importe-pe'].forEach(id => {
+  ['f-nombre','f-importe-flex','f-importe-pe'].forEach(id => {
     V(id)?.addEventListener('keydown', e => {
       if (e.key !== 'Enter') return;
       e.preventDefault();
@@ -2003,8 +1991,6 @@ function setupFormListeners() {
   }
   V('f-nombre')?.addEventListener('input', liveTitleCase);
   V('f-nombre')?.addEventListener('blur', e => { e.target.value = titleCase(e.target.value); });
-  // Provincia tipeada a mano (sin pasar por el dropdown)
-  V('f-provincia')?.addEventListener('blur', e => _autoIibb(e.target.value));
 
   V('btn-stock-override').addEventListener('click',()=>{
     stockAll=!stockAll;
@@ -2019,44 +2005,6 @@ function setupFormListeners() {
   });
 
   V('btn-guardar-venta').addEventListener('click', guardarVenta);
-}
-
-// ─── BÚSQUEDA PROVINCIA ───────────────────────────────────────────────────────
-function setupProvinciaSearch() {
-  const inp = V('f-provincia'), res = V('provincia-results');
-  if (!inp || !res) return;
-
-  function positionDropdown() {
-    const r = inp.getBoundingClientRect();
-    res.style.top   = `${r.bottom + 4}px`;
-    res.style.left  = `${r.left}px`;
-    res.style.width = `${r.width}px`;
-  }
-  function buildResults() {
-    const q = normalizeStr(inp.value.trim());
-    if (!q) { res.classList.remove('show'); return; }
-    const hits = PROVINCIAS.filter(p =>
-      normalizeStr(p).startsWith(q) || normalizeStr(p).includes(q)
-    ).slice(0, 8);
-    if (!hits.length) { res.classList.remove('show'); return; }
-    res.innerHTML = hits.map(p => `<div class="search-result-item prov-item"><span class="sri-name">${p}</span></div>`).join('');
-    positionDropdown(); res.classList.add('show');
-    res.querySelectorAll('.prov-item').forEach((el, i) => {
-      const pick = e => {
-        e.preventDefault(); e.stopPropagation();
-        inp.value = hits[i]; res.classList.remove('show'); inp.blur();
-        _autoIibb(hits[i]);
-      };
-      el.addEventListener('mousedown', pick);
-      el.addEventListener('touchstart', pick, { passive: false });
-    });
-  }
-  inp.addEventListener('input', buildResults);
-  inp.addEventListener('focus', buildResults);
-  document.addEventListener('scroll', () => { if (res.classList.contains('show')) positionDropdown(); }, true);
-  document.addEventListener('click', e => {
-    if (!e.target.closest('.search-wrap') && !res.contains(e.target)) res.classList.remove('show');
-  });
 }
 
 // ─── BÚSQUEDA LOCALIDAD ───────────────────────────────────────────────────────
@@ -2108,16 +2056,6 @@ function showZoneSelected() {
   el.classList.add('show');
   const btn = document.getElementById('btn-clear-zone');
   if (btn) { const fresh = btn.cloneNode(true); btn.replaceWith(fresh); fresh.addEventListener('click', clearZone); }
-  // Auto-fill provincia para ENANO si está vacía
-  if (curCuenta==='enano' && formEnvio) {
-    const provInp=V('f-provincia'), provPrev=V('f-provincia-preview'), provPrevVal=V('f-provincia-preview-val');
-    if (provInp && !provInp.value) {
-      const prov = formEnvio.zona.startsWith('Zona 1') ? 'CABA' : 'Buenos Aires';
-      provInp.value = prov;
-      if (provPrev && provPrevVal) { provPrevVal.textContent=prov; provPrev.classList.remove('hidden'); provInp.style.display='none'; }
-      _autoIibb(prov);
-    }
-  }
   updateNeto();
 }
 function clearZone() {
@@ -2254,7 +2192,7 @@ async function _guardarVentaInner() {
   // Detección de duplicados solo en nuevos pedidos
   if (!editingId) {
     const dups=orders.filter(o=>
-      o.nombreComprador.toLowerCase()===nombre.toLowerCase() && o.status!=='entregado'
+      (o.nombreComprador||'').toLowerCase()===nombre.toLowerCase() && o.status!=='entregado'
     );
     if (dups.length && !await showConfirm(`Ya existe un pedido activo de "${nombre}"`, {
       icon:'⚠️', confirmText:'Cargar igual', confirmClass:'btn-primary', cancelText:'Cancelar',
@@ -2274,11 +2212,6 @@ async function _guardarVentaInner() {
     ...(_meliPackIds ? { meliPackOrderIds: _meliPackIds } : {}),
     ...(_meliNick    ? { meliNickname:     _meliNick    } : {}),
   };
-  if (curCuenta==='enano') {
-    base.provincia=V('f-provincia').value.trim();
-    base.iibb=parseNum(V('f-iibb').value)||0;
-    base.importeBruto=parseNum(V('f-importe-bruto')?.value||'')||0;
-  }
   if (curFull) {
     // FULL: envío gratis para nosotros → nunca descuenta zona FLEX, aunque el
     // comprador sea del AMBA. Solo se registra el importe acreditado.
@@ -2375,7 +2308,7 @@ async function _guardarVentaInner() {
         .catch(()=>{});
     }
   } catch(e){ toast('⚠️ Error al guardar'); console.error(e); }
-  finally { if (btnGuardar) { btnGuardar.disabled = false; btnGuardar.textContent = 'Guardar'; } }
+  finally { if (btnGuardar) { btnGuardar.disabled = false; btnGuardar.textContent = 'Guardar venta'; } }
 }
 
 // ─── CORTE VIEW ───────────────────────────────────────────────────────────────
@@ -2389,7 +2322,8 @@ function renderCorte(animDir='') {
   _corteDirty = false;
   const nC=orders.filter(o=>!o.corteDone&&o.cuenta==='capi').length;
   const nE=orders.filter(o=>!o.corteDone&&o.cuenta==='enano').length;
-  if (corteCuenta==='deposito') corteCuenta='capi';
+  // 'deposito' e 'iibb' ya no existen como pestañas: cualquier estado viejo cae en CAPI
+  if (corteCuenta==='deposito' || corteCuenta==='iibb') corteCuenta='capi';
   // Tabs → fuera del scroll en #corte-tabbar
   const corteTabbar = document.getElementById('corte-tabbar');
   if (corteTabbar) corteTabbar.innerHTML = `
@@ -2397,7 +2331,6 @@ function renderCorte(animDir='') {
       <button class="corte-tab${corteCuenta==='capi'?' active':''}"  onclick="setCorte('capi')">CAPI${nC?` <span class="corte-count">${nC}</span>`:''}</button>
       <button class="corte-tab${corteCuenta==='enano'?' active':''}" onclick="setCorte('enano')">ENANO${nE?` <span class="corte-count">${nE}</span>`:''}</button>
       <button class="corte-tab${corteCuenta==='flex'?' active':''}"  onclick="setCorte('flex')">FLEX $</button>
-      <button class="corte-tab${corteCuenta==='iibb'?' active':''}"  onclick="setCorte('iibb')">IIBB</button>
     </div>`;
   const prevBanner = document.getElementById('corte-confirm-banner');
   v.innerHTML = `<div class="ped-main-content${animDir?' '+animDir:''}">${renderCorteBody()}</div>`;
@@ -2425,7 +2358,6 @@ function _calcMonthStats(cuenta) {
 function renderCorteBody() {
   if (corteCuenta==='deposito') return renderDepCorte();
   if (corteCuenta==='flex')     return renderCorteFlexBody();
-  if (corteCuenta==='iibb')     return renderIibbCorteBody();
   const pend=orders.filter(o=>!o.corteDone&&o.cuenta===corteCuenta);
   // Stats del mes
   const mStats = _calcMonthStats(corteCuenta);
@@ -3132,8 +3064,7 @@ const $shEditFlex = document.getElementById('sheet-edit-flex');
 window.openAddFlexSheet = () => {
   addFlexCuenta = 'capi'; addFlexZone = null;
   document.querySelectorAll('[data-af-cuenta]').forEach(b=>b.classList.toggle('active',b.dataset.afCuenta==='capi'));
-  V('af-fecha').value = tomorrowInput().replace(/(\d{4})-(\d{2})-(\d{2})/,'$1-$2-$3'); // hoy
-  // default = today
+  // Por defecto, hoy
   const t=new Date(); V('af-fecha').value=`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
   V('af-nombre').value=''; V('af-localidad-input').value='';
   V('af-selected').innerHTML=''; V('af-selected').classList.remove('show');
@@ -3307,7 +3238,7 @@ function setupPedidosTabSwipe() {
 // ─── SWIPE ENTRE TABS DE CORTE ────────────────────────────────────────────────
 function setupCorteTabSwipe() {
   const view = VIEWS.corte; if (!view) return;
-  const tabs = ['capi','enano','flex','iibb'];
+  const tabs = ['capi','enano','flex'];
   let x0=0, y0=0;
   view.addEventListener('touchstart',e=>{x0=e.touches[0].clientX;y0=e.touches[0].clientY;},{passive:true});
   view.addEventListener('touchend',e=>{
@@ -3923,220 +3854,6 @@ document.querySelectorAll('[data-close-sheet]').forEach(b=>
   b.addEventListener('click', () => { const s=b.closest('.sheet'); if(s) closeSheet(s); })
 );
 
-// ─── IIBB REPORTING ───────────────────────────────────────────────────────────
-function _iibbPeriodLabel(year, month) {
-  return new Date(year, month - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-}
-
-function getCurrentIibbMonth() {
-  const now = new Date();
-  const year = now.getFullYear(), month = now.getMonth() + 1;
-  const id = `${year}-${String(month).padStart(2,'0')}`;
-  const existing = iibbPeriods.find(p => p.id === id);
-  if (existing) return existing;
-  const fromMs = new Date(year, month - 1, 1).getTime();
-  const toMs   = new Date(year, month, 0, 23, 59, 59, 999).getTime();
-  return { id, label: _iibbPeriodLabel(year, month), fromMs, toMs, closed: false };
-}
-
-function renderIibbCorteBody() {
-  const curPeriod = getCurrentIibbMonth();
-  const periodOrders = orders.filter(o =>
-    o.cuenta === 'enano' && o.createdAt && ms(o.createdAt) >= curPeriod.fromMs && ms(o.createdAt) <= curPeriod.toMs
-  );
-  const rows = periodOrders.map(o => ({
-    fecha:        new Date(ms(o.createdAt)).toLocaleDateString('es-AR'),
-    cliente:      o.nombreComprador,
-    provincia:    o.provincia || '—',
-    importeBruto: o.importeBruto || 0,
-    iibb:         o.iibb || 0,
-  }));
-
-  const byProv = {};
-  rows.forEach(r => {
-    if (!byProv[r.provincia]) byProv[r.provincia] = { bruto: 0, iibb: 0 };
-    byProv[r.provincia].bruto += r.importeBruto;
-    byProv[r.provincia].iibb  += r.iibb;
-  });
-  const provs = Object.entries(byProv).filter(([,v]) => v.bruto > 0 || v.iibb > 0);
-  const totalBruto = rows.reduce((s,r) => s + r.importeBruto, 0);
-  const totalIibb  = rows.reduce((s,r) => s + r.iibb, 0);
-  const closedPeriods = iibbPeriods.filter(p => p.closed);
-
-  // Card de acción — siempre primero, arriba del scroll
-  const actionCard = `<div class="card" style="padding:12px 16px">
-    <div class="section-title" style="margin-bottom:${rows.length ? '8px' : '0'}">IIBB — ${curPeriod.label}</div>
-    ${rows.length ? `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600;margin-bottom:8px">
-      <span>Bruto: $${fmt(totalBruto)}</span>
-      <span>IIBB: $${fmtDec(totalIibb)}</span>
-    </div>` : ''}
-    <div style="display:flex;gap:8px">
-      ${rows.length ? `<button class="btn btn-ghost btn-sm" style="flex:1" onclick="printIibbReport(${esc(JSON.stringify(curPeriod))},${esc(JSON.stringify(rows))})">🖨️ Imprimir</button>` : ''}
-      ${!curPeriod.closed ? `<button class="btn btn-primary btn-sm" style="flex:1" onclick="closeIibbMonth(${esc(curPeriod.id)})">📁 Cerrar mes</button>` : ''}
-    </div>
-  </div>`;
-
-  const tableCard = rows.length === 0
-    ? `<div style="color:var(--text-3);font-size:13px;padding:4px">Sin ventas ENANO este mes</div>`
-    : `<div class="card" style="padding:16px">
-        <div class="iibb-table-wrap">
-          <table class="iibb-table">
-            <thead><tr><th>Fecha</th><th>Cliente</th><th>Provincia</th><th>Bruto</th><th>IIBB</th></tr></thead>
-            <tbody>${rows.map(r=>`<tr>
-              <td>${r.fecha}</td><td>${r.cliente}</td><td>${r.provincia}</td>
-              <td>${r.importeBruto?'$'+fmt(r.importeBruto):'—'}</td>
-              <td>${r.iibb?'$'+fmtDec(r.iibb):'—'}</td>
-            </tr>`).join('')}</tbody>
-          </table>
-        </div>
-        ${provs.length > 1 ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--sep)">
-          <div class="dep-hdr" style="margin-bottom:5px">Por provincia</div>
-          ${provs.map(([prov,v])=>`<div class="dep-row">
-            <span class="dep-n">${prov}</span>
-            <span style="font-size:12px;color:var(--text-2)">Bruto $${fmt(v.bruto)} · IIBB $${fmtDec(v.iibb)}</span>
-          </div>`).join('')}
-        </div>` : ''}
-      </div>`;
-
-  // Card del mes anterior si no está cerrado
-  const _now = new Date();
-  const _prevD = new Date(_now.getFullYear(), _now.getMonth() - 1, 1);
-  const _prevY = _prevD.getFullYear(), _prevM = _prevD.getMonth() + 1;
-  const _prevId = `${_prevY}-${String(_prevM).padStart(2,'0')}`;
-  const _prevExisting = iibbPeriods.find(p => p.id === _prevId);
-  let prevMonthCard = '';
-  if (!_prevExisting?.closed) {
-    const _prevLabel = _iibbPeriodLabel(_prevY, _prevM);
-    const _prevFromMs = _prevD.getTime();
-    const _prevToMs = new Date(_prevY, _prevM, 0, 23, 59, 59, 999).getTime();
-    const _prevOrders = orders.filter(o => o.cuenta==='enano'&&o.createdAt&&ms(o.createdAt)>=_prevFromMs&&ms(o.createdAt)<=_prevToMs);
-    const _prevRows = _prevOrders.map(o => ({
-      fecha: new Date(ms(o.createdAt)).toLocaleDateString('es-AR'),
-      cliente: o.nombreComprador, provincia: o.provincia||'—',
-      importeBruto: o.importeBruto||0, iibb: o.iibb||0,
-    }));
-    const _pBruto = _prevRows.reduce((s,r)=>s+r.importeBruto,0);
-    const _pIibb  = _prevRows.reduce((s,r)=>s+r.iibb,0);
-    prevMonthCard = `<div class="card" style="padding:12px 16px;border-left:3px solid var(--orange)">
-      <div class="section-title" style="color:var(--orange);margin-bottom:${_prevRows.length?'8px':'0'}">⚠️ IIBB — ${_prevLabel} (sin cerrar)</div>
-      ${_prevRows.length ? `<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600;margin-bottom:8px">
-        <span>Bruto: $${fmt(_pBruto)}</span><span>IIBB: $${fmtDec(_pIibb)}</span>
-      </div>` : `<div style="font-size:13px;color:var(--text-3);margin-bottom:8px">Sin ventas ENANO en ${_prevLabel}</div>`}
-      <div style="display:flex;gap:8px">
-        ${_prevRows.length ? `<button class="btn btn-ghost btn-sm" style="flex:1" onclick="printIibbReport(${esc(JSON.stringify({id:_prevId,label:_prevLabel,fromMs:_prevFromMs,toMs:_prevToMs}))},${esc(JSON.stringify(_prevRows))})">🖨️ Imprimir</button>` : ''}
-        <button class="btn btn-primary btn-sm" style="flex:1" onclick="closeIibbMonth(${esc(_prevId)})">📁 Cerrar ${_prevLabel}</button>
-      </div>
-    </div>`;
-  }
-
-  return `${actionCard}${tableCard}${prevMonthCard}
-  ${closedPeriods.length ? `<div class="section-title" style="margin-top:0">Períodos anteriores</div>
-  ${closedPeriods.slice().reverse().map(p => {
-    const pRows = p.rows || [];
-    const pBruto = pRows.reduce((s,r)=>s+(r.importeBruto||0),0);
-    const pIibb  = pRows.reduce((s,r)=>s+(r.iibb||0),0);
-    const isExp  = _iibbExpandPeriods.has(p.id);
-    return `<div class="card" style="padding:0">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer" onclick="toggleIibbPeriod('${p.id}')">
-        <div>
-          <div style="font-weight:600">${p.label}</div>
-          <div style="font-size:12px;color:var(--text-3);margin-top:2px">Bruto $${fmt(pBruto)} · IIBB $${fmtDec(pIibb)}</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:11px;color:var(--text-3)">📁</span>
-          <span style="color:var(--text-3);font-size:12px;transition:transform 0.2s;transform:rotate(${isExp?180:0}deg)">▼</span>
-        </div>
-      </div>
-      ${isExp ? `<div style="padding:0 14px 12px">
-        ${pRows.length ? `<div class="iibb-table-wrap"><table class="iibb-table">
-          <thead><tr><th>Fecha</th><th>Cliente</th><th>Provincia</th><th>Bruto</th><th>IIBB</th></tr></thead>
-          <tbody>${pRows.map(r=>`<tr><td>${r.fecha}</td><td>${r.cliente}</td><td>${r.provincia}</td><td>${r.importeBruto?'$'+fmt(r.importeBruto):'—'}</td><td>${r.iibb?'$'+fmtDec(r.iibb):'—'}</td></tr>`).join('')}</tbody>
-        </table></div>` : '<p class="hint-text">Sin detalle guardado</p>'}
-        <div style="margin-top:8px">
-          <button class="btn btn-ghost btn-sm" style="width:100%" onclick="event.stopPropagation();printIibbReport(${esc(JSON.stringify(p))},${esc(JSON.stringify(pRows))})">🖨️ Imprimir</button>
-        </div>
-      </div>` : ''}
-    </div>`;
-  }).join('')}` : ''}`;
-}
-
-window.toggleIibbPeriod = id => {
-  _iibbExpandPeriods.has(id) ? _iibbExpandPeriods.delete(id) : _iibbExpandPeriods.add(id);
-  renderCorte();
-};
-
-window.closeIibbMonth = async function(periodId) {
-  const [py, pm] = periodId.split('-').map(Number);
-  const targetPeriod = iibbPeriods.find(p => p.id === periodId) || {
-    id: periodId,
-    label: _iibbPeriodLabel(py, pm),
-    fromMs: new Date(py, pm - 1, 1).getTime(),
-    toMs:   new Date(py, pm, 0, 23, 59, 59, 999).getTime(),
-    closed: false,
-  };
-  const ok = await showConfirm(`¿Cerrar IIBB de ${targetPeriod.label}?`, {
-    icon: '📁', confirmText: 'Cerrar mes', confirmClass: 'btn-primary', cancelText: 'Cancelar',
-  });
-  if (!ok) return;
-  const periodOrders = orders.filter(o =>
-    o.cuenta === 'enano' && o.createdAt && ms(o.createdAt) >= targetPeriod.fromMs && ms(o.createdAt) <= targetPeriod.toMs
-  );
-  const rows = periodOrders.map(o => ({
-    fecha: new Date(ms(o.createdAt)).toLocaleDateString('es-AR'),
-    cliente: o.nombreComprador, provincia: o.provincia || '—',
-    importeBruto: o.importeBruto || 0, iibb: o.iibb || 0,
-  }));
-  const existing = iibbPeriods.find(p => p.id === periodId);
-  if (existing) {
-    existing.closed = true; existing.closedAt = Date.now(); existing.rows = rows;
-  } else {
-    iibbPeriods.push({ ...targetPeriod, closed: true, closedAt: Date.now(), rows });
-  }
-  saveIibbPeriods();
-  db.collection('meta').doc('iibbPeriods').set({ periods: iibbPeriods }).catch(() => {});
-  renderCorte();
-  toast('Período IIBB cerrado ✓');
-};
-
-window.printIibbReport = function(periodJson, rowsJson) {
-  let period, rows;
-  try { period = typeof periodJson === 'string' ? JSON.parse(periodJson) : periodJson; } catch { return; }
-  try { rows   = typeof rowsJson   === 'string' ? JSON.parse(rowsJson)   : rowsJson;  } catch { rows = []; }
-  const totalBruto = rows.reduce((s,r) => s + (r.importeBruto||0), 0);
-  const totalIibb  = rows.reduce((s,r) => s + (r.iibb||0), 0);
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>IIBB ${period.label}</title>
-    <style>body{font-family:Arial,sans-serif;font-size:12px;margin:20px}h2{margin-bottom:8px}
-    table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
-    th{background:#f0f0f0}.total-row td{font-weight:bold;background:#f8f8f8}</style></head><body>
-    <h2>IIBB — ${period.label}</h2>
-    <table><thead><tr><th>Fecha</th><th>Cliente</th><th>Provincia</th><th>Importe bruto</th><th>Retención IIBB</th></tr></thead>
-    <tbody>${rows.map(r=>`<tr><td>${r.fecha}</td><td>${r.cliente}</td><td>${r.provincia}</td><td>$${fmt(r.importeBruto||0)}</td><td>$${fmtDec(r.iibb||0)}</td></tr>`).join('')}
-    <tr class="total-row"><td colspan="3">Total</td><td>$${fmt(totalBruto)}</td><td>$${fmtDec(totalIibb)}</td></tr>
-    </tbody></table></body></html>`;
-  const w = window.open('', '_blank');
-  if (w) { w.document.write(html); w.document.close(); w.print(); }
-};
-
-let _iibbAlertShown = false;
-function checkIibbMonth() {
-  if (_iibbAlertShown) return;
-  const now = new Date();
-  if (now.getDate() > 5) return;
-  const prevDate  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const prevYear  = prevDate.getFullYear(), prevMonth = prevDate.getMonth() + 1;
-  const prevId    = `${prevYear}-${String(prevMonth).padStart(2,'0')}`;
-  const prevLabel = _iibbPeriodLabel(prevYear, prevMonth);
-  if (iibbPeriods.find(p => p.id === prevId && p.closed)) return;
-  const prevFromMs = prevDate.getTime();
-  const prevToMs   = new Date(prevYear, prevMonth, 0, 23, 59, 59, 999).getTime();
-  const hasPrevOrders = orders.some(o => o.cuenta === 'enano' && o.createdAt && ms(o.createdAt) >= prevFromMs && ms(o.createdAt) <= prevToMs);
-  if (!hasPrevOrders) return;
-  _iibbAlertShown = true;
-  $alert.className = 'alert-banner show warning';
-  $alert.innerHTML = `📊 IIBB ${prevLabel} sin cerrar &nbsp;<button onclick="setCorte('iibb');navigateTo('corte');document.getElementById('alert-banner').classList.remove('show')" style="background:none;border:1px solid currentColor;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:12px">Ver</button>`;
-  setTimeout(() => $alert.classList.remove('show'), 20000);
-}
-
 // ─── TOAST ────────────────────────────────────────────────────────────────────
 let toastTimer = null;
 function toast(msg) {
@@ -4149,7 +3866,6 @@ function toast(msg) {
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function V(id){ return document.getElementById(id); }
 function fmt(n){ return Math.round(n||0).toLocaleString('es-AR'); }
-function fmtDec(n){ return (n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function parseNum(s){ return parseFloat(String(s).replace(/\./g,'').replace(',','.'))||0; }
 function titleCase(s){ return s.replace(/\b\w/g, c => c.toUpperCase()); }
 function normalizeStr(s){ return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }

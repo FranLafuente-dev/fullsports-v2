@@ -116,7 +116,7 @@ h1, .sheet-title, .login-title, .flex-stat-val, .empty-state p {
 }
 .order-monto, .order-monto-detail, .neto-val, .flex-neto, .flex-selected-importe,
 .flex-stat-val, .cms-val, .corte-count, .tab-badge, .dep-q, .dep-r, .deposito-qty,
-.countdown, .iibb-table td, .iibb-table th, .stepper-val, .order-desp-pe {
+.countdown, .stepper-val, .order-desp-pe {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
 }
@@ -126,7 +126,7 @@ h1, .sheet-title, .login-title, .flex-stat-val, .empty-state p {
    suficiente para resolverlo. */
 @media (min-resolution: 2dppx) {
   .card, .order-card, .sheet, #topbar, #bottom-nav,
-  .iibb-table td, .iibb-table th, .fiscal-row, .stock-row {
+  .stock-row {
     border-width: 0.5px;
   }
 }
@@ -537,7 +537,6 @@ h1, .sheet-title, .login-title, .flex-stat-val, .empty-state p {
 .order-name   { font-size: 16px; font-weight: 700; }
 .order-items  { font-size: 14px; color: var(--text-2); }
 .order-fecha  { font-size: 13px; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
-.order-iibb   { font-size: 12px; color: var(--text-3); }
 .corte-excluidos { font-size: 12px; color: #f5a623; margin-top: 10px; font-weight: 600; }
 .order-desp-pe { font-size: 12px; color: var(--text-2); margin-top: 4px; }
 .order-desp-pe b { color: var(--text-1); font-weight: 600; }
@@ -658,6 +657,13 @@ textarea {
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.18s var(--spring);
 }
 .form-input::placeholder { color: var(--input-ph); }
+/* Campo secreto. Es type=text para que Chrome Android no ofrezca guardar contraseña,
+   así que el enmascarado lo hace el CSS. */
+.input-masked {
+  -webkit-text-security: disc;
+  text-security: disc;
+  letter-spacing: 0.12em;
+}
 .form-input:not(:placeholder-shown):not(:focus) {
   border-color: var(--green);
   box-shadow: 0 0 0 3px rgba(52,199,89,0.12);
@@ -1648,54 +1654,6 @@ input:-webkit-autofill:focus {
   background: var(--accent); color: #fff; border-color: var(--accent);
 }
 
-/* ── SECCIÓN FISCAL ──────────────────────────────────────────────────────── */
-.fiscal-section-hdr {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
-  color: var(--teal); text-transform: uppercase; padding-bottom: 4px;
-  border-bottom: 1px solid rgba(48,176,199,0.2);
-}
-.fiscal-row {
-  display: flex; align-items: center; gap: 8px; min-height: 28px;
-}
-.fiscal-row-lbl {
-  font-size: 11px; color: var(--text-3); font-weight: 600;
-  min-width: 72px; flex-shrink: 0;
-}
-.fiscal-row-val {
-  flex: 1; display: flex; align-items: center; min-width: 0;
-}
-.fiscal-preview {
-  padding: 3px 8px !important; font-size: 12px !important;
-  min-height: 0 !important;
-}
-.fiscal-preview .meli-preview-val { font-size: 12px; }
-.fiscal-preview .meli-preview-pencil { font-size: 13px; padding: 2px 4px; }
-.fiscal-row-input {
-  flex: 1; font-size: 12px; font-family: inherit;
-  padding: 3px 8px; height: 26px;
-  background: var(--input-bg); color: var(--text-2);
-  border: 1px solid var(--input-bdr); border-radius: 7px;
-  outline: none; min-width: 0;
-}
-.fiscal-row-input::placeholder { color: var(--text-3); font-size: 11px; }
-
-/* ── TABLA IIBB ──────────────────────────────────────────────────────────── */
-.iibb-table-wrap {
-  overflow-x: auto; margin-top: 10px; border-radius: 8px;
-  border: 1px solid var(--border);
-}
-.iibb-table {
-  width: 100%; border-collapse: collapse; font-size: 12px;
-}
-.iibb-table th {
-  background: rgba(255,255,255,0.05); color: var(--text-3);
-  font-weight: 600; padding: 7px 10px; text-align: left; white-space: nowrap;
-}
-.iibb-table td {
-  padding: 7px 10px; color: var(--text-1); border-top: 1px solid var(--sep);
-  white-space: nowrap;
-}
-.iibb-table tr:first-child td { border-top: none; }
 .hist-filter-btn:active { opacity: 0.80; }
 
 /* ── CORTE — stats del mes ───────────────────────────────────────────────── */

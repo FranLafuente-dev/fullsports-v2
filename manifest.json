@@ -1,7 +1,10 @@
 {
+  "id": "/fullsports-v2/",
   "name": "FullSports Panel",
   "short_name": "FullSports",
   "description": "Panel de ventas FullSports",
+  "lang": "es-AR",
+  "dir": "ltr",
   "start_url": "/fullsports-v2/",
   "scope": "/fullsports-v2/",
   "display": "standalone",

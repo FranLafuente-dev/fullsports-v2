@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
-  <link rel="stylesheet" href="css/main.css?v=31">
+  <link rel="stylesheet" href="css/main.css?v=32">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
 </head>
@@ -151,40 +151,6 @@
       <span class="full-toggle-label">FULL</span>
       <span class="full-toggle-hint">Lo despacha MELI — sin preparar ni envío</span>
     </button>
-    <!-- SECCIÓN FISCAL — solo ENANO -->
-    <div id="info-fiscal" style="display:none;flex-direction:column;gap:5px">
-      <div class="fiscal-section-hdr">📊 Información fiscal</div>
-      <div class="fiscal-row">
-        <span class="fiscal-row-lbl">Provincia</span>
-        <div class="fiscal-row-val">
-          <div class="meli-preview hidden fiscal-preview" id="f-provincia-preview">
-            <span class="meli-preview-val" id="f-provincia-preview-val"></span>
-            <button class="meli-preview-pencil" onclick="meliFieldEdit('f-provincia')" title="Editar">✏️</button>
-          </div>
-          <input class="fiscal-row-input" id="f-provincia" type="text" placeholder="—" autocomplete="off">
-        </div>
-      </div>
-      <div class="fiscal-row">
-        <span class="fiscal-row-lbl">Bruto MELI</span>
-        <div class="fiscal-row-val">
-          <div class="meli-preview hidden fiscal-preview" id="f-importe-bruto-preview">
-            <span class="meli-preview-val" id="f-importe-bruto-preview-val"></span>
-            <button class="meli-preview-pencil" onclick="meliFieldEdit('f-importe-bruto')" title="Editar">✏️</button>
-          </div>
-          <input class="fiscal-row-input" id="f-importe-bruto" type="text" placeholder="—" inputmode="numeric" autocomplete="off">
-        </div>
-      </div>
-      <div class="fiscal-row">
-        <span class="fiscal-row-lbl">Monto IIBB</span>
-        <div class="fiscal-row-val">
-          <div class="meli-preview hidden fiscal-preview" id="f-iibb-preview">
-            <span class="meli-preview-val" id="f-iibb-preview-val"></span>
-            <button class="meli-preview-pencil" onclick="meliFieldEdit('f-iibb')" title="Editar">✏️</button>
-          </div>
-          <input class="fiscal-row-input" id="f-iibb" type="text" placeholder="0,00" inputmode="decimal" autocomplete="off">
-        </div>
-      </div>
-    </div>
     <div class="form-group">
       <div class="form-label">Nombre comprador</div>
       <div class="meli-preview hidden" id="f-nombre-preview">
@@ -276,8 +242,6 @@
 
 <!-- DROPDOWN LOCALIDAD -->
 <div class="search-results" id="localidad-results"></div>
-<!-- DROPDOWN PROVINCIA -->
-<div class="search-results prov-results" id="provincia-results"></div>
 
 <!-- SHEET: FECHA ESTIMADA -->
 <div class="sheet" id="sheet-delivery">
@@ -512,13 +476,15 @@
   <div class="sheet-body">
     <div class="form-group">
       <div class="form-label">App ID (Client ID)</div>
-      <input class="form-input" id="meli-app-id-input" type="text" placeholder="Ej: 8662000739611265" autocomplete="off" inputmode="numeric">
+      <input class="form-input" id="meli-app-id-input" type="text" placeholder="Ej: 8662000739611265" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="numeric">
     </div>
     <button class="btn btn-ghost btn-sm" style="margin-bottom:12px" onclick="meliSaveAppId()">Guardar App ID</button>
 
     <div class="form-group">
       <div class="form-label">Secret Key (Clave secreta)</div>
-      <input class="form-input" id="meli-secret-input" type="password" placeholder="Secret Key de tu app MELI" autocomplete="new-password">
+      <!-- type=text + enmascarado por CSS a propósito: con type=password Chrome Android
+           ofrece "¿Guardar contraseña?" cada vez que se usa cualquier formulario de la app -->
+      <input class="form-input input-masked" id="meli-secret-input" type="text" placeholder="Secret Key de tu app MELI" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text">
       <div class="hint-text" style="margin-top:6px">Lo encontrás en developers.mercadolibre.com.ar junto al App ID</div>
     </div>
     <button class="btn btn-ghost btn-sm" style="margin-bottom:16px" onclick="meliSaveSecret()">Guardar Secret Key</button>
@@ -579,16 +545,17 @@ const FIREBASE_CONFIG = {
 };
 </script>
 
-<script src="js/flex-zones.js?v=31"></script>
-<script src="js/app.js?v=31"></script>
-<script src="js/meli.js?v=31"></script>
+<script src="js/flex-zones.js?v=32"></script>
+<script src="js/app.js?v=32"></script>
+<script src="js/meli.js?v=32"></script>
 
 <script>
+// Registro directo. Antes se hacía getRegistrations() + unregister() de TODO antes de
+// registrar: eso borraba en cada apertura la caché de esta app y también los service
+// workers de las otras PWAs del mismo dominio (franlafuente-dev.github.io).
+// El SW ya se actualiza solo: hace skipWaiting() en install y clients.claim() en activate.
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations()
-    .then(regs => Promise.all(regs.map(r => r.unregister())))
-    .then(() => navigator.serviceWorker.register('./sw.js'))
-    .catch(() => {});
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 </script>
 </body>

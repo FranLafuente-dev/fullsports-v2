@@ -1,5 +1,5 @@
-// FullSports SW v31 — filas FULL solo en talles con stock
-const CACHE       = 'fs-v31';
+// FullSports SW v32 — costos CAT, alarmas por despacho real y baja de IIBB
+const CACHE       = 'fs-v32';
 const BG_STATE    = 'meli-bg-state-v1';
 const WORKER_BASE = 'https://meli-test.lafuentefranciscolucas.workers.dev';
 
@@ -119,6 +119,9 @@ self.addEventListener('fetch', e => {
   if (url.includes('googleapis.com') || url.includes('accounts.google') ||
       url.includes('firebasejs') || url.includes('firebaseapp.com') ||
       url.includes('firebase.google.com')) return;
+  // La API de MELI (vía Worker) nunca se cachea: servir pedidos o tokens viejos
+  // desde la caché es peor que fallar y reintentar.
+  if (url.startsWith(WORKER_BASE)) return;
   e.respondWith(
     fetch(e.request)
       .then(res => {

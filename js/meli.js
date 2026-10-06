@@ -680,7 +680,7 @@ async function syncMeli(showToast = true) {
 }
 window.syncMeli = syncMeli;
 
-// ─── ENRIQUECIMIENTO DE PAGOS (IIBB para ENANO) ──────────────────────────────
+// ─── ENRIQUECIMIENTO DE PAGOS (importe neto acreditado) ──────────────────────
 async function _enrichFromPayment(orders) {
   await Promise.all(orders.map(async o => {
     const payId = o.payments?.[0]?.id;
@@ -712,27 +712,6 @@ async function _enrichFromPayment(orders) {
         if (computed > 0 && computed < pay.total_paid_amount) {
           o.payments[0].net_received_amount = computed;
         }
-      }
-
-      // ── IIBB (solo ENANO — retención provincial) ──────────────────────────
-      if (o._account === 'enano') {
-        const taxEntry = fees.find(f =>
-          f.type === 'tax' ||
-          String(f.type).toLowerCase().includes('tax') ||
-          String(f.type).toLowerCase().includes('iibb') ||
-          String(f.type).toLowerCase().includes('withhold')
-        );
-        let iibb = taxEntry ? Math.abs(taxEntry.amount || 0) : 0;
-        if (!iibb) {
-          for (const fee of fees) {
-            if (Array.isArray(fee.included_taxes)) {
-              const s = fee.included_taxes.reduce((a, t) => a + Math.abs(t.amount || 0), 0);
-              if (s > 0) { iibb = s; break; }
-            }
-          }
-        }
-        if (!iibb && pay.taxes_amount) iibb = Math.abs(pay.taxes_amount);
-        if (iibb) o._iibb = iibb;
       }
     } catch(e) { /* skip silently */ }
   }));
@@ -841,10 +820,9 @@ function _buildSuggestion(order) {
     nickname:      order.buyer?.nickname || '',
     tipoEnvio:     zone ? 'FLEX' : 'PE',
     localidad,
+    // provincia se conserva: _findFlexZone la usa para distinguir CABA de GBA
     provincia,
     importe:       0,
-    iibb:          order._iibb || 0,
-    importeBruto:  order.total_amount || (order.payments||[]).reduce((s,p) => s + (p.total_paid_amount||0), 0),
     items:         _parseItems(order.order_items),
     dateCreated:   order.date_created,
   };
@@ -1269,7 +1247,7 @@ window.meliFieldEdit = function(inputId) {
 };
 
 function meliResetPreviews() {
-  ['f-nombre', 'f-iibb', 'f-provincia', 'f-importe-bruto'].forEach(id => {
+  ['f-nombre'].forEach(id => {
     const preview = document.getElementById(id + '-preview');
     const input   = document.getElementById(id);
     if (preview) preview.classList.add('hidden');
@@ -1301,26 +1279,11 @@ function _fillFormFromSuggestion(sug) {
       setEnvio('FLEX');
       formEnvio = { localidad: zone.localidad, zona: zone.zona, importe: zone.importe };
       showZoneSelected();
-      const provName = zone.zona.includes('CABA') ? 'Ciudad Autónoma de Buenos Aires' : 'Buenos Aires';
-      meliSetField('f-provincia', provName, provName);
     } else {
       setEnvio('PE');
-      if (sug.provincia) meliSetField('f-provincia', sug.provincia, sug.provincia);
     }
   } else {
     setEnvio(sug.tipoEnvio || 'PE');
-  }
-  // IIBB e importe bruto solo para ENANO
-  if (sug.account === 'enano' && sug.iibb) {
-    meliSetField('f-iibb', fmtDec(sug.iibb), '$' + fmtDec(sug.iibb));
-  }
-  if (sug.account === 'enano' && sug.importeBruto) {
-    meliSetField('f-importe-bruto', String(sug.importeBruto), '$' + fmt(sug.importeBruto));
-  }
-  // Default de Buenos Aires — corre después del IIBB de MELI a propósito: solo
-  // completa si la orden no trajo retención real (_autoIibb no pisa valores).
-  if (sug.account === 'enano' && typeof _autoIibb === 'function') {
-    _autoIibb(document.getElementById('f-provincia')?.value || '');
   }
   const validItems = sug.items.filter(i => i.talle);
   if (validItems.length) { formItems = validItems; renderFormItems(); }
